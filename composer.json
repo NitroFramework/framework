@@ -3,6 +3,18 @@
     "description": "NitroPHP — a lean, fast, Laravel-shaped PHP framework.",
     "type": "library",
     "license": "MIT",
+    "homepage": "https://github.com/NitroFramework/framework",
+    "authors": [
+        {
+            "name": "ZeeshanX4",
+            "homepage": "https://github.com/ZeeshanX4",
+            "role": "Developer"
+        }
+    ],
+    "support": {
+        "issues": "https://github.com/NitroFramework/framework/issues",
+        "source": "https://github.com/NitroFramework/framework"
+    },
     "require": {
         "php": "^8.2",
         "phpoption/phpoption": "^1.9",
