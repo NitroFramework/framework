@@ -70,5 +70,10 @@ class AuthServiceProvider extends ServiceProvider
         $router->aliasMiddleware('guest', RedirectIfAuthenticated::class);
         $router->aliasMiddleware('verified', EnsureEmailIsVerified::class);
         $router->aliasMiddleware('password.confirm', RequirePassword::class);
+
+        // General HTTP throttle (config-driven via throttle.*). Registered here
+        // since this is the framework's middleware-alias hub; login lockout uses
+        // the RateLimiter directly in the controller.
+        $router->aliasMiddleware('throttle', \Nitro\Http\Middleware\ThrottleRequests::class);
     }
 }

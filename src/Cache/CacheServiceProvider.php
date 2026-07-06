@@ -31,5 +31,10 @@ class CacheServiceProvider extends ServiceProvider
         $this->container->bind(Repository::class, function ($container) {
             return $container->make('cache')->store();
         });
+
+        // Cache-backed rate limiter (login lockout, throttle middleware, …).
+        $this->container->singleton(RateLimiter::class, function ($container) {
+            return new RateLimiter($container->make(Repository::class));
+        });
     }
 }
