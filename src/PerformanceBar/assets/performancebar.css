@@ -1,0 +1,381 @@
+/* ===== Nitro Performance Bar ===== */
+
+:root {
+  /* --- Brand / Accent --- */
+  --ndb-accent:        #00ffc8;
+  --ndb-accent-bg:     rgba(0, 255, 200, 0.15);
+  --ndb-accent-bg-dim: rgba(0, 255, 200, 0.05);
+
+  /* --- Backgrounds --- */
+  --ndb-bg-base:    #323D4E;   /* panels bg */
+  --ndb-bg-bar:     #323D4E;   /* tabbar / th / file-list */
+  --ndb-bg-card:    #323D4E;   /* metric cards, filter input */
+  --ndb-bg-hover:   #323D4E;   /* all hover states */
+  --ndb-bg-row:     #323D4E;   /* subtle row borders */
+
+  /* --- Borders --- */
+  --ndb-border-strong: #1a1a2e;  /* main borders, sub-tabs */
+  --ndb-border-subtle: #0f0f18;  /* row separators */
+  --ndb-border-muted:  #333;     /* sub-tab hover */
+
+  /* --- Text --- */
+  --ndb-text-bright:  #d1d5db;
+  --ndb-text-normal:  #d1d5db;
+  --ndb-text-muted:   #d1d5db;
+  --ndb-text-dim:     #d1d5db;
+  --ndb-text-dimmer:  #d1d5db;
+  --ndb-text-ghost:   #d1d5db;
+
+  /* --- Semantic / Status --- */
+  --ndb-color-danger: #ff5555;
+
+  /* --- Depth colors (timeline bars) --- */
+  --ndb-d0: #00ffc8;
+  --ndb-d1: #00b4d8;
+  --ndb-d2: #7c3aed;
+  --ndb-d3: #f43f5e;
+  --ndb-d4: #f97316;
+
+  /* --- Method badge colors --- */
+  --ndb-m-instance-bg:  #1a2e1a;
+  --ndb-m-instance-fg:  #4ade80;
+  --ndb-m-register-bg:  #1a1a2e;
+  --ndb-m-register-fg:  #818cf8;
+  --ndb-m-get-bg:       #2e2a1a;
+  --ndb-m-get-fg:       #fbbf24;
+  --ndb-m-make-bg:      #2e1a1a;
+  --ndb-m-make-fg:      #f87171;
+  --ndb-m-build-bg:     #2e1a2e;
+  --ndb-m-build-fg:     #e879f9;
+
+  /* --- Typography --- */
+  --ndb-font: "JetBrains Mono", "Fira Code", "SF Mono", Consolas, monospace;
+  --ndb-font-size-base: 12px;
+  --ndb-font-size-sm:   11px;
+  --ndb-font-size-xs:   10px;
+
+  /* --- Misc --- */
+  --ndb-transition-fast: 0.15s;
+  --ndb-transition-base: 0.2s;
+  --ndb-radius-sm: 4px;
+  --ndb-radius-md: 6px;
+}
+
+/* ===== Layout ===== */
+
+#ndb-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 999999;
+  font-family: var(--ndb-font);
+  font-size: var(--ndb-font-size-base);
+  line-height: 1.4;
+}
+
+#ndb-tabbar {
+  display: flex;
+  align-items: center;
+  background: var(--ndb-bg-bar);
+  border-top: 2px solid var(--ndb-accent);
+  padding: 0 8px;
+  height: 38px;
+  gap: 2px;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.5);
+}
+
+#ndb-panels {
+  background: var(--ndb-bg-base);
+  border-top: 1px solid var(--ndb-border-strong);
+  max-height: 420px;
+  overflow-y: auto;
+  padding: 16px 20px;
+}
+
+/* ===== Tabs ===== */
+
+.ndb-tab {
+  background: none;
+  border: none;
+  color: var(--ndb-text-dim);
+  padding: 6px 14px;
+  cursor: pointer;
+  border-radius: var(--ndb-radius-sm) var(--ndb-radius-sm) 0 0;
+  font-family: inherit;
+  font-size: var(--ndb-font-size-base);
+  transition: all var(--ndb-transition-fast);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 100%;
+}
+.ndb-tab:hover {
+  color: var(--ndb-text-muted);
+  background: var(--ndb-bg-hover);
+}
+.ndb-tab-active {
+  color: var(--ndb-accent) !important;
+  background: var(--ndb-bg-hover) !important;
+  border-bottom: 2px solid var(--ndb-accent);
+}
+
+.ndb-badge {
+  background: var(--ndb-accent-bg);
+  color: var(--ndb-accent);
+  border-radius: 10px;
+  padding: 1px 7px;
+  font-size: var(--ndb-font-size-xs);
+  font-weight: 700;
+}
+
+/* ===== Buttons ===== */
+
+#ndb-close-btn {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--ndb-text-dimmer);
+  cursor: pointer;
+  font-size: 16px;
+  padding: 0 8px;
+  transition: color var(--ndb-transition-base);
+}
+#ndb-close-btn:hover {
+  color: var(--ndb-color-danger);
+}
+
+#ndb-toggle-btn {
+  background: none;
+  border: none;
+  color: var(--ndb-text-dimmer);
+  cursor: pointer;
+  font-size: 16px;
+  padding: 0 8px;
+  transition: color var(--ndb-transition-base);
+}
+#ndb-toggle-btn:hover {
+  color: var(--ndb-accent);
+}
+
+/* ===== Performance Panel ===== */
+
+.ndb-perf-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.ndb-metric-card {
+  background: var(--ndb-bg-card);
+  border: 1px solid var(--ndb-border-strong);
+  border-radius: var(--ndb-radius-md);
+  padding: 10px 16px;
+  min-width: 120px;
+}
+.ndb-metric-val {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--ndb-accent);
+}
+.ndb-metric-lbl {
+  font-size: var(--ndb-font-size-xs);
+  color: var(--ndb-text-dimmer);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-top: 3px;
+}
+
+.ndb-two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+.ndb-section-title {
+  font-size: var(--ndb-font-size-sm);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--ndb-text-dimmer);
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--ndb-border-strong);
+  padding-bottom: 6px;
+}
+
+/* ===== Table ===== */
+
+.ndb-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.ndb-th {
+  text-align: left;
+  padding: 6px 10px;
+  color: var(--ndb-text-dimmer);
+  font-size: var(--ndb-font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  border-bottom: 1px solid var(--ndb-border-strong);
+  background: var(--ndb-bg-bar);
+}
+.ndb-td {
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--ndb-border-subtle);
+  color: var(--ndb-text-normal);
+}
+.ndb-table tr:hover .ndb-td {
+  background: var(--ndb-bg-hover);
+}
+
+/* ===== File List ===== */
+
+.ndb-file-list {
+  max-height: 200px;
+  overflow-y: auto;
+  background: var(--ndb-bg-bar);
+  border-radius: var(--ndb-radius-sm);
+  padding: 6px;
+}
+.ndb-file-row {
+  padding: 3px 6px;
+  border-bottom: 1px solid var(--ndb-border-subtle);
+  color: var(--ndb-text-dim);
+  font-size: var(--ndb-font-size-sm);
+  word-break: break-all;
+}
+.ndb-file-row:hover {
+  color: var(--ndb-text-muted);
+  background: var(--ndb-bg-hover);
+}
+
+/* ===== Container Panel Sub-tabs ===== */
+
+.ndb-container-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--ndb-border-strong);
+  padding-bottom: 8px;
+}
+.ndb-sub-tab {
+  background: none;
+  border: 1px solid var(--ndb-border-strong);
+  color: var(--ndb-text-dimmer);
+  padding: 4px 12px;
+  border-radius: var(--ndb-radius-sm);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--ndb-font-size-sm);
+  transition: all var(--ndb-transition-fast);
+}
+.ndb-sub-tab:hover {
+  color: var(--ndb-text-muted);
+  border-color: var(--ndb-border-muted);
+}
+.ndb-sub-tab.active {
+  color: var(--ndb-accent);
+  border-color: var(--ndb-accent);
+  background: var(--ndb-accent-bg-dim);
+}
+
+.ndb-filter {
+  margin-left: auto;
+  background: var(--ndb-bg-card);
+  border: 1px solid var(--ndb-border-strong);
+  color: var(--ndb-text-normal);
+  padding: 4px 10px;
+  border-radius: var(--ndb-radius-sm);
+  font-family: inherit;
+  font-size: var(--ndb-font-size-sm);
+  outline: none;
+  width: 180px;
+}
+.ndb-filter:focus {
+  border-color: var(--ndb-accent);
+}
+
+/* ===== Container Timeline ===== */
+
+.ncp-tl-row {
+  display: grid;
+  grid-template-columns: 28px 200px 1fr 80px 70px;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--ndb-border-subtle);
+}
+.ncp-tl-row:hover {
+  background: var(--ndb-bg-hover);
+}
+.ncp-tl-idx {
+  color: var(--ndb-text-ghost);
+  text-align: right;
+  font-size: var(--ndb-font-size-xs);
+}
+.ncp-tl-name {
+  color: var(--ndb-text-bright);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ncp-tl-bar-wrap {
+  height: 18px;
+  position: relative;
+  background: var(--ndb-bg-card);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.ncp-tl-bar {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  border-radius: 1px;
+  min-width: 2px;
+}
+.ncp-tl-dur {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.ncp-tl-method {
+  font-size: var(--ndb-font-size-xs);
+  padding: 1px 6px;
+  border-radius: 3px;
+  text-align: center;
+  font-weight: 600;
+  color: var(--ndb-text-ghost);
+}
+.ncp-tree-node {
+  padding: 3px 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Drag handle */
+#ndb-resize-handle {
+    height: 4px;
+    cursor: ns-resize;
+    background: #1a1a2e;
+    transition: background 0.2s;
+}
+#ndb-resize-handle:hover {
+    background: #00ffc8;
+}
+
+/* ===== Depth Colors ===== */
+
+.ncp-d0 { background: var(--ndb-d0); }
+.ncp-d1 { background: var(--ndb-d1); }
+.ncp-d2 { background: var(--ndb-d2); }
+.ncp-d3 { background: var(--ndb-d3); }
+.ncp-d4 { background: var(--ndb-d4); }
+
+/* ===== Method Badges ===== */
+
+.ncp-m-instance { background: var(--ndb-m-instance-bg); color: var(--ndb-m-instance-fg); }
+.ncp-m-register { background: var(--ndb-m-register-bg); color: var(--ndb-m-register-fg); }
+.ncp-m-get      { background: var(--ndb-m-get-bg);      color: var(--ndb-m-get-fg); }
+.ncp-m-make     { background: var(--ndb-m-make-bg);     color: var(--ndb-m-make-fg); }
+.ncp-m-build    { background: var(--ndb-m-build-bg);    color: var(--ndb-m-build-fg); }

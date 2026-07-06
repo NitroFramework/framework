@@ -1,0 +1,83 @@
+# NitroPHP — FrankenPHP worker-mode config (Thrust)
+#
+# Run with:    php nitro thrust:start
+# Or directly: frankenphp run --config Caddyfile
+#
+# thrust:start injects these env vars (all have sane defaults for a bare
+# `frankenphp run`):  SERVER_NAME, SERVER_PORT, THRUST_WORKERS,
+# THRUST_ADMIN_ENDPOINT, THRUST_WATCH_DIRECTIVE.
+
+{
+	frankenphp {
+		worker {
+			file ./public/worker.php
+			# Each worker holds a FULL bootstrapped app in memory. On a dev box
+			# one warm worker is plenty; raise --workers only when you need real
+			# request concurrency (and have the RAM for N× the app footprint).
+			num {$THRUST_WORKERS:1}
+			# Force the worker out of debug even when .env has APP_DEBUG=true,
+			# so the container profiler + PerformanceBar injection don't run on
+			# every request.
+			env APP_DEBUG false
+		}
+		# Expands to `watch` when thrust:start is run with --watch, empty
+		# otherwise (FrankenPHP then reloads workers on file changes).
+		{$THRUST_WATCH_DIRECTIVE}
+	}
+
+	# The admin API powers thrust:stop / thrust:status / thrust:reload. Override
+	# the endpoint with --admin-port, or disable by unsetting THRUST_ADMIN_ENDPOINT.
+	admin {$THRUST_ADMIN_ENDPOINT:localhost:2019}
+	auto_https off
+}
+
+{$SERVER_NAME:http://:8080} {
+	root * public
+
+	# Compression is pure CPU cost on localhost with no payoff — leave it off
+	# for local serving. Re-enable for a real deployment:
+	# encode zstd gzip
+
+	log {
+		output stderr
+		format console
+		level ERROR
+	}
+
+	# Lock unsafe internal directories. (root is already pinned to public/, this
+	# is belt-and-suspenders against misconfiguration.)
+	@denied {
+		path /vendor/* /storage/* /resources/* /src/* /app/* /config/* /tests/* /.env*
+	}
+	handle @denied {
+		respond 403
+	}
+
+	# ── Static assets ──────────────────────────────────────────────────────
+	# Long-cache, no-revalidate. Bust the cache by changing the URL when an
+	# asset changes (e.g. /assets/css/style.css?v=2). On HTTP/1.1 a browser
+	# only opens ~6 connections per host, so headers like these are the
+	# single biggest browser-perceived perf win short of HTTPS+HTTP/2.
+	@static_immutable {
+		path *.css *.js *.png *.jpg *.jpeg *.gif *.svg *.webp *.ico *.woff *.woff2 *.ttf *.eot *.otf
+	}
+	handle @static_immutable {
+		header Cache-Control "public, max-age=31536000, immutable"
+		header X-Content-Type-Options "nosniff"
+		file_server
+	}
+
+	# Source maps + manifests — cache shorter so dev changes show up.
+	@static_short {
+		path *.map *.json
+	}
+	handle @static_short {
+		header Cache-Control "public, max-age=300"
+		file_server
+	}
+
+	# ── PHP / worker dispatch ──────────────────────────────────────────────
+	php_server {
+		try_files {path} /worker.php
+	}
+}
