@@ -44,6 +44,7 @@ class CommandManager
             Commands\MigrationCommands::class,
             Commands\MakeCommands::class,
             Commands\OptimizeCommand::class,
+            Commands\KeyGenerateCommand::class,
             Commands\ServeCommand::class,
             \Nitro\Thrust\Commands\ThrustCommands::class,
             Commands\HtmxCommands::class,
