@@ -90,14 +90,29 @@ class TemporaryUploadedFile
         return pathinfo($this->getClientOriginalName(), PATHINFO_EXTENSION);
     }
 
+    /**
+     * The REAL mime type, read from the file's content — never the client's
+     * claimed type. Validate against this; a `.php` renamed to `.png` can't lie
+     * its way past a getMimeType() check. Use getClientMimeType() only when you
+     * explicitly want the (untrusted) client claim.
+     */
     public function getMimeType(): ?string
     {
-        return $this->meta['type'] ?? (is_file($this->getRealPath()) ? mime_content_type($this->getRealPath()) : null);
+        return is_file($this->getRealPath())
+            ? (mime_content_type($this->getRealPath()) ?: null)
+            : null;
     }
 
+    /** The mime type the client CLAIMED — untrusted; do not use for validation. */
+    public function getClientMimeType(): ?string
+    {
+        return $this->meta['type'] ?? null;
+    }
+
+    /** The REAL size on disk (not the client-claimed size). */
     public function getSize(): int
     {
-        return (int) ($this->meta['size'] ?? (is_file($this->getRealPath()) ? filesize($this->getRealPath()) : 0));
+        return is_file($this->getRealPath()) ? (int) filesize($this->getRealPath()) : 0;
     }
 
     /** Metadata carried in the snapshot so the file survives round-trips. */
@@ -137,7 +152,9 @@ class TemporaryUploadedFile
      */
     public function storeAs(string $directory, string $name, ?string $disk = null): string
     {
-        $directory = trim($directory, '/');
+        // Strip traversal/absolute segments so the target can never escape
+        // storage/app, even if $directory carries caller-tainted input.
+        $directory = $this->sanitizeDirectory($directory);
         $target = storage_path('app/' . $directory);
 
         if (! is_dir($target)) {
@@ -162,5 +179,22 @@ class TemporaryUploadedFile
     protected function sidecarPath(): string
     {
         return $this->getRealPath() . '.meta.json';
+    }
+
+    /**
+     * Collapse a target directory to safe segments — no '', '.', '..', or
+     * drive/absolute prefixes — so a stored file can't land outside storage/app.
+     */
+    protected function sanitizeDirectory(string $directory): string
+    {
+        $segments = [];
+        foreach (preg_split('#[\\\\/]+#', $directory) as $segment) {
+            if ($segment === '' || $segment === '.' || $segment === '..' || str_contains($segment, ':')) {
+                continue;
+            }
+            $segments[] = $segment;
+        }
+
+        return implode('/', $segments);
     }
 }
