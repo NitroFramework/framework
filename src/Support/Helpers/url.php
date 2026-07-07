@@ -3,7 +3,7 @@
 if (!function_exists('asset')) {
     /**
      * Generate an asset URL
-     * 
+     *
      * @param string $path Asset path
      * @return string
      */
@@ -18,14 +18,21 @@ if (!function_exists('asset')) {
 if (!function_exists('url')) {
     /**
      * Generate a full URL for the given path
-     * 
+     *
      * @param string $path URL path
      * @return string
      */
     function url(string $path = ''): string
     {
-        $scheme = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http';
-        $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+        $request = nitro_current_request();
+
+        if ($request) {
+            $scheme = $request->secure() ? 'https' : 'http';
+            $host   = (string) $request->server('HTTP_HOST', 'localhost');
+        } else {
+            $scheme = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http';
+            $host   = $_SERVER['HTTP_HOST'] ?? 'localhost';
+        }
 
         if (empty($path)) {
             return $scheme . '://' . $host;
@@ -50,7 +57,7 @@ if (!function_exists('method_field')) {
 if (!function_exists('route')) {
     /**
      * Generate a URL from a named route
-     * 
+     *
      * @param string $name Route name
      * @param array $parameters Route parameters
      * @return string
@@ -75,15 +82,21 @@ if (!function_exists('route')) {
 
 if (!function_exists('current_url')) {
     /**
-     * Get the current full URL
-     * 
+     * Get the current full URL (scheme, host, path and query string).
+     *
      * @return string
      */
     function current_url(): string
     {
+        $request = nitro_current_request();
+
+        if ($request) {
+            return $request->fullUrl();
+        }
+
         $scheme = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http';
-        $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
-        $uri = $_SERVER['REQUEST_URI'] ?? '/';
+        $host   = $_SERVER['HTTP_HOST'] ?? 'localhost';
+        $uri    = $_SERVER['REQUEST_URI'] ?? '/';
 
         return $scheme . '://' . $host . $uri;
     }
@@ -92,25 +105,30 @@ if (!function_exists('current_url')) {
 if (!function_exists('current_path')) {
     /**
      * Get the current path (without domain)
-     * 
+     *
      * @return string
      */
     function current_path(): string
     {
-        return $_SERVER['REQUEST_URI'] ?? '/';
+        $request = nitro_current_request();
+
+        return $request ? $request->path() : ($_SERVER['REQUEST_URI'] ?? '/');
     }
 }
 
 if (!function_exists('secure_url')) {
     /**
      * Generate a secure HTTPS URL
-     * 
+     *
      * @param string $path
      * @return string
      */
     function secure_url(string $path = ''): string
     {
-        $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+        $request = nitro_current_request();
+        $host    = $request
+            ? (string) $request->server('HTTP_HOST', 'localhost')
+            : ($_SERVER['HTTP_HOST'] ?? 'localhost');
 
         if (empty($path)) {
             return 'https://' . $host;
