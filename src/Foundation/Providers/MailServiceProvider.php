@@ -2,27 +2,28 @@
 
 namespace Nitro\Foundation\Providers;
 
-use Nitro\Mail\Contracts\Mailer;
-use Nitro\Mail\LogMailer;
+use Nitro\Mail\Contracts\Mailer as MailerContract;
+use Nitro\Mail\MailManager;
+use Nitro\Mail\Mailer;
 
 /**
- * Registers the mail layer. Ships the log driver by default; bind a different
- * Mailer here (or in an app provider) to send real email.
+ * Registers the mail layer: a MailManager ('mail') that resolves mailers from
+ * config('mail'), and the default mailer bound to 'mailer' and the Mailer
+ * contract so app(Mailer::class) and the Mail facade both work.
  */
 class MailServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        $this->container->singleton(Mailer::class, function ($c) {
-            $driver = config('mail.driver');
-
-            return match ($driver) {
-                // Only the log driver ships today; everything falls back to it
-                // rather than failing, so auth flows always have a mailer.
-                default => new LogMailer($c->get('paths')->storage('logs/mail.log')),
-            };
+        $this->container->singleton('mail', function () {
+            return new MailManager((array) config('mail', []));
         });
+        $this->container->alias(MailManager::class, 'mail');
 
-        $this->container->alias('mailer', Mailer::class);
+        $this->container->singleton('mailer', function ($c) {
+            return $c->make('mail')->mailer();
+        });
+        $this->container->alias(Mailer::class, 'mailer');
+        $this->container->alias(MailerContract::class, 'mailer');
     }
 }

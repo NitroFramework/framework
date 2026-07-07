@@ -2,17 +2,20 @@
 
 namespace Nitro\Mail\Contracts;
 
+use Nitro\Mail\Message;
+
 /**
- * Minimal mail-sending seam.
- *
- * Deliberately tiny: the auth flows only need to deliver a plain-text body to
- * an address. A real SMTP/transactional driver implements the same contract and
- * swaps in via the container binding — no caller changes.
+ * Sends mail through the configured transport. The plain send() is a convenience
+ * for a text body; html() and sendMessage() cover richer messages.
  */
 interface Mailer
 {
-    /**
-     * Deliver a message. Implementations may queue, log, or transmit it.
-     */
+    /** Deliver a plain-text body to an address. */
     public function send(string $to, string $subject, string $body): void;
+
+    /** Deliver an HTML body to an address. */
+    public function html(string $to, string $subject, string $html): void;
+
+    /** Deliver a fully-built message. */
+    public function sendMessage(Message $message): void;
 }
