@@ -465,6 +465,14 @@ HTML;
         self::$startClasses = get_declared_classes();
         self::$startFiles = get_included_files();
         self::$timers = ['app_start' => self::$startTime];
+
+        // In worker mode this runs between requests. Reset the peak so
+        // memory_get_peak_usage() reflects the NEXT request's own peak rather
+        // than the one-time bootstrap high-water mark, which would otherwise be
+        // reported on every request forever (and read like a per-request leak).
+        if (function_exists('memory_reset_peak_usage')) {
+            memory_reset_peak_usage();
+        }
     }
 
 

@@ -30,6 +30,17 @@ class SessionServiceProvider extends ServiceProvider
         $this->container->singleton(SessionManager::class, function ($c) {
             $config = (array) config('session');
             $config['driver']   ??= 'native';
+
+            // The native driver relies on ext/session process globals that
+            // FrankenPHP does not tear down between worker iterations — a slow
+            // per-request memory leak (and a cross-request state hazard). Under
+            // Thrust/worker mode, transparently use the worker-safe file store,
+            // which mints a fresh Store per request and never touches
+            // session_start(). Non-worker (FPM/serve) keeps native as-is.
+            if ($config['driver'] === 'native' && $c->has(\Nitro\Thrust\WorkerMode::class)) {
+                $config['driver'] = 'file';
+            }
+
             $config['cookie']   ??= 'nitro_session';
             $config['lifetime'] ??= 120;
             $config['files']    ??= $c->get('paths')->storage('framework/sessions');
