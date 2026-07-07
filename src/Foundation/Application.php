@@ -5,6 +5,7 @@ namespace Nitro\Foundation;
 use Nitro\Cache\CacheServiceProvider;
 use Nitro\Container\Container;
 use Nitro\Container\Contracts\ContainerInterface;
+use Nitro\Cookie\CookieServiceProvider;
 use Nitro\Encryption\EncryptionServiceProvider;
 use Nitro\Events\Dispatcher as EventDispatcher;
 use Nitro\Foundation\Bootstrap\BootstrapperInterface;
@@ -264,6 +265,7 @@ class Application
             DatabaseServiceProvider::class,
             ExceptionServiceProvider::class,
             EncryptionServiceProvider::class,
+            CookieServiceProvider::class,
             ValidationServiceProvider::class,
             MailServiceProvider::class,
             AuthServiceProvider::class,

@@ -12,6 +12,8 @@ class Response
     protected string $content;
     protected int $statusCode;
     protected array $headers;
+    /** @var array<int, Cookie> Cookies to emit as Set-Cookie headers. */
+    protected array $cookies = [];
     protected ?string $layout = null;
     protected string $section = 'content';
     protected ?string $pendingView = null;
@@ -99,6 +101,27 @@ class Response
         return $this;
     }
 
+    /** Queue a cookie to be sent as a Set-Cookie header. */
+    public function withCookie(Cookie $cookie): self
+    {
+        // Replace any queued cookie with the same name+path.
+        foreach ($this->cookies as $i => $existing) {
+            if ($existing->name === $cookie->name && $existing->path === $cookie->path) {
+                $this->cookies[$i] = $cookie;
+                return $this;
+            }
+        }
+
+        $this->cookies[] = $cookie;
+        return $this;
+    }
+
+    /** @return array<int, Cookie> Queued cookies. */
+    public function cookies(): array
+    {
+        return $this->cookies;
+    }
+
     /** All headers. */
     public function headers(): array
     {
@@ -122,6 +145,12 @@ class Response
 
     foreach ($this->headers as $name => $value) {
         header("{$name}: {$value}");
+    }
+
+    // Cookies emit as repeated Set-Cookie headers (the header map above can
+    // only hold one value per name).
+    foreach ($this->cookies as $cookie) {
+        header('Set-Cookie: ' . $cookie->toHeader(), false);
     }
 
     echo $this->content;

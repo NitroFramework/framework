@@ -72,6 +72,13 @@ class Request
         return $this->cookies[$key] ?? $default;
     }
 
+    /** Replace the request cookies (used by EncryptCookies after decrypting). */
+    public function setCookies(array $cookies): self
+    {
+        $this->cookies = $cookies;
+        return $this;
+    }
+
     // ─── Primary accessors ────────────────────────────────────────────────
 
     /** HTTP verb in upper case (GET, POST, …). */

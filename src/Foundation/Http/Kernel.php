@@ -7,6 +7,8 @@ use Nitro\Exceptions\ExceptionHandler;
 use Nitro\Exceptions\HttpException;
 use Nitro\Foundation\Application;
 use Nitro\Http\Exceptions\HttpResponseException;
+use Nitro\Http\Middleware\AddQueuedCookiesToResponse;
+use Nitro\Http\Middleware\EncryptCookies;
 use Nitro\Http\Middleware\VerifyCsrfToken;
 use Nitro\Http\Request;
 use Nitro\Http\Response;
@@ -33,6 +35,8 @@ class Kernel
 
     protected array $middlewareGroups = [
         'web' => [
+            EncryptCookies::class,
+            AddQueuedCookiesToResponse::class,
             VerifyCsrfToken::class,
         ],
         'api' => [],
