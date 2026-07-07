@@ -41,6 +41,36 @@ class SessionServiceProvider extends ServiceProvider
         $this->container->scoped('session', fn($c) => $c->make(SessionManager::class)->driver());
         $this->container->alias(SessionInterface::class, 'session');
         $this->container->alias(Store::class, 'session');
+
+        $this->configureNativeSessionPath();
+    }
+
+    /**
+     * Point PHP's native session storage at the configured directory. The native
+     * driver relies on PHP's own session_start(), so session_save_path must be set
+     * before any session begins — the front controller no longer does this.
+     */
+    protected function configureNativeSessionPath(): void
+    {
+        // save_path can only be set before a session starts; skip if one's active.
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            return;
+        }
+
+        $config = (array) config('session');
+
+        if (($config['driver'] ?? 'native') !== 'native') {
+            return;
+        }
+
+        $path = (string) ($config['files'] ?? $this->container->get('paths')->storage('framework/sessions'));
+
+        if (! is_dir($path)) {
+            @mkdir($path, 0755, true);
+        }
+        if (is_dir($path) && is_writable($path)) {
+            session_save_path($path);
+        }
     }
 
     /**

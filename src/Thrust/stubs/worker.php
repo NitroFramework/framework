@@ -47,23 +47,11 @@ set_exception_handler(static function (\Throwable $e): void {
 
 require_once __DIR__ . '/../vendor/autoload.php';
 
-$sessionPath = dirname(__DIR__) . '/storage/cache/sessions';
-if (!is_dir($sessionPath)) {
-    mkdir($sessionPath, 0777, true);
-}
-if (is_dir($sessionPath) && is_writable($sessionPath)) {
-    session_save_path($sessionPath);
-}
-
 // ── Build the application ONCE ──
+// create() records the timing baseline and installs a (stderr, in CLI) fatal
+// handler; the one-time bootstrap() inside Runner::run() sets the session
+// save-path and enables the profiler when APP_DEBUG is on. No manual wiring here.
 $app = Application::create(dirname(__DIR__));
-
-if (filter_var(
-    $_ENV['APP_DEBUG'] ?? $_SERVER['APP_DEBUG'] ?? getenv('APP_DEBUG') ?: 'false',
-    FILTER_VALIDATE_BOOLEAN
-)) {
-    $app->getContainer()->setProfiler(\Nitro\Container\ContainerProfiler::getInstance());
-}
 
 // ── Hand off to the worker loop ──
 $container = $app->getContainer();

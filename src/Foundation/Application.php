@@ -4,6 +4,7 @@ namespace Nitro\Foundation;
 
 use Nitro\Cache\CacheServiceProvider;
 use Nitro\Container\Container;
+use Nitro\Container\ContainerProfiler;
 use Nitro\Container\Contracts\ContainerInterface;
 use Nitro\Cookie\CookieServiceProvider;
 use Nitro\Encryption\EncryptionServiceProvider;
@@ -24,6 +25,7 @@ use Nitro\Foundation\Providers\ValidationServiceProvider;
 use Nitro\Foundation\Providers\ViewServiceProvider;
 use Nitro\Notifications\NotificationServiceProvider;
 use Nitro\PerformanceBar\PerformanceBarServiceProvider;
+use Nitro\PerformanceBar\PerformanceMetrics;
 use Nitro\Queue\QueueServiceProvider;
 use Nitro\Redis\RedisServiceProvider;
 use Nitro\Scheduling\ScheduleServiceProvider;
@@ -114,13 +116,79 @@ class Application
 
     public static function create(string $basePath): static
     {
-        return new static($basePath);
+        // Timing baseline for the performance bar, before anything else fires.
+        PerformanceMetrics::start();
+
+        $app = new static($basePath);
+        $app->registerFatalHandler();
+
+        return $app;
+    }
+
+    /**
+     * Bootstrap the application and handle the incoming HTTP request. This is the
+     * whole public entry point — a front controller only needs:
+     *
+     *   Application::create(dirname(__DIR__))->run();
+     */
+    public function run(): void
+    {
+        if (! $this->bootstrapped) {
+            $this->bootstrap();
+        }
+
+        $this->handle(Kernel::class);
     }
 
     public function handle(string $kernelClass): void
     {
         $kernel = $this->container->make($kernelClass);
         $kernel->run();
+    }
+
+    /**
+     * A last-resort handler for fatal errors that occur DURING bootstrap, before
+     * the HandleExceptions bootstrapper installs the real one (which supersedes
+     * this). Not the app-facing error handler — just a floor so a broken boot
+     * still returns a 500 instead of a blank page.
+     */
+    protected function registerFatalHandler(): void
+    {
+        set_exception_handler(static function (\Throwable $e): void {
+            while (ob_get_level() > 0) {
+                ob_end_clean();
+            }
+
+            $detail = $e->getMessage() . "\n" . $e->getFile() . ':' . $e->getLine()
+                . "\n\n" . $e->getTraceAsString();
+
+            // CLI (including FrankenPHP workers): log to stderr, never emit HTML.
+            if (PHP_SAPI === 'cli') {
+                fwrite(defined('STDERR') ? STDERR : fopen('php://stderr', 'w'), "FATAL: {$detail}\n");
+                exit(1);
+            }
+
+            if (! headers_sent()) {
+                http_response_code(500);
+            }
+            echo '<pre>' . htmlspecialchars($detail, ENT_QUOTES) . '</pre>';
+            exit(1);
+        });
+    }
+
+    /**
+     * Turn on the container profiler when app.debug is enabled. Runs after the
+     * config is loaded, so it reads config rather than parsing env by hand.
+     */
+    protected function enableProfilerIfDebugging(): void
+    {
+        if (! (bool) config('app.debug', false)) {
+            return;
+        }
+
+        if (method_exists($this->container, 'setProfiler')) {
+            $this->container->setProfiler(ContainerProfiler::getInstance());
+        }
     }
 
 
@@ -135,6 +203,7 @@ class Application
 
         $this->runHooks($this->bootingHooks);
         $this->runBootstrappers();
+        $this->enableProfilerIfDebugging();
         $this->bootProviders();
         $this->runHooks($this->bootedHooks);
 
