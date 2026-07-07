@@ -117,43 +117,18 @@ trait BuildsResponses
     }
 
     /**
-     * Abort the request with an error response.
-     * For AJAX requests, returns JSON error.
-     * For normal requests, returns HTML error page.
+     * Abort the request with an HTTP error.
+     *
+     * Throws an HttpException so the failure routes through the Kernel's
+     * exception handler — proper status, HTMX/JSON content negotiation and the
+     * response-ready hooks. It never sends output or calls exit() directly: an
+     * exit() here would kill a FrankenPHP worker and bypass the lifecycle.
+     *
+     * @throws \Nitro\Exceptions\HttpException
      */
     protected function abort(int $code, string $message = ''): never
     {
-        $message = $message ?: $this->getHttpStatusMessage($code);
-
-        $request = $this->container->get('request');
-
-        if ($request->ajax()) {
-            $response = $this->error($message, $code);
-            $response->send();
-        } else {
-            $response = Response::error($message)->setStatusCode($code);
-            $response->send();
-        }
-
-        exit($code >= 400 ? 1 : 0);
-    }
-
-    /**
-     * Get HTTP status message for a given code.
-     */
-    private function getHttpStatusMessage(int $code): string
-    {
-        $messages = [
-            400 => 'Bad Request',
-            401 => 'Unauthorized',
-            403 => 'Forbidden',
-            404 => 'Not Found',
-            405 => 'Method Not Allowed',
-            422 => 'Unprocessable Entity',
-            500 => 'Internal Server Error',
-        ];
-
-        return $messages[$code] ?? 'Error';
+        \abort($code, $message);
     }
 
     /**
