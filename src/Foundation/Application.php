@@ -22,6 +22,7 @@ use Nitro\Foundation\Providers\ServiceProvider;
 use Nitro\Foundation\Providers\SessionServiceProvider;
 use Nitro\Foundation\Providers\ValidationServiceProvider;
 use Nitro\Foundation\Providers\ViewServiceProvider;
+use Nitro\Notifications\NotificationServiceProvider;
 use Nitro\PerformanceBar\PerformanceBarServiceProvider;
 use Nitro\Queue\QueueServiceProvider;
 use Nitro\Redis\RedisServiceProvider;
@@ -270,6 +271,7 @@ class Application
             CookieServiceProvider::class,
             ValidationServiceProvider::class,
             MailServiceProvider::class,
+            NotificationServiceProvider::class,
             AuthServiceProvider::class,
             ConsoleServiceProvider::class,
             HtmxServiceProvider::class,
