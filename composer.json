@@ -44,6 +44,6 @@
     "minimum-stability": "stable",
     "prefer-stable": true,
     "scripts": {
-        "test": "vendor/bin/phpunit --testdox --colors=always"
+        "test": "@php vendor/phpunit/phpunit/phpunit --testdox --colors=always"
     }
 }

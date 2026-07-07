@@ -24,6 +24,7 @@ use Nitro\Foundation\Providers\ValidationServiceProvider;
 use Nitro\Foundation\Providers\ViewServiceProvider;
 use Nitro\PerformanceBar\PerformanceBarServiceProvider;
 use Nitro\Queue\QueueServiceProvider;
+use Nitro\Redis\RedisServiceProvider;
 use Nitro\Support\Logger;
 use Nitro\Thrust\Concerns\ResetsForWorkerMode;
 use RuntimeException;
@@ -275,6 +276,7 @@ class Application
             PerformanceBarServiceProvider::class,
             CacheServiceProvider::class,
             FilesystemServiceProvider::class,
+            RedisServiceProvider::class,
             QueueServiceProvider::class,
         ];
     }
