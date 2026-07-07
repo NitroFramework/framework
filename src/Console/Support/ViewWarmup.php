@@ -214,8 +214,14 @@ PHP;
             return false;
         }
 
+        // Parse-validate as a complete file. The old eval() trick wrapped the
+        // content in an `if (false) { … }` block, which made top-level `use`
+        // imports illegal — so compiled Livewire single-file components (which
+        // carry `use Nitro\Livewire\Component;`) were wrongly rejected as
+        // "broken". token_get_all(TOKEN_PARSE) validates syntax without executing
+        // and treats the input as a file, so top-level `use` is legal.
         try {
-            eval("if (false) { ?>" . $contents . "<?php }");
+            token_get_all($contents, TOKEN_PARSE);
             return true;
         } catch (\ParseError) {
             return false;
