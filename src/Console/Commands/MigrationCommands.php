@@ -129,20 +129,25 @@ class MigrationCommands implements CommandInterface
             return;
         }
 
-        // Pick a table-name guess from the migration name so the stub is
-        // useful out of the box. "create_orders_table" → "orders".
+        // Guess the table from the migration name so the create-stub is useful
+        // out of the box ("create_orders_table" → "orders"). When the name
+        // doesn't imply a table, emit a blank migration rather than scaffolding
+        // a bogus create('TODO_table_name').
         $tableGuess = $this->guessTableName($snake);
 
-        file_put_contents($path, $this->migrationStub($tableGuess));
+        file_put_contents($path, $tableGuess !== null
+            ? $this->migrationStub($tableGuess)
+            : $this->blankMigrationStub());
         $this->output->success("Created: database/migrations/{$filename}");
     }
 
-    private function guessTableName(string $snake): string
+    /** The table a create-migration targets, or null when the name doesn't imply one. */
+    private function guessTableName(string $snake): ?string
     {
         if (preg_match('/^create_(.+?)_table$/', $snake, $m)) return $m[1];
         if (preg_match('/^add_.+_to_(.+?)_table$/', $snake, $m)) return $m[1];
         if (preg_match('/^drop_(.+?)_table$/', $snake, $m)) return $m[1];
-        return 'TODO_table_name';
+        return null;
     }
 
     private function migrationStub(string $table): string
@@ -165,6 +170,33 @@ class MigrationCommands implements CommandInterface
             public function down(SchemaBuilder \$schema): void
             {
                 \$schema->dropIfExists('{$table}');
+            }
+        };
+
+        PHP;
+    }
+
+    /**
+     * A blank migration — empty up()/down() with the SchemaBuilder in hand.
+     * Used when the name doesn't map to a create_/add_to_/drop_ table, so the
+     * developer fills in the intent instead of deleting a wrong-guessed table.
+     */
+    private function blankMigrationStub(): string
+    {
+        return <<<PHP
+        <?php
+
+        use Nitro\\Database\\Schema\\SchemaBuilder;
+
+        return new class {
+            public function up(SchemaBuilder \$schema): void
+            {
+                //
+            }
+
+            public function down(SchemaBuilder \$schema): void
+            {
+                //
             }
         };
 

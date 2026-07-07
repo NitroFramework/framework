@@ -110,15 +110,24 @@ class MakeMigrationTest extends TestCase
             'add_X_to_Y_table should target the Y table');
     }
 
-    public function test_stub_falls_back_to_placeholder_for_unrecognized_names(): void
+    public function test_unrecognized_name_produces_a_blank_migration(): void
     {
         ob_start();
         $this->cmd->handle('make:migration', ['arbitrary_name']);
         ob_end_clean();
 
-        $contents = file_get_contents(glob($this->tmpDir . '/*.php')[0]);
-        $this->assertStringContainsString("'TODO_table_name'", $contents,
-            'unrecognised name → placeholder so the file is still valid PHP');
+        $file     = glob($this->tmpDir . '/*.php')[0];
+        $contents = file_get_contents($file);
+
+        // No bogus create('TODO_table_name') scaffold to clean up.
+        $this->assertStringNotContainsString('TODO_table_name', $contents);
+        $this->assertStringNotContainsString('$schema->create(', $contents);
+
+        // A blank, valid migration: requiring it yields an object with up/down
+        // (a parse error would fatal here, so this also proves it's valid PHP).
+        $migration = require $file;
+        $this->assertTrue(method_exists($migration, 'up'));
+        $this->assertTrue(method_exists($migration, 'down'));
     }
 
     public function test_snake_cases_camelcase_input(): void
