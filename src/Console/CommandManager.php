@@ -3,6 +3,7 @@
 namespace Nitro\Console;
 
 use Nitro\Container\Contracts\ContainerInterface;
+use Nitro\Thrust\Commands\ThrustCommands;
 
 /**
  * Registers and dispatches console commands.
@@ -46,9 +47,10 @@ class CommandManager
             Commands\OptimizeCommand::class,
             Commands\KeyGenerateCommand::class,
             Commands\ServeCommand::class,
-            \Nitro\Thrust\Commands\ThrustCommands::class,
+            ThrustCommands::class,
             Commands\HtmxCommands::class,
             Commands\QueueCommands::class,
+            Commands\ScheduleCommands::class,
             Commands\SeederCommands::class,
             Commands\FactoryCommands::class,
             Commands\DatabaseCommands::class,

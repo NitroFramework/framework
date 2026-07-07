@@ -26,6 +26,7 @@ use Nitro\Notifications\NotificationServiceProvider;
 use Nitro\PerformanceBar\PerformanceBarServiceProvider;
 use Nitro\Queue\QueueServiceProvider;
 use Nitro\Redis\RedisServiceProvider;
+use Nitro\Scheduling\ScheduleServiceProvider;
 use Nitro\Support\Logger;
 use Nitro\Thrust\Concerns\ResetsForWorkerMode;
 use RuntimeException;
@@ -280,6 +281,7 @@ class Application
             FilesystemServiceProvider::class,
             RedisServiceProvider::class,
             QueueServiceProvider::class,
+            ScheduleServiceProvider::class,
         ];
     }
 
