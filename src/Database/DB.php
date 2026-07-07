@@ -5,6 +5,7 @@ namespace Nitro\Database;
 use Closure;
 use Nitro\Database\Query\Grammar\Grammar;
 use Nitro\Database\Query\Grammar\MySqlGrammar;
+use Nitro\Database\Query\Grammar\SqliteGrammar;
 use Nitro\Database\Query\QueryBuilder;
 use Nitro\Database\Query\Transaction;
 use Nitro\Database\Query\RawExpression;
@@ -54,6 +55,7 @@ class DB
 
         return static::$grammar = match ($driver) {
             'mysql', 'mariadb' => new MySqlGrammar(),
+            'sqlite'           => new SqliteGrammar(),
             default            => new Grammar(),
         };
     }

@@ -101,6 +101,13 @@ class Connection
     protected function buildDsn(array $config): string
     {
         $driver   = $config['driver'] ?? 'mysql';
+
+        // SQLite is a single file (or an in-memory database) — no host/port/charset.
+        if ($driver === 'sqlite') {
+            $database = (string) ($config['database'] ?? '');
+            return $database === ':memory:' ? 'sqlite::memory:' : "sqlite:{$database}";
+        }
+
         $host     = $config['host'] ?? '127.0.0.1';
         $port     = $config['port'] ?? 3306;
         $database = $config['database'] ?? '';
@@ -111,6 +118,14 @@ class Connection
 
     protected function afterConnect(PDO $pdo): void
     {
+        $driver = $this->config['driver'] ?? 'mysql';
+
+        // SQLite has no SET NAMES; enforce foreign keys, which it leaves off by default.
+        if ($driver === 'sqlite') {
+            $pdo->exec('PRAGMA foreign_keys = ON');
+            return;
+        }
+
         $charset   = $this->config['charset'] ?? 'utf8mb4';
         $collation = $this->config['collation'] ?? 'utf8mb4_unicode_ci';
 

@@ -12,17 +12,28 @@ class SchemaBuilder
 {
     // ─── DDL Operations ───────────────────────────────────
 
+    /** The active connection's driver, used to compile driver-correct DDL. */
+    private static function driver(): string
+    {
+        return DB::connection()->getConfig()['driver'] ?? 'mysql';
+    }
+
     public static function create(string $table, Closure $callback): void
     {
-        $blueprint = new Blueprint($table);
+        $blueprint = new Blueprint($table, self::driver());
         $callback($blueprint);
 
         DB::statement($blueprint->toCreateSql());
+
+        // SQLite can't inline named indexes in CREATE TABLE — run them after.
+        foreach ($blueprint->postCreateStatements() as $sql) {
+            DB::statement($sql);
+        }
     }
 
     public static function table(string $table, Closure $callback): void
     {
-        $blueprint = new Blueprint($table);
+        $blueprint = new Blueprint($table, self::driver());
         $callback($blueprint);
 
         foreach ($blueprint->toAlterSql() as $sql) {
@@ -42,7 +53,10 @@ class SchemaBuilder
 
     public static function rename(string $from, string $to): void
     {
-        DB::statement("RENAME TABLE {$from} TO {$to}");
+        // SQLite renames via ALTER TABLE; MySQL uses RENAME TABLE.
+        DB::statement(self::driver() === 'sqlite'
+            ? "ALTER TABLE {$from} RENAME TO {$to}"
+            : "RENAME TABLE {$from} TO {$to}");
     }
 
     // ─── Existence Checks ─────────────────────────────────

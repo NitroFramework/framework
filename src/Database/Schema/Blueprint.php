@@ -24,16 +24,31 @@ class Blueprint
      */
     private ?string $lastForeignIdColumn = null;
 
-    public function __construct(string $table)
+    /** The connection driver ('mysql' | 'sqlite') the DDL is compiled for. */
+    protected string $driver;
+
+    public function __construct(string $table, string $driver = 'mysql')
     {
         $this->table = $table;
+        $this->driver = $driver;
+    }
+
+    protected function isSqlite(): bool
+    {
+        return $this->driver === 'sqlite';
     }
 
     // ─── Column Types ─────────────────────────────────────
 
     public function id(string $column = 'id'): static
     {
-        return $this->addColumn($column, 'BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY');
+        // SQLite's auto-increment PK is `INTEGER PRIMARY KEY AUTOINCREMENT`
+        // (an alias for rowid); MySQL uses BIGINT UNSIGNED AUTO_INCREMENT.
+        $type = $this->isSqlite()
+            ? 'INTEGER PRIMARY KEY AUTOINCREMENT'
+            : 'BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY';
+
+        return $this->addColumn($column, $type);
     }
 
     public function string(string $column, int $length = 255): static
@@ -477,23 +492,45 @@ class Blueprint
             $parts[] = $cmd;
         }
 
-        foreach ($this->indexes as $idx) {
-            if (is_string($idx)) {
-                $idx = [
-                    'cols'   => [$idx],
-                    'name'   => "idx_{$this->table}_{$idx}",
-                    'unique' => false,
-                ];
+        // MySQL inlines named indexes inside CREATE TABLE. SQLite can't, so its
+        // indexes become separate CREATE INDEX statements (postCreateStatements).
+        if (!$this->isSqlite()) {
+            foreach ($this->normalizedIndexes() as $idx) {
+                $kind = $idx['unique'] ? 'UNIQUE INDEX' : 'INDEX';
+                $cols = implode(', ', array_map([$this, 'quote'], $idx['cols']));
+                $parts[] = "{$kind} {$this->quote($idx['name'])} ({$cols})";
             }
-            $kind = $idx['unique'] ? 'UNIQUE INDEX' : 'INDEX';
-            $cols = implode(', ', array_map([$this, 'quote'], $idx['cols']));
-            $parts[] = "{$kind} {$this->quote($idx['name'])} ({$cols})";
         }
 
         $columnsSql = implode(",\n    ", $parts);
         $table = $this->quote($this->table);
+        $suffix = $this->isSqlite() ? '' : ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci';
 
-        return "CREATE TABLE {$table} (\n    {$columnsSql}\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
+        return "CREATE TABLE {$table} (\n    {$columnsSql}\n){$suffix}";
+    }
+
+    /**
+     * Statements to run immediately after toCreateSql(). On SQLite these are the
+     * CREATE INDEX statements (which can't live inside CREATE TABLE); on MySQL
+     * this is empty because the indexes are inlined into the CREATE.
+     *
+     * @return array<int, string>
+     */
+    public function postCreateStatements(): array
+    {
+        if (!$this->isSqlite()) {
+            return [];
+        }
+
+        $table = $this->quote($this->table);
+        $out = [];
+        foreach ($this->normalizedIndexes() as $idx) {
+            $kind = $idx['unique'] ? 'CREATE UNIQUE INDEX' : 'CREATE INDEX';
+            $cols = implode(', ', array_map([$this, 'quote'], $idx['cols']));
+            $out[] = "{$kind} {$this->quote($idx['name'])} ON {$table} ({$cols})";
+        }
+
+        return $out;
     }
 
     public function toAlterSql(): array
@@ -503,7 +540,8 @@ class Blueprint
 
         foreach ($this->columns as $col) {
             $colSql = $this->compileColumn($col);
-            $after = $col['after'] ? " AFTER " . $this->quote($col['after']) : '';
+            // SQLite's ALTER TABLE ADD COLUMN doesn't support positional AFTER.
+            $after = (!$this->isSqlite() && $col['after']) ? " AFTER " . $this->quote($col['after']) : '';
             $statements[] = "ALTER TABLE {$table} ADD COLUMN {$colSql}{$after}";
         }
 
@@ -512,20 +550,38 @@ class Blueprint
             $statements[] = "ALTER TABLE {$table} {$verb}{$cmd}";
         }
 
-        foreach ($this->indexes as $idx) {
-            if (is_string($idx)) {
-                $idx = [
-                    'cols'   => [$idx],
-                    'name'   => "idx_{$this->table}_{$idx}",
-                    'unique' => false,
-                ];
-            }
-            $kind = $idx['unique'] ? 'UNIQUE INDEX' : 'INDEX';
+        foreach ($this->normalizedIndexes() as $idx) {
             $cols = implode(', ', array_map([$this, 'quote'], $idx['cols']));
-            $statements[] = "ALTER TABLE {$table} ADD {$kind} {$this->quote($idx['name'])} ({$cols})";
+            if ($this->isSqlite()) {
+                // SQLite adds indexes via CREATE INDEX, not ALTER TABLE ADD INDEX.
+                $kind = $idx['unique'] ? 'CREATE UNIQUE INDEX' : 'CREATE INDEX';
+                $statements[] = "{$kind} {$this->quote($idx['name'])} ON {$table} ({$cols})";
+            } else {
+                $kind = $idx['unique'] ? 'UNIQUE INDEX' : 'INDEX';
+                $statements[] = "ALTER TABLE {$table} ADD {$kind} {$this->quote($idx['name'])} ({$cols})";
+            }
         }
 
         return $statements;
+    }
+
+    /**
+     * Normalize the indexes list, expanding the legacy string shorthand into
+     * the ['cols','name','unique'] shape used by the compilers.
+     *
+     * @return array<int, array{cols: array, name: string, unique: bool}>
+     */
+    private function normalizedIndexes(): array
+    {
+        $out = [];
+        foreach ($this->indexes as $idx) {
+            if (is_string($idx)) {
+                $idx = ['cols' => [$idx], 'name' => "idx_{$this->table}_{$idx}", 'unique' => false];
+            }
+            $out[] = $idx;
+        }
+
+        return $out;
     }
 
     /**
@@ -558,7 +614,8 @@ class Blueprint
         // and 'AUTO_INCREMENT' implies NOT NULL anyway.
         $isPrimaryKey = str_contains($col['type'], 'PRIMARY KEY');
 
-        if ($col['unsigned'] && !str_contains($col['type'], 'UNSIGNED')) {
+        // SQLite has no UNSIGNED keyword (it uses type affinity); MySQL does.
+        if (!$this->isSqlite() && $col['unsigned'] && !str_contains($col['type'], 'UNSIGNED')) {
             $sql .= ' UNSIGNED';
         }
 
@@ -571,7 +628,9 @@ class Blueprint
         }
 
         if ($col['unique'] && !$isPrimaryKey) $sql .= ' UNIQUE';
-        if ($col['comment']) {
+
+        // Inline COMMENT is MySQL-only; SQLite rejects it.
+        if ($col['comment'] && !$this->isSqlite()) {
             $escaped = str_replace("'", "''", $col['comment']);
             $sql .= " COMMENT '{$escaped}'";
         }
