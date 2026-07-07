@@ -3,6 +3,7 @@
 namespace Nitro\Livewire;
 
 use Nitro\Container\Contracts\ContainerInterface;
+use Nitro\Http\Response;
 use Nitro\Livewire\Attributes\Lazy;
 use Nitro\Livewire\Attributes\RenderRegion;
 use Nitro\Livewire\Synthesizers\Synth;
@@ -572,6 +573,35 @@ class LivewireManager
             && $reflection->getDeclaringClass()->getName() !== Component::class;
     }
 
+    /**
+     * Absolute path to the client runtime bundled inside the framework package
+     * (src/Livewire/dist/livewire.js). This is the single source of truth: the
+     * runtime ships with nitro/framework and is served from here, so an app
+     * never carries its own copy in public/ (which would drift per app).
+     */
+    public function scriptPath(): string
+    {
+        return __DIR__ . '/dist/livewire.js';
+    }
+
+    /**
+     * Serve the client runtime as an HTTP response for the /livewire/livewire.js
+     * route. The far-future `immutable` cache header means a browser fetches it
+     * exactly once and never revalidates; the `?v=` query in scripts() busts
+     * that cache only when the bundled file actually changes (e.g. a framework
+     * upgrade), so there is no per-request PHP cost after the first hit.
+     */
+    public function scriptResponse(): Response
+    {
+        $path = $this->scriptPath();
+        $body = is_file($path) ? (string) file_get_contents($path) : '';
+
+        return new Response($body, 200, [
+            'Content-Type'  => 'application/javascript; charset=utf-8',
+            'Cache-Control' => 'public, max-age=31536000, immutable',
+        ]);
+    }
+
     /** The <script> tag(s) that boot the Livewire client. */
     public function scripts(): string
     {
@@ -581,13 +611,14 @@ class LivewireManager
             'csrf'      => function_exists('csrf_token') ? csrf_token() : '',
         ], JSON_UNESCAPED_SLASHES);
 
-        // Cache-bust by file mtime: the URL changes only when livewire.js does,
-        // so browsers pick up edits on a normal reload despite the long-lived
-        // immutable cache header, while unchanged files stay cached.
-        $v = @filemtime(base_path('public/js/livewire.js')) ?: '1';
+        // Cache-bust by the bundled file's mtime: the URL changes only when the
+        // runtime shipped in the package changes, so a framework upgrade forces
+        // a refetch while the immutable header keeps unchanged files cached.
+        // Served from the framework route below — not the app's public/ dir.
+        $v = @filemtime($this->scriptPath()) ?: '1';
 
         return '<script>window.Livewire=window.Livewire||{};window.Livewire.config=' . $config . ';</script>'
-            . '<script src="/js/livewire.js?v=' . $v . '" defer></script>';
+            . '<script src="/livewire/livewire.js?v=' . $v . '" defer></script>';
     }
 
     /** The <style> tag(s) for Livewire (e.g. wire:loading / wire:cloak). */

@@ -32,6 +32,7 @@ class LivewireServiceProvider extends ServiceProvider
     {
         $this->registerViews();
         $this->registerRequestMacro();
+        $this->registerAssetRoute();
         $this->registerUpdateRoute();
         $this->registerUploadRoute();
         $this->registerBladeDirectives();
@@ -69,6 +70,26 @@ class LivewireServiceProvider extends ServiceProvider
         Request::macro('isLivewire', function (): bool {
             /** @var Request $this */
             return $this->header('x-livewire') !== null;
+        });
+    }
+
+    /**
+     * GET /livewire/livewire.js — serve the client runtime from the framework
+     * package itself (src/Livewire/dist/livewire.js), the same way Livewire
+     * serves its own dist file. The app never ships this file in public/; every
+     * app runs the runtime bundled with its installed nitro/framework version,
+     * so there are no per-app copies to keep in sync.
+     *
+     * Registered OUTSIDE the 'web' group on purpose: it is a public, cacheable
+     * GET asset with no session or CSRF involvement.
+     */
+    protected function registerAssetRoute(): void
+    {
+        $container = $this->container;
+        $router = $this->container->make('router');
+
+        $router->get('/livewire/livewire.js', function () use ($container): Response {
+            return $container->make(LivewireManager::class)->scriptResponse();
         });
     }
 
