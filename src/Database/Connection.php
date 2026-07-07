@@ -161,14 +161,22 @@ class Connection
     public function select(string $sql, array $bindings = []): array
     {
         return $this->run($sql, $bindings, static function (PDOStatement $stmt) {
-            return $stmt->fetchAll();
+            $rows = $stmt->fetchAll();
+            // Release the cursor so the cached statement holds no read lock —
+            // SQLite refuses DDL (DROP/ALTER) while any cursor is still open.
+            $stmt->closeCursor();
+            return $rows;
         });
     }
 
     public function selectOne(string $sql, array $bindings = []): ?object
     {
         return $this->run($sql, $bindings, static function (PDOStatement $stmt) {
-            return $stmt->fetch() ?: null;
+            $row = $stmt->fetch() ?: null;
+            // fetch() reads a single row but leaves the result set open; close
+            // the cursor so a later DDL statement isn't blocked (SQLite lock).
+            $stmt->closeCursor();
+            return $row;
         });
     }
 

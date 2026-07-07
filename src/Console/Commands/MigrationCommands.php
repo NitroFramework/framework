@@ -575,11 +575,9 @@ class MigrationCommands implements CommandInterface
 
     private function getAllTables(): array
     {
-        $database = $this->config->get('database.connections.mysql.database');
-        return DB::select(
-            "SELECT table_name FROM information_schema.tables WHERE table_schema = ?",
-            [$database]
-        );
+        // Driver-aware listing — the schema grammar reads sqlite_master on
+        // SQLite and information_schema on MySQL. Rows expose `table_name`.
+        return \Nitro\Database\Schema\SchemaBuilder::getTables();
     }
 
     private function recordMigration(string $migration, int $batch): void

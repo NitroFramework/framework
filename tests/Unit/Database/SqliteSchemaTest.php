@@ -72,6 +72,23 @@ class SqliteSchemaTest extends TestCase
         $this->assertTrue(Schema::hasColumn('posts', 'views'));
     }
 
+    public function test_ddl_after_a_select_does_not_lock_the_database(): void
+    {
+        // Regression: selectOne() left a cached statement's cursor open, so a
+        // following DROP failed with "database table is locked" on SQLite.
+        // Schema::hasTable() uses selectOne, so rollback/fresh always hit this.
+        Schema::create('widgets', function ($t) {
+            $t->id();
+            $t->string('name');
+        });
+
+        $this->assertTrue(Schema::hasTable('widgets')); // selectOne
+        DB::selectOne('SELECT * FROM widgets LIMIT 1');  // fetch(), one row
+
+        Schema::dropIfExists('widgets');                 // must not throw
+        $this->assertFalse(Schema::hasTable('widgets'));
+    }
+
     public function test_lookup_of_missing_row_returns_null_not_an_error(): void
     {
         // The reported bug: forgot-password on a fresh DB blew up. Once the DB
