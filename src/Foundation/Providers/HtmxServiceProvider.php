@@ -9,6 +9,7 @@ use Nitro\Htmx\HtmxComponentRenderer;
 use Nitro\Htmx\HtmxKernel;
 use Nitro\Htmx\Navigation\NitroNavigation;
 use Nitro\Http\Request;
+use Nitro\Http\Response;
 use Nitro\Routing\Router;
 use Nitro\Htmx\State\ArrayStateStore;
 use Nitro\Htmx\State\CacheStateStore;
@@ -18,6 +19,7 @@ use Nitro\Htmx\Support\ArgumentResolver;
 use Nitro\Htmx\Support\ComponentResolver;
 use Nitro\Htmx\Support\HxEncryptor;
 use Nitro\Htmx\Support\HxHelper;
+use Nitro\Htmx\Support\HtmxAssets;
 use Nitro\Htmx\Support\HxObfuscator;
 use Nitro\Htmx\Support\RequestGuard;
 use Nitro\View\Blade;
@@ -126,9 +128,30 @@ class HtmxServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        $this->registerAssetRoute();
         $this->registerActionRoute();
         $this->registerBladeDirectives();
         $this->registerNavigationHook();
+    }
+
+    /**
+     * GET /nitro/hx-component.js — serve the HTMX component runtime from the
+     * framework package itself (src/Htmx/dist/hx-component.js), the same way the
+     * Livewire layer serves its runtime. The app never ships this file in
+     * public/; every app runs the runtime bundled with its installed
+     * nitro/framework version, so there are no per-app copies to keep in sync.
+     *
+     * Registered outside any middleware group: it is a public, cacheable GET
+     * asset with no session or CSRF involvement. The path sits under /nitro
+     * (not the /hx action prefix) so it can't collide with /hx/{component}/{action}.
+     */
+    protected function registerAssetRoute(): void
+    {
+        $router = $this->container->make('router');
+
+        $router->get('/nitro/hx-component.js', static function (): Response {
+            return (new HtmxAssets())->scriptResponse();
+        });
     }
 
     /**
@@ -227,6 +250,12 @@ class HtmxServiceProvider extends ServiceProvider
         Blade::directive('widget', function ($expression) {
             return "<?php echo app(\Nitro\Htmx\HtmxComponentRenderer::class)->render($expression); ?>";
         });
+
+        // @htmxScripts — emit the <script> tag for the component runtime, served
+        // from the framework route (/nitro/hx-component.js). Mirrors Livewire's
+        // @livewireScripts; the app no longer hardcodes the /js/hx-component.js path.
+        Blade::directive('htmxScripts', static fn(): string =>
+            '<?php echo (new \Nitro\Htmx\Support\HtmxAssets())->scriptTag(); ?>');
     }
 
     private function registerValidationDirectives(): void
