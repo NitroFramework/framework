@@ -71,13 +71,10 @@ class ViewServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        // Fast path: when `nitro optimize` has already populated the
-        // BladeCompiler directive registry from its cache, skip the
-        // file_exists + require + closure invocation entirely.
-        if (BladeCompiler::directivesHydratedFromCache()) {
-            return;
-        }
-
+        // Always register directives from config/directives.php with their real,
+        // expression-aware callbacks. (Directives are intentionally not cached:
+        // a callback's output depends on the invocation's $expression, so a
+        // cached snapshot for one expression can't stand in for all calls.)
         $paths = $this->container->get(PathRegistry::class);
         $this->loadCustomDirectives($paths);
     }

@@ -15,7 +15,6 @@ use Nitro\Foundation\PathRegistry;
 use Nitro\Routing\Contracts\RouterInterface;
 use Nitro\Routing\RouteLoader;
 use Nitro\View\Blade;
-use Nitro\View\Compiler\BladeCompiler;
 
 /**
  * Console commands: build (optimize) and clear (optimize:clear) the production caches — config, routes, views, providers, schema.
@@ -96,22 +95,41 @@ class OptimizeCommand implements CommandInterface
             // Load straight from config/*.php (ignore any existing cache) so we
             // capture the current source, not the cache we're about to overwrite.
             $config       = new Config($paths, true);
-            $data         = $this->filterSerializable($config->all());
+            $dropped      = [];
+            $data         = $this->filterSerializable($config->all(), $dropped);
             $cacheContent = "<?php\n\nreturn " . var_export($data, true) . ";\n";
             file_put_contents($paths->cache('config.php'), $cacheContent);
             $this->output->writeln($this->output->color("  ✓ Configuration cached", 'green'));
+
+            // Closures/objects can't be var_export'd, so they're dropped from the
+            // cache — which means config() returns null for them in optimized
+            // mode (a silent divergence from dev). Surface exactly which keys, so
+            // it's a visible warning instead of a production surprise.
+            if ($dropped !== []) {
+                $this->output->writeln($this->output->color(
+                    "  ⚠ " . count($dropped) . " non-serializable config value(s) omitted from the cache "
+                    . "(config() returns null for these in optimized mode): " . implode(', ', $dropped),
+                    'yellow'
+                ));
+            }
         } catch (\Exception $e) {
             $this->output->writeln($this->output->color("  ✖ Config cache failed: " . $e->getMessage(), 'red'));
         }
     }
 
-    protected function filterSerializable(array $data): array
+    /**
+     * Strip values var_export can't emit (closures/objects), recording their
+     * dotted keys in $dropped so the caller can warn about the divergence.
+     */
+    protected function filterSerializable(array $data, array &$dropped = [], string $prefix = ''): array
     {
         foreach ($data as $key => $value) {
+            $path = $prefix === '' ? (string) $key : "{$prefix}.{$key}";
             if ($value instanceof \Closure || is_object($value)) {
+                $dropped[] = $path;
                 unset($data[$key]);
             } elseif (is_array($value)) {
-                $data[$key] = $this->filterSerializable($value);
+                $data[$key] = $this->filterSerializable($value, $dropped, $path);
             }
         }
         return $data;
@@ -124,7 +142,17 @@ class OptimizeCommand implements CommandInterface
             $router       = $this->container->get(RouterInterface::class);
             $router->clearRoutes();
             $routeLoader->loadFromFile($router);
-            $routeLoader->cache($router);
+
+            $skippedClosures = $routeLoader->cache($router);
+            if ($skippedClosures > 0) {
+                $this->output->writeln($this->output->color(
+                    "  ⚠ Route cache skipped: {$skippedClosures} closure route(s) can't be serialized. "
+                    . "Convert them to controller actions to enable route caching.",
+                    'yellow'
+                ));
+                return;
+            }
+
             $routeCount = count($router->getRoutes(), COUNT_RECURSIVE);
             $this->output->writeln($this->output->color("  ✓ Cached {$routeCount} routes", 'green'));
         } catch (\Exception $e) {
@@ -146,14 +174,21 @@ class OptimizeCommand implements CommandInterface
     {
         try {
             $helpersDir = __DIR__ . '/../../Support/Helpers';
-            // Same dependency-sensitive order as Support/helpers.php fallback.
-            $files = [
-                'app.php', 'config.php', 'path.php', 'array.php', 'collection.php',
-                'conditional.php', 'debug.php', 'file.php', 'http.php', 'request.php',
-                'response.php', 'security.php', 'auth.php', 'session.php', 'string.php',
-                'url.php', 'utility.php', 'validation.php', 'view.php', 'query.php',
-                'cache.php',
-            ];
+            // Derive the file list AND its dependency order from the runtime
+            // loader itself (Support/helpers.php), so the bundle can never drift
+            // out of sync with it. A hardcoded copy here previously omitted
+            // cookie.php, leaving cookie() undefined in optimized mode.
+            $loaderFile = __DIR__ . '/../../Support/helpers.php';
+            $files = [];
+            if (is_file($loaderFile)
+                && preg_match_all('#/Helpers/([A-Za-z0-9_]+\.php)#', (string) file_get_contents($loaderFile), $m)
+            ) {
+                foreach ($m[1] as $f) {
+                    if ($f !== 'bundle.php' && !in_array($f, $files, true)) {
+                        $files[] = $f;
+                    }
+                }
+            }
 
             // Helper files are concatenated into ONE file scope, so their
             // top-level `use` imports must be hoisted to the top and de-duped —
@@ -220,15 +255,14 @@ class OptimizeCommand implements CommandInterface
 
             $allProviders = array_merge($defaults, $userProviders, $moduleProviders);
 
-            // 2. Pre-compile custom Blade directives so the runtime can
-            //    hydrate them directly without re-loading config/directives.php
-            //    per request. The optimize CLI is the only place we evaluate
-            //    that file so callbacks can be captured.
-            $directives = $this->captureDirectives($paths);
-
+            // NOTE: Blade directives are intentionally NOT cached here. A directive
+            // callback receives the invocation's $expression; caching its output
+            // for one fixed expression and replaying it for every call produced
+            // wrong (or fatal — e.g. @error → `$errors[][0]`) compiled PHP. The
+            // directive definitions in config/directives.php are cheap to register
+            // per request and are always loaded at runtime by ViewServiceProvider.
             $cache = [
                 'providers'  => $allProviders,
-                'directives' => $directives,
                 'timestamp'  => time(),
             ];
 
@@ -238,45 +272,12 @@ class OptimizeCommand implements CommandInterface
             );
 
             $this->output->writeln($this->output->color(
-                "  ✓ Cached " . count($allProviders) . " providers, "
-                . count($directives) . " directives",
+                "  ✓ Cached " . count($allProviders) . " providers",
                 'green'
             ));
         } catch (\Throwable $e) {
             $this->output->writeln($this->output->color("  ✖ Bootstrap cache failed: " . $e->getMessage(), 'red'));
         }
-    }
-
-    /**
-     * Capture every currently-registered Blade directive's compiled output
-     * for an empty expression. Most framework directives (@elapsed_time,
-     * @memory_usage, etc.) don't use their $expression argument, so this
-     * snapshot is correct for them. Directives that DO need their argument
-     * raise an exception on call — those are skipped here and will register
-     * normally at runtime via Blade::directive().
-     *
-     * By the time `nitro optimize` reaches this step, ViewServiceProvider::boot
-     * has already run and registered every directive defined in
-     * config/directives.php, so we read directly from BladeCompiler.
-     */
-    protected function captureDirectives(PathRegistry $paths): array
-    {
-        $registered = BladeCompiler::getCustomDirectives();
-        $compiled = [];
-
-        foreach ($registered as $name => $callback) {
-            try {
-                $php = $callback('');
-                if (is_string($php) && $php !== '') {
-                    $compiled[$name] = $php;
-                }
-            } catch (\Throwable) {
-                // Skip — the directive needs a real expression and will be
-                // re-registered at runtime via the live directives.php path.
-            }
-        }
-
-        return $compiled;
     }
 
     /**
@@ -386,7 +387,6 @@ class OptimizeCommand implements CommandInterface
         $paths   = $this->paths;
         $caches  = [
             'config.php'         => 'Configuration',
-            'routes.php'         => 'Routes',
             'bootstrap.php'      => 'Bootstrap',
             'views_warmup.php'   => 'View warmup bundle',
             ViewWarmup::META_FILE => 'View warmup metadata',
@@ -401,6 +401,18 @@ class OptimizeCommand implements CommandInterface
                 $this->output->writeln($this->output->color("  ✓ Cleared {$name} cache", 'green'));
                 $cleared++;
             }
+        }
+
+        // The route cache lives at cache/routes/routes.php (a subdir) and is
+        // owned by RouteLoader — clear it through the loader so we target the
+        // real path instead of a nonexistent cache/routes.php.
+        try {
+            if ($this->container->get(RouteLoader::class)->clearCache()) {
+                $this->output->writeln($this->output->color("  ✓ Cleared Routes cache", 'green'));
+                $cleared++;
+            }
+        } catch (\Throwable $e) {
+            // No loader/router resolvable — nothing to clear.
         }
 
         $bundlePath = __DIR__ . '/../../Support/Helpers/bundle.php';

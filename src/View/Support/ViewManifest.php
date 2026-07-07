@@ -39,6 +39,30 @@ class ViewManifest
     }
 
     /**
+     * Is the manifest at least as new as the given source view file?
+     *
+     * A view edited after `optimize` (e.g. adding/removing @stream) makes its
+     * manifest entry potentially stale — unlike compiled views, the manifest
+     * verdict is otherwise trusted blindly. Callers use this to fall back to a
+     * live probe when the source is newer than the manifest. Conservative: only
+     * returns false when it can positively prove the source is newer, so an
+     * in-memory (test-injected) manifest or an unreadable file is trusted.
+     */
+    public static function isFresh(string $sourceFile): bool
+    {
+        $manifestPath = self::path();
+        if ($manifestPath === null || !is_file($manifestPath)) {
+            return true; // in-memory / injected manifest — nothing to compare
+        }
+        $manifestTime = @filemtime($manifestPath);
+        $sourceTime   = @filemtime($sourceFile);
+        if ($manifestTime === false || $sourceTime === false) {
+            return true; // can't determine — don't falsely invalidate
+        }
+        return $manifestTime >= $sourceTime;
+    }
+
+    /**
      * Replace the manifest in process memory. The optimize command writes
      * the file; tests use this hook to inject without touching disk.
      *

@@ -3,7 +3,6 @@
 namespace Nitro\Foundation\Bootstrap;
 
 use Nitro\Foundation\Application;
-use Nitro\View\Compiler\BladeCompiler;
 
 /**
  * Bootstrapper: registers service providers (from the cache in production, else config).
@@ -18,14 +17,10 @@ class RegisterProviders implements BootstrapperInterface
             $cached = require $cachePath;
             // Use the pre-merged provider list straight from cache and skip the
             // live array_merge + config lookup in registerConfiguredProviders.
+            // Directives are NOT cached (see OptimizeCommand::cacheBootstrap):
+            // ViewServiceProvider::boot always registers them from
+            // config/directives.php with their real, expression-aware callbacks.
             $app->registerConfiguredProviders($cached['providers'] ?? []);
-
-            // Apply any cached directive registrations the optimize command
-            // produced so the runtime ViewServiceProvider::boot doesn't have to
-            // re-read config/directives.php on every request.
-            if (!empty($cached['directives']) && is_array($cached['directives'])) {
-                BladeCompiler::hydrateCustomDirectives($cached['directives']);
-            }
         } else {
             $app->registerConfiguredProviders();
         }

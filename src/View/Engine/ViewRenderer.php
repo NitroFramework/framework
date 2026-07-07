@@ -189,12 +189,16 @@ class ViewRenderer implements ViewEngine
             return $this->streamViewCache[$view];
         }
 
+        $templateFile = $this->getTemplatePath($view);
+
+        // Trust the manifest only when it's at least as new as the source view.
+        // A view edited after `optimize` (e.g. @stream added/removed) would
+        // otherwise be misrouted; when stale, fall through to the live probe.
         $manifestVerdict = ViewManifest::isStream($view);
-        if ($manifestVerdict !== null) {
+        if ($manifestVerdict !== null && ViewManifest::isFresh($templateFile)) {
             return $this->streamViewCache[$view] = $manifestVerdict;
         }
 
-        $templateFile = $this->getTemplatePath($view);
         $firstBytes   = @file_get_contents($templateFile, false, null, 0, 256);
         if ($firstBytes === false) {
             return $this->streamViewCache[$view] = false;

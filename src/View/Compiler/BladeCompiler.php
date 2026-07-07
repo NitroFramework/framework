@@ -267,47 +267,10 @@ class BladeCompiler implements TemplateCompiler
         return static::$customDirectives;
     }
 
-    /**
-     * Were the custom directives hydrated from the cache produced by
-     * `nitro optimize`? When true, ViewServiceProvider::boot can skip
-     * re-loading config/directives.php on every request.
-     */
-    protected static bool $directivesHydratedFromCache = false;
-
-    /**
-     * Replace the directive registry with a pre-compiled map. Each entry is
-     * [name => [signature, body]] where `body` is the PHP fragment the
-     * directive produces. We wrap it in a closure that ignores its $expression
-     * argument and returns the cached body verbatim — perfect for the simple
-     * "echo X" directives (@elapsed_time, @memory_usage, etc.) that don't
-     * actually parse arguments.
-     *
-     * Directives that DO need their argument should be (re)registered at
-     * runtime via Blade::directive() and will take precedence on next call.
-     */
-    public static function hydrateCustomDirectives(array $cached): void
-    {
-        foreach ($cached as $name => $body) {
-            // Directives whose body doesn't reference any argument can be
-            // cached as a constant string and replayed via this lightweight
-            // closure. Argument-bearing directives keep their original
-            // callable via Blade::directive() at boot time.
-            $php = is_array($body) ? ($body['php'] ?? '') : (string) $body;
-            static::$customDirectives[$name] = static fn(string $expression) => $php;
-        }
-        static::$directivesHydratedFromCache = true;
-    }
-
-    public static function directivesHydratedFromCache(): bool
-    {
-        return static::$directivesHydratedFromCache;
-    }
-
     /** Reset the in-process directive registry (test harnesses). */
     public static function clearCustomDirectives(): void
     {
         static::$customDirectives = [];
-        static::$directivesHydratedFromCache = false;
     }
 }
 

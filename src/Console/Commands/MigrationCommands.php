@@ -7,6 +7,7 @@ use Nitro\Console\OutputFormatter;
 use Nitro\Database\DB;
 use Nitro\Database\Migration\MigrationPathRegistry;
 use Nitro\Database\Schema\SchemaBuilder;
+use Nitro\Database\Schema\SchemaCache;
 use Nitro\Foundation\Contracts\ConfigRepository;
 use Nitro\Foundation\PathRegistry;
 
@@ -78,19 +79,34 @@ class MigrationCommands implements CommandInterface
             return;
         }
 
-        $this->ensureMigrationsTableExists();
+        // Migrations mutate the schema, so the optimize-time schema cache must
+        // not be trusted here: read live during the command (so e.g. the
+        // migrations-table check sees reality, not a stale cache), and drop the
+        // cached file afterwards so the next process boots with fresh schema.
+        SchemaCache::bypass(true);
 
-        match ($command) {
-            'migrate:install'   => $this->output->success("Migrations table is ready."),
-            'migrate:run'       => $this->runMigrations($arguments),
-            'migrate:rollback'  => $this->rollbackMigrations($arguments),
-            'migrate:reset'     => $this->resetMigrations($arguments),
-            'migrate:refresh'   => $this->refreshMigrations($arguments),
-            'migrate:fresh'     => $this->freshMigrations($arguments),
-            'migrate:status'    => $this->showStatus(),
-            'migrate:mark-ran'  => $this->markRan($arguments),
-            default             => $this->output->error("Unknown migration command: {$command}")
-        };
+        try {
+            $this->ensureMigrationsTableExists();
+
+            match ($command) {
+                'migrate:install'   => $this->output->success("Migrations table is ready."),
+                'migrate:run'       => $this->runMigrations($arguments),
+                'migrate:rollback'  => $this->rollbackMigrations($arguments),
+                'migrate:reset'     => $this->resetMigrations($arguments),
+                'migrate:refresh'   => $this->refreshMigrations($arguments),
+                'migrate:fresh'     => $this->freshMigrations($arguments),
+                'migrate:status'    => $this->showStatus(),
+                'migrate:mark-ran'  => $this->markRan($arguments),
+                default             => $this->output->error("Unknown migration command: {$command}")
+            };
+        } finally {
+            // Invalidate the on-disk schema cache after any command that could
+            // have changed the schema (even a partial/failed run). status is
+            // read-only, so it leaves the cache untouched.
+            if ($command !== 'migrate:status') {
+                SchemaCache::clear();
+            }
+        }
     }
 
     // ── make:migration ────────────────────────────────────────────────

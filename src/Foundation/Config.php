@@ -28,7 +28,7 @@ class Config implements ConfigRepository
         $configPath = $paths->config();
         $cachePath = $paths->cache('config.php');
 
-        if (!$ignoreCache && file_exists($cachePath)) {
+        if (!$ignoreCache && file_exists($cachePath) && self::cacheIsFresh($cachePath, $paths->base('.env'))) {
             try {
                 $cached = @require $cachePath;
                 if (is_array($cached)) {
@@ -119,5 +119,31 @@ class Config implements ConfigRepository
         $config = (new \ReflectionClass(static::class))->newInstanceWithoutConstructor();
         $config->data = $data;
         return $config;
+    }
+
+    /**
+     * Is a compiled config cache still fresh relative to .env?
+     *
+     * A cache is stale the moment `.env` is edited after it was built (e.g.
+     * `key:generate` rotating APP_KEY). Comparing mtimes lets a stale cache be
+     * transparently bypassed instead of silently serving old values — the exact
+     * footgun behind "I changed .env but the app didn't update". Costs one
+     * filemtime on .env per request when a cache exists.
+     *
+     * Note: edits to config/*.php files still require `optimize:clear` /
+     * re-`optimize` — we deliberately don't stat the whole config dir per
+     * request. .env is the value that changes on a live box.
+     */
+    public static function cacheIsFresh(string $cachePath, string $envFile): bool
+    {
+        $cacheTime = @filemtime($cachePath);
+        if ($cacheTime === false) {
+            return false;
+        }
+        if (!is_file($envFile)) {
+            return true; // nothing that can invalidate it
+        }
+        $envTime = @filemtime($envFile);
+        return $envTime === false || $cacheTime >= $envTime;
     }
 }

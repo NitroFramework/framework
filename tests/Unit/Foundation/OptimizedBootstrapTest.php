@@ -48,25 +48,6 @@ class OptimizedBootstrapTest extends TestCase
         $this->assertContains(\Nitro\Foundation\Providers\RoutingServiceProvider::class, $defaults);
     }
 
-    public function test_directive_hydration_short_circuits_loader(): void
-    {
-        BladeCompiler::hydrateCustomDirectives([
-            'elapsed_time' => '<?php echo "0.42"; ?>',
-        ]);
-
-        $this->assertTrue(BladeCompiler::directivesHydratedFromCache());
-
-        // ViewServiceProvider::boot would normally call loadCustomDirectives;
-        // when the cache populated the registry it should short-circuit.
-        // We can't easily call the provider standalone here (it has many deps),
-        // so we just confirm the public flag is the contract the provider
-        // checks.
-        $this->assertArrayHasKey(
-            'elapsed_time',
-            BladeCompiler::getCustomDirectives()
-        );
-    }
-
     public function test_deferred_resolver_is_wired_on_container(): void
     {
         $app = new Application(sys_get_temp_dir());

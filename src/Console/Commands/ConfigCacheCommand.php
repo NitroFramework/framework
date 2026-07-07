@@ -39,12 +39,16 @@ class ConfigCacheCommand implements CommandInterface
         $this->output->info("Caching configuration...");
 
         try {
-            $paths      = $this->paths;
-            $configPath = $paths->config();
-            $cachePath  = $paths->cache('config.php');
+            $paths     = $this->paths;
+            $cachePath = $paths->cache('config.php');
 
-            $config      = new Config($configPath);
-            $cacheContent = "<?php\n\nreturn " . var_export($config->all(), true) . ";\n";
+            // Config wants the PathRegistry (not a path string), and MUST ignore
+            // any existing cache — otherwise it rebuilds from the stale cache it
+            // is about to overwrite. Strip closures/objects var_export can't emit.
+            $config = new Config($paths, true);
+            $data   = $this->filterSerializable($config->all());
+
+            $cacheContent = "<?php\n\nreturn " . var_export($data, true) . ";\n";
 
             if (file_put_contents($cachePath, $cacheContent) === false) {
                 throw new \RuntimeException("Failed to write configuration cache file.");
@@ -56,9 +60,22 @@ class ConfigCacheCommand implements CommandInterface
             $this->output->writeln($this->output->color("========================================", 'green'));
             $this->output->writeln($this->output->color("Configuration cached successfully!", 'green', true));
             $this->output->writeln($this->output->color("========================================", 'green'));
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             $this->output->error("Error caching configuration: " . $e->getMessage());
         }
+    }
+
+    /** Strip values var_export can't emit (closures/objects) before caching. */
+    private function filterSerializable(array $data): array
+    {
+        foreach ($data as $key => $value) {
+            if ($value instanceof \Closure || is_object($value)) {
+                unset($data[$key]);
+            } elseif (is_array($value)) {
+                $data[$key] = $this->filterSerializable($value);
+            }
+        }
+        return $data;
     }
 
     protected function clearConfig(): void

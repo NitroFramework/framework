@@ -83,11 +83,32 @@ class RouteLoader
      */
     public function load(RouterInterface $router): void
     {
-        if ($this->useCache && file_exists($this->cacheFile)) {
+        if ($this->useCache && file_exists($this->cacheFile) && $this->cacheIsFresh()) {
             $this->loadFromCache($router);
         } else {
             $this->loadFromFile($router);
         }
+    }
+
+    /**
+     * Is the compiled route cache still fresh relative to its source files? A
+     * route file edited after the cache was built makes it stale; we then load
+     * from source instead of serving outdated routes. (In debug mode the cache
+     * is skipped entirely; this guards the production path.)
+     */
+    private function cacheIsFresh(): bool
+    {
+        $cacheTime = @filemtime($this->cacheFile);
+        if ($cacheTime === false) {
+            return false;
+        }
+        foreach ($this->routeFiles as $file) {
+            $sourceTime = @filemtime($file['path']);
+            if ($sourceTime !== false && $sourceTime > $cacheTime) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
@@ -136,11 +157,16 @@ class RouteLoader
     /**
      * Compile the router's current routes to a cache file.
      *
-     * Closure handlers cannot be serialized, so they are skipped; the cache
-     * stores controller/view/callable routes plus the named-route map and the
-     * pre-compiled static/dynamic structures.
+     * Route caching is all-or-nothing. The compiled static/dynamic tables can
+     * carry Closure handlers, which var_export cannot emit (it writes
+     * `\Closure::__set_state`, which fatals on require). Rather than ship a
+     * corrupt cache that fatals-then-silently-falls-back every request, we
+     * refuse to write when any closure route is present.
+     *
+     * @return int 0 when the cache was written; otherwise the number of closure
+     *   routes that blocked caching (convert them to controller actions).
      */
-    public function cache(RouterInterface $router): void
+    public function cache(RouterInterface $router): int
     {
         $routes = $router->getRoutes();
         $namedRoutes = $router->getNamedRoutes();
@@ -155,11 +181,6 @@ class RouteLoader
             }
         }
 
-        $cacheDir = dirname($this->cacheFile);
-        if (!is_dir($cacheDir)) {
-            mkdir($cacheDir, 0755, true);
-        }
-
         $cacheData = [
             'routes'            => $cacheableRoutes,
             'named_routes'      => $namedRoutes,
@@ -168,13 +189,56 @@ class RouteLoader
             'dynamic_by_prefix' => $compiled['byPrefix'],
             'compiled_patterns' => $compiled['patterns'],
             'cached_at'         => time(),
-            'generator_version' => '2.2',
+            'generator_version' => '2.3',
         ];
 
-        $content = "<?php\n\nreturn "
-            . var_export($cacheData, true) . ";\n";
+        if ($this->containsClosure($cacheData)) {
+            // Don't leave a stale/corrupt cache behind.
+            if (file_exists($this->cacheFile)) {
+                @unlink($this->cacheFile);
+            }
+            return $this->countClosureRoutes($routes);
+        }
 
+        $cacheDir = dirname($this->cacheFile);
+        if (!is_dir($cacheDir)) {
+            mkdir($cacheDir, 0755, true);
+        }
+
+        $content = "<?php\n\nreturn " . var_export($cacheData, true) . ";\n";
         file_put_contents($this->cacheFile, $content, LOCK_EX);
+
+        return 0;
+    }
+
+    /** Recursively detect a Closure anywhere in the cache payload. */
+    private function containsClosure(mixed $value): bool
+    {
+        if ($value instanceof \Closure) {
+            return true;
+        }
+        if (is_array($value)) {
+            foreach ($value as $item) {
+                if ($this->containsClosure($item)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /** Count routes registered with a closure handler (for operator messaging). */
+    private function countClosureRoutes(array $routes): int
+    {
+        $count = 0;
+        foreach ($routes as $methodRoutes) {
+            foreach ($methodRoutes as $handler) {
+                if (($handler['type'] ?? null) === 'closure') {
+                    $count++;
+                }
+            }
+        }
+        return max($count, 1);
     }
 
     /**
