@@ -8,6 +8,7 @@ use Nitro\Container\Contracts\ContainerInterface;
 use Nitro\Cookie\CookieServiceProvider;
 use Nitro\Encryption\EncryptionServiceProvider;
 use Nitro\Events\Dispatcher as EventDispatcher;
+use Nitro\Filesystem\FilesystemServiceProvider;
 use Nitro\Foundation\Bootstrap\BootstrapperInterface;
 use Nitro\Foundation\Http\Kernel;
 use Nitro\Foundation\Providers\AuthServiceProvider;
@@ -273,6 +274,7 @@ class Application
             HtmxServiceProvider::class,
             PerformanceBarServiceProvider::class,
             CacheServiceProvider::class,
+            FilesystemServiceProvider::class,
             QueueServiceProvider::class,
         ];
     }
