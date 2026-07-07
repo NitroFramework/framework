@@ -54,6 +54,25 @@ return [
 
     /*
     |---------------------------------------------------------------------------
+    | SPA Navigation (wire:navigate)
+    |---------------------------------------------------------------------------
+    |
+    | hover_delay_ms: how long a wire:navigate.hover link must be hovered before
+    |   its page is prefetched (Livewire's built-in default is 60ms).
+    | cache_ttl: default cache window for a bare `wire:navigate.hover` — the
+    |   prefetched page is reused for clicks within this window, then refetched.
+    |   A per-link value wins: `wire:navigate.hover="30s"` (supports ms/s/m).
+    |   "0s" = cache until the next full page load (Livewire's stock behaviour).
+    |
+    */
+
+    'navigate' => [
+        'hover_delay_ms' => 60,
+        'cache_ttl'      => '0s',
+    ],
+
+    /*
+    |---------------------------------------------------------------------------
     | Temporary File Uploads
     |---------------------------------------------------------------------------
     |

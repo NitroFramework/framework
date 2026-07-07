@@ -764,7 +764,59 @@
 
     // ---- wire:navigate (SPA page swaps) -------------------------------------
 
+    // Prefetch cache. Entries: url -> { html: string|true, expires: ms-epoch|Infinity }.
+    // `true` marks an in-flight fetch; a string is the cached HTML.
     var prefetched = {};
+
+    // Client tuning injected by LivewireManager (config/livewire.php → navigate).
+    function navConfig() {
+        var c = (window.Livewire && window.Livewire.config && window.Livewire.config.navigate) || {};
+        return {
+            hoverDelayMs: typeof c.hoverDelayMs === 'number' ? c.hoverDelayMs : 60,
+            cacheTtl: typeof c.cacheTtl === 'string' ? c.cacheTtl : '0s'
+        };
+    }
+
+    // "30s" / "500ms" / "2m" / bare number (= seconds) -> milliseconds. 0/invalid -> 0.
+    function parseDuration(v) {
+        if (v == null || v === '') return 0;
+        if (typeof v === 'number') return v;
+        var m = String(v).trim().match(/^(\d+(?:\.\d+)?)\s*(ms|s|m)?$/);
+        if (!m) return 0;
+        var n = parseFloat(m[1]);
+        return m[2] === 'ms' ? n : m[2] === 'm' ? n * 60000 : n * 1000;
+    }
+
+    // Value of the wire:navigate attribute carrying `hover` (e.g. "30s"), or ''.
+    function hoverTtlValue(a) {
+        for (var i = 0; i < a.attributes.length; i++) {
+            var name = a.attributes[i].name;
+            if (name.indexOf('wire:navigate') === 0 && name.indexOf('hover') !== -1) {
+                return a.attributes[i].value;
+            }
+        }
+        return '';
+    }
+
+    // Cached HTML for this url if still fresh, else null.
+    function freshPrefetch(url) {
+        var e = prefetched[url];
+        return (e && typeof e.html === 'string' && Date.now() < e.expires) ? e.html : null;
+    }
+
+    // Fetch a link's HTML and cache it with the resolved TTL (per-link value wins,
+    // else the config default; 0/"0s" caches until the next full page load).
+    function prefetchLink(a) {
+        var url = a.href;
+        var e = prefetched[url];
+        if (e && (e.html === true || Date.now() < e.expires)) return; // in-flight or still fresh
+        var ttl = parseDuration(hoverTtlValue(a) || navConfig().cacheTtl);
+        var expires = ttl > 0 ? Date.now() + ttl : Infinity;
+        prefetched[url] = { html: true, expires: expires };
+        fetch(url, { headers: { 'X-Livewire-Navigate': '1' } }).then(function (r) { return r.text(); })
+            .then(function (html) { prefetched[url] = { html: html, expires: expires }; })
+            .catch(function () { delete prefetched[url]; });
+    }
 
     // The closest <a> opting into wire:navigate, whatever the modifier combo
     // (.hover / .preserve-scroll / .keydown / mixes of them).
@@ -818,13 +870,23 @@
         if (a && navigatesEarly(a)) { e.preventDefault(); navigateOnPress(a); }
     });
 
-    // Prefetch on hover for wire:navigate.hover links.
+    // Prefetch on hover for wire:navigate.hover links, after the configured hover
+    // delay (Livewire's default is 60ms). Delegated mouseover/mouseout with a
+    // per-link timer, so dynamically-added links work and a quick fly-past that
+    // leaves before the delay elapses never fires a fetch.
+    var hoverTimers = new WeakMap();
     document.addEventListener('mouseover', function (e) {
         var a = e.target.closest && e.target.closest('a');
-        if (!a || navAttr(a).indexOf('hover') === -1 || prefetched[a.href]) return;
-        prefetched[a.href] = true;
-        fetch(a.href, { headers: { 'X-Livewire-Navigate': '1' } }).then(function (r) { return r.text(); })
-            .then(function (html) { prefetched[a.href] = html; }).catch(function () {});
+        if (!a || navAttr(a).indexOf('hover') === -1 || hoverTimers.has(a) || freshPrefetch(a.href)) return;
+        var t = setTimeout(function () { hoverTimers.delete(a); prefetchLink(a); }, navConfig().hoverDelayMs);
+        hoverTimers.set(a, t);
+    });
+    document.addEventListener('mouseout', function (e) {
+        var a = e.target.closest && e.target.closest('a');
+        if (!a || !hoverTimers.has(a)) return;
+        if (e.relatedTarget && a.contains(e.relatedTarget)) return; // moved within the link
+        clearTimeout(hoverTimers.get(a));
+        hoverTimers.delete(a);
     });
 
     function navAttr(a) {
@@ -838,7 +900,9 @@
 
     function navigate(url, push, preserveScroll) {
         var scrollY = window.scrollY;
-        var pre = (typeof prefetched[url] === 'string') ? Promise.resolve(prefetched[url])
+        var cached = freshPrefetch(url);
+        if (cached === null && prefetched[url]) delete prefetched[url]; // expired/stale — drop it
+        var pre = cached !== null ? Promise.resolve(cached)
             : fetch(url, { headers: { 'X-Livewire-Navigate': '1' } }).then(function (r) { return r.text(); });
 
         // The shared NProgress bar (wired in the layout) listens for these.

@@ -609,6 +609,14 @@ class LivewireManager
             'updateUri' => config('livewire.update_uri', '/livewire/update'),
             'uploadUri' => config('livewire.upload_uri', '/livewire/upload'),
             'csrf'      => function_exists('csrf_token') ? csrf_token() : '',
+            // wire:navigate hover-prefetch tuning (config/livewire.php → navigate).
+            // hoverDelayMs: hover this long before prefetching (Livewire uses 60).
+            // cacheTtl: default cache window for a bare `.hover` (e.g. "30s"); a
+            // per-link `wire:navigate.hover="30s"` overrides it. "0s" = one-shot.
+            'navigate'  => [
+                'hoverDelayMs' => (int) config('livewire.navigate.hover_delay_ms', 60),
+                'cacheTtl'     => (string) config('livewire.navigate.cache_ttl', '0s'),
+            ],
         ], JSON_UNESCAPED_SLASHES);
 
         // Cache-bust by the bundled file's mtime: the URL changes only when the
