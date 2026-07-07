@@ -96,9 +96,15 @@ class RequestGuard
             ?? $request->header('X-CSRF-Token');
 
         // Constant-time compare so the response time can't leak how many leading
-        // bytes of the token were guessed correctly. Read the session token raw
-        // (don't mint one here — verification must never create a token).
-        $expected = $_SESSION['_csrf'] ?? '';
+        // bytes of the token were guessed correctly. Read the token from the
+        // session Store via the canonical nitro_session() seam — same place
+        // csrf_token() writes it, so file/redis/native backends all match. Read
+        // only; verification must never mint a token.
+        try {
+            $expected = (string) (nitro_session()->get('_csrf') ?? '');
+        } catch (\Throwable) {
+            $expected = $_SESSION['_csrf'] ?? '';
+        }
 
         if (!is_string($token) || $token === '' || !hash_equals($expected, $token)) {
             abort(419, 'CSRF token mismatch.');

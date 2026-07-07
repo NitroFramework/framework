@@ -127,11 +127,11 @@ class Blade
      */
     protected function initializeSession(): void
     {
-        if (session_status() === PHP_SESSION_NONE && PHP_SAPI !== 'cli') {
-            session_start();
-        }
-
-        if (session_status() === PHP_SESSION_ACTIVE && function_exists('csrf_token')) {
+        // The request's session is started by the kernel's request hook (through
+        // the session Store), so we don't touch native session_start() here —
+        // that spun up an orphaned PHP session under worker mode. Just ensure a
+        // CSRF token exists; csrf_token() mints it via the Store.
+        if (PHP_SAPI !== 'cli' && function_exists('csrf_token')) {
             csrf_token();
         }
     }
@@ -145,7 +145,11 @@ class Blade
      */
     public function getCsrfToken(): string
     {
-        if (session_status() === PHP_SESSION_ACTIVE && function_exists('csrf_token')) {
+        // csrf_token() now sources the token from the framework session Store
+        // (worker-safe), so we no longer gate on a native PHP session being
+        // active — under worker mode there isn't one, which used to return an
+        // empty token here and break CSRF.
+        if (function_exists('csrf_token')) {
             return csrf_token();
         }
 

@@ -37,14 +37,35 @@ if (!function_exists('csrf_token')) {
      */
     function csrf_token(): string
     {
+        // Route the token through the framework session Store so it lives in the
+        // same session as everything else. Under FrankenPHP worker mode that
+        // store is worker-safe (file-backed, persists across requests); raw
+        // $_SESSION does NOT persist there (native session isn't managed per
+        // worker request), which minted a fresh token every request and caused
+        // CSRF 419s on POST/Livewire/HTMX. Non-worker native sessions are backed
+        // by $_SESSION anyway, so behaviour there is unchanged. Falls back to raw
+        // $_SESSION only when no session service is bound (CLI/early bootstrap).
+        try {
+            $session = nitro_session();
+        } catch (\Throwable) {
+            $session = null;
+        }
+
+        if ($session !== null) {
+            $token = $session->get('_csrf');
+            if (!is_string($token) || $token === '') {
+                $token = bin2hex(random_bytes(16));
+                $session->put('_csrf', $token);
+            }
+            return $token;
+        }
+
         if (session_status() === PHP_SESSION_NONE) {
             session_start();
         }
-
         if (!isset($_SESSION['_csrf'])) {
             $_SESSION['_csrf'] = bin2hex(random_bytes(16));
         }
-
         return $_SESSION['_csrf'];
     }
 }

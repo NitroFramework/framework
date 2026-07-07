@@ -46,17 +46,24 @@ class CacheStateStore implements StateStore
     }
 
     /**
-     * Prefix the key with a per-user scope. PHP's session ID is the
-     * natural choice — guaranteed unique per browser session, already
-     * available via session_id(), and survives across requests as long
-     * as the session cookie does. For requests without a session, fall
-     * back to a shared "guest" bucket.
+     * Prefix the key with a per-user scope — the session id, read through the
+     * canonical nitro_session() seam. Using PHP's raw session_id() broke under
+     * worker mode: with a non-native (file/redis) store there is no PHP session,
+     * so session_id() returned '' and every user collapsed into the shared
+     * "guest" bucket (cross-user state leak). Falls back to "guest" only when no
+     * session is available at all.
      */
     private function scopedKey(string $key): string
     {
-        $scope = (function_exists('session_id') && session_id() !== '')
-            ? session_id()
-            : 'guest';
+        $scope = 'guest';
+        try {
+            $id = nitro_session()->getId();
+            if ($id !== '') {
+                $scope = $id;
+            }
+        } catch (\Throwable) {
+            // no session bound — shared guest bucket
+        }
         return $scope . ':' . $key;
     }
 }
