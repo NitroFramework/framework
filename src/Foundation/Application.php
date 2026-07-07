@@ -5,10 +5,21 @@ namespace Nitro\Foundation;
 use Nitro\Cache\CacheServiceProvider;
 use Nitro\Container\Container;
 use Nitro\Container\Contracts\ContainerInterface;
+use Nitro\Encryption\EncryptionServiceProvider;
 use Nitro\Events\Dispatcher as EventDispatcher;
 use Nitro\Foundation\Bootstrap\BootstrapperInterface;
 use Nitro\Foundation\Http\Kernel;
+use Nitro\Foundation\Providers\AuthServiceProvider;
+use Nitro\Foundation\Providers\ConsoleServiceProvider;
+use Nitro\Foundation\Providers\DatabaseServiceProvider;
+use Nitro\Foundation\Providers\ExceptionServiceProvider;
+use Nitro\Foundation\Providers\HtmxServiceProvider;
+use Nitro\Foundation\Providers\MailServiceProvider;
+use Nitro\Foundation\Providers\RoutingServiceProvider;
 use Nitro\Foundation\Providers\ServiceProvider;
+use Nitro\Foundation\Providers\SessionServiceProvider;
+use Nitro\Foundation\Providers\ValidationServiceProvider;
+use Nitro\Foundation\Providers\ViewServiceProvider;
 use Nitro\PerformanceBar\PerformanceBarServiceProvider;
 use Nitro\Queue\QueueServiceProvider;
 use Nitro\Support\Logger;
@@ -247,16 +258,17 @@ class Application
     public function getDefaultProviders(): array
     {
         return [
-            Providers\RoutingServiceProvider::class,
-            Providers\SessionServiceProvider::class,
-            Providers\ViewServiceProvider::class,
-            Providers\DatabaseServiceProvider::class,
-            Providers\ExceptionServiceProvider::class,
-            Providers\ValidationServiceProvider::class,
-            Providers\MailServiceProvider::class,
-            Providers\AuthServiceProvider::class,
-            Providers\ConsoleServiceProvider::class,
-            Providers\HtmxServiceProvider::class,
+            RoutingServiceProvider::class,
+            SessionServiceProvider::class,
+            ViewServiceProvider::class,
+            DatabaseServiceProvider::class,
+            ExceptionServiceProvider::class,
+            EncryptionServiceProvider::class,
+            ValidationServiceProvider::class,
+            MailServiceProvider::class,
+            AuthServiceProvider::class,
+            ConsoleServiceProvider::class,
+            HtmxServiceProvider::class,
             PerformanceBarServiceProvider::class,
             CacheServiceProvider::class,
             QueueServiceProvider::class,
