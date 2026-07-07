@@ -42,7 +42,7 @@ class MailTest extends TestCase
         $transport = new ArrayTransport();
         $mailer = new Mailer($transport, ['address' => 'app@nitro.dev', 'name' => 'Nitro']);
 
-        $mailer->send('user@x.dev', 'Welcome', 'plain body');
+        $mailer->raw('user@x.dev', 'Welcome', 'plain body');
 
         $this->assertCount(1, $transport->messages);
         $this->assertSame('Welcome', $transport->messages[0]->subject);
@@ -68,7 +68,7 @@ class MailTest extends TestCase
         $this->assertInstanceOf(SmtpTransport::class, $manager->mailer('smtp')->transport());
 
         // Proxy to the default (array) mailer.
-        $manager->send('x@x.dev', 'Proxied', 'body');
+        $manager->raw('x@x.dev', 'Proxied', 'body');
         $this->assertCount(1, $manager->mailer('array')->transport()->messages);
     }
 

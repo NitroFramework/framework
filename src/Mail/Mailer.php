@@ -13,23 +13,23 @@ class Mailer implements MailerContract
         protected ?array $from = null,
     ) {}
 
-    public function send(string $to, string $subject, string $body): void
-    {
-        $this->sendMessage((new Message())->to($to)->subject($subject)->text($body));
-    }
-
-    public function html(string $to, string $subject, string $html): void
-    {
-        $this->sendMessage((new Message())->to($to)->subject($subject)->html($html));
-    }
-
-    public function sendMessage(Message $message): void
+    public function send(Message $message): void
     {
         if ($message->from === null && $this->from !== null) {
             $message->from($this->from['address'], $this->from['name'] ?? null);
         }
 
         $this->transport->send($message);
+    }
+
+    public function raw(string $to, string $subject, string $text): void
+    {
+        $this->send((new Message())->to($to)->subject($subject)->text($text));
+    }
+
+    public function html(string $to, string $subject, string $html): void
+    {
+        $this->send((new Message())->to($to)->subject($subject)->html($html));
     }
 
     /** A fresh message to build fluently. */
