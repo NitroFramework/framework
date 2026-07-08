@@ -136,7 +136,11 @@ class LivewireServiceProvider extends ServiceProvider
                 }
 
                 $saved = [];
-                $files = $_FILES['files'] ?? null;
+                // Source uploads from the Request seam, never $_FILES directly —
+                // allFiles() returns the same $_FILES-shaped array (name/tmp_name/
+                // size/type/error), so the multi- vs single-file handling below is
+                // unchanged, but it's worker-safe and consistent with the rest.
+                $files = app('request')->allFiles()['files'] ?? null;
 
                 if (is_array($files) && is_array($files['name'])) {
                     for ($i = 0, $n = count($files['name']); $i < $n; $i++) {
