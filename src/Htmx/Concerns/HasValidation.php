@@ -32,6 +32,22 @@ trait HasValidation
         }
 
         $validator = new HxValidator();
-        return $validator->validate($data, $rules);
+        return $validator->validate($data, $rules, $this->uploadedFiles());
+    }
+
+    /**
+     * Uploaded files sourced from the request seam (never $_FILES directly).
+     * Returns [] when no request is bound — there are no uploads outside an
+     * HTTP request anyway.
+     *
+     * @return array<string, mixed>
+     */
+    private function uploadedFiles(): array
+    {
+        try {
+            return app('request')->allFiles();
+        } catch (\Throwable) {
+            return [];
+        }
     }
 }

@@ -6,9 +6,13 @@ class HxValidator
 {
     private array $errors = [];
 
-    public function validate(array $data, array $rules): HxValidationErrors
+    /** Uploaded files ($_FILES-shaped), sourced from the request seam by the caller. */
+    private array $files = [];
+
+    public function validate(array $data, array $rules, array $files = []): HxValidationErrors
     {
         $this->errors = [];
+        $this->files = $files;
 
         foreach ($rules as $field => $ruleString) {
             $fieldRules = is_array($ruleString) ? $ruleString : explode('|', $ruleString);
@@ -150,13 +154,13 @@ class HxValidator
 
     private function hasUploadedFile(string $field): bool
     {
-        return isset($_FILES[$field]['error']) && $_FILES[$field]['error'] === UPLOAD_ERR_OK;
+        return isset($this->files[$field]['error']) && $this->files[$field]['error'] === UPLOAD_ERR_OK;
     }
 
     private function checkFile(string $field, string $label): ?string
     {
-        if (!isset($_FILES[$field])) return null;
-        $err = $_FILES[$field]['error'] ?? UPLOAD_ERR_NO_FILE;
+        if (!isset($this->files[$field])) return null;
+        $err = $this->files[$field]['error'] ?? UPLOAD_ERR_NO_FILE;
         return match ($err) {
             UPLOAD_ERR_OK         => null,
             UPLOAD_ERR_NO_FILE    => null, // empty upload — covered by required rule
@@ -170,7 +174,7 @@ class HxValidator
     private function checkImage(string $field, string $label): ?string
     {
         if (!$this->hasUploadedFile($field)) return null;
-        $mime = $this->detectMime($_FILES[$field]['tmp_name'] ?? '');
+        $mime = $this->detectMime($this->files[$field]['tmp_name'] ?? '');
         return ($mime && str_starts_with($mime, 'image/'))
             ? null
             : "{$label} must be an image.";
@@ -179,7 +183,7 @@ class HxValidator
     private function checkMimes(string $field, array $allowed, string $label): ?string
     {
         if (!$this->hasUploadedFile($field) || empty($allowed)) return null;
-        $name = $_FILES[$field]['name'] ?? '';
+        $name = $this->files[$field]['name'] ?? '';
         $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
         return in_array($ext, array_map('strtolower', $allowed), true)
             ? null
@@ -192,7 +196,7 @@ class HxValidator
     private function checkMaxSize(string $field, string $spec, string $label): ?string
     {
         if (!$this->hasUploadedFile($field)) return null;
-        $size  = (int) ($_FILES[$field]['size'] ?? 0);
+        $size  = (int) ($this->files[$field]['size'] ?? 0);
         $limit = $this->parseSize($spec);
         return $size > $limit
             ? "{$label} must be no larger than {$spec}."
