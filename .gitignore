@@ -8,3 +8,6 @@ Thumbs.db
 
 # generated production helper bundle
 /src/Support/Helpers/bundle.php
+
+# JS build tooling
+/node_modules/
