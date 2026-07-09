@@ -152,6 +152,13 @@ class HtmxServiceProvider extends ServiceProvider
         $router->get('/nitro/hx-component.js', static function (): Response {
             return (new HtmxAssets())->scriptResponse();
         });
+
+        // GET /nitro/nprogress.js — the framework-served NProgress integration
+        // glue, so apps never keep a drifting copy in public/js. Same cacheable,
+        // no-session asset contract as the runtime above.
+        $router->get('/nitro/nprogress.js', static function (): Response {
+            return (new HtmxAssets())->nprogressScriptResponse();
+        });
     }
 
     /**
@@ -256,6 +263,12 @@ class HtmxServiceProvider extends ServiceProvider
         // @livewireScripts; the app no longer hardcodes the /js/hx-component.js path.
         Blade::directive('htmxScripts', static fn(): string =>
             '<?php echo (new \Nitro\Htmx\Support\HtmxAssets())->scriptTag(); ?>');
+
+        // @nprogressScripts — inject the app's nprogress config + load the
+        // framework-served glue that drives the shared progress bar off the
+        // navigation events. No per-app JS copy; emits nothing when disabled.
+        Blade::directive('nprogressScripts', static fn(): string =>
+            '<?php echo (new \Nitro\Htmx\Support\HtmxAssets())->nprogressScriptTag(); ?>');
     }
 
     private function registerValidationDirectives(): void

@@ -988,8 +988,11 @@
   }
 
   function startNavigationProgress(token) {
+    // bubbles:true so listeners bound to `document` (which survive a Livewire
+    // body swap) receive it — a document.body-scoped listener would be lost.
     document.body.dispatchEvent(
       new CustomEvent("nitro:navigation-start", {
+        bubbles: true,
         detail: { token: token },
       }),
     );
@@ -998,6 +1001,7 @@
   function finishNavigationProgress(token) {
     document.body.dispatchEvent(
       new CustomEvent("nitro:navigation-end", {
+        bubbles: true,
         detail: { token: token },
       }),
     );
@@ -1113,6 +1117,7 @@
 
     document.body.dispatchEvent(
       new CustomEvent("nitro:navigation", {
+        bubbles: true,
         detail: {
           url: snapshot.url,
           cached: !!(options && options.cached),
