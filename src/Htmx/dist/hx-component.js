@@ -1287,28 +1287,18 @@
 
     startNavigationProgress(progressToken);
 
-    if (meta.shouldPush && !options.popstate) {
-      history.pushState(
-        {
-          nitroNavigate: true,
-          url: meta.url,
-          scrollX: 0,
-          scrollY: 0,
-          targetSelector: meta.targetSelector,
-          selectSelector: meta.selectSelector,
-          oobSelectors: meta.oobSelectors,
-          shouldCache: meta.shouldCache,
-          shouldPrefetch: meta.shouldPrefetch,
-        },
-        "",
-        meta.url,
-      );
-    }
-
+    // IMPORTANT: do NOT touch history before the response is parsed. A link can
+    // point at a page on a DIFFERENT layout that has no nav root (e.g. the guest
+    // login/register pages) — such a destination isn't SPA-navigable, so
+    // parseSnapshotFromDocument() rejects and we fall back to a full navigation.
+    // Pushing optimistically here (as this used to) left a broken duplicate
+    // history entry in that case: the URL bar showed the destination while the
+    // page fell back to a full load, so Back had nowhere to go ("Back doesn't
+    // change the page"). We only push once we KNOW the snapshot is applicable.
     fetchSnapshot(meta)
       .then(function (snapshot) {
-        if (snapshot.url !== meta.url) {
-          history.replaceState(
+        if (meta.shouldPush && !options.popstate) {
+          history.pushState(
             {
               nitroNavigate: true,
               url: snapshot.url,
@@ -1334,6 +1324,9 @@
         }
       })
       .catch(function (error) {
+        // Destination isn't SPA-navigable (no nav root) or the fetch failed.
+        // Fall back to a real navigation. Because history was never touched
+        // above, the entry is clean and Back behaves normally afterwards.
         console.warn(error);
         window.location.assign(meta.url);
       })
