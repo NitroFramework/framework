@@ -33,6 +33,44 @@ class SynthManager
         ]);
     }
 
+    /**
+     * Type-based synths (Livewire matchByType parity). Unlike the value synths
+     * above these coerce an incoming wire:model value into a property's DECLARED
+     * scalar type — chiefly fixing empty-string → null for numeric fields. Used
+     * by Component::coerce(); memoized as they're stateless.
+     *
+     * @var TypeSynth[]|null
+     */
+    private static ?array $typeSynths = null;
+
+    /**
+     * @return TypeSynth[] Ordered so the cheap scalar checks (Float/Int, plain
+     *   string compares) run before the class-based ones (Enum/DateTime, which
+     *   do enum_exists()/is_a()) — so a scalar property never triggers a class
+     *   lookup. First match wins.
+     */
+    public static function typeSynths(): array
+    {
+        return self::$typeSynths ??= [
+            new FloatSynth(),
+            new IntSynth(),
+            new EnumTypeSynth(),
+            new DateTimeTypeSynth(),
+        ];
+    }
+
+    /** The type synth that coerces the given declared type name, or null. */
+    public static function typeSynthFor(string $type): ?TypeSynth
+    {
+        foreach (self::typeSynths() as $synth) {
+            if ($synth->matchType($type)) {
+                return $synth;
+            }
+        }
+
+        return null;
+    }
+
     /** Register an additional synthesizer (takes precedence over later ones). */
     public function register(Synth $synth): void
     {

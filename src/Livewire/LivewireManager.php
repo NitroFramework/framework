@@ -98,6 +98,7 @@ class LivewireManager
         if ($class !== null) {
             /** @var Component $component */
             $component = $this->container->make($class);
+            $component->assertPropertiesAreTyped();
             $component->setContext($this->generateId(), $name);
 
             return $component;
@@ -110,6 +111,7 @@ class LivewireManager
             if (! $component instanceof Component) {
                 throw new RuntimeException("Single-file component [{$name}] must be a Nitro\\Livewire\\Component.");
             }
+            $component->assertPropertiesAreTyped();
             $component->setContext($this->generateId(), $name);
             $component->setInlineView($sfc['view']);
 
@@ -412,6 +414,12 @@ class LivewireManager
         }));
 
         foreach (($commit['updates'] ?? []) as $key => $value) {
+            // #[Locked] properties may not be changed from the browser — reject a
+            // wire:model update or a forged `updates` entry that targets one.
+            if ($component->isPropertyLocked($key)) {
+                throw new \Nitro\Livewire\Exceptions\CannotUpdateLockedProperty($key);
+            }
+
             $studly = str_replace(' ', '', ucwords(str_replace(['_', '-'], ' ', $key)));
             $this->callHook($component, 'updating', $key, $value);
             $this->callHook($component, 'updating' . $studly, $value);

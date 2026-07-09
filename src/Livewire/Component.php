@@ -453,23 +453,139 @@ abstract class Component
         }
     }
 
-    /** Coerce an incoming value to the property's declared scalar type. */
+    /** Coerce an incoming wire:model value to the property's declared type. */
     private function coerce(string $name, mixed $value): mixed
     {
         $type = (new ReflectionProperty($this, $name))->getType();
 
-        if (! $type instanceof \ReflectionNamedType || $value === null) {
+        if (! $type instanceof \ReflectionNamedType) {
             return $value;
         }
 
-        return match ($type->getName()) {
-            'int'    => (int) $value,
-            'float'  => (float) $value,
+        $typeName = $type->getName();
+
+        // Numeric scalars and every class type (enum, DateTime, …) go through a
+        // TypeSynth — a wire:model input arrives as a string, so an emptied field
+        // sends "" that must become null (not 0, not a TypeError). The other
+        // builtins (bool/string/array) never hit that path, so a scalar property
+        // never triggers the enum_exists()/is_a() class lookups.
+        if ($typeName === 'int' || $typeName === 'float' || ! $type->isBuiltin()) {
+            return $this->coerceViaSynth($type, $value);
+        }
+
+        if ($value === null) {
+            return $value;
+        }
+
+        return match ($typeName) {
             'bool'   => is_bool($value) ? $value : filter_var($value, FILTER_VALIDATE_BOOLEAN),
             'string' => (string) $value,
             'array'  => (array) $value,
             default  => $value,
         };
+    }
+
+    /** Apply the matching TypeSynth, then keep the result assignable to the type. */
+    private function coerceViaSynth(\ReflectionNamedType $type, mixed $value): mixed
+    {
+        $typeName = $type->getName();
+        $synth = \Nitro\Livewire\Synthesizers\SynthManager::typeSynthFor($typeName);
+
+        // Unknown class type with no synth (e.g. a Model set in mount()) — leave
+        // the incoming value untouched rather than guess at a coercion.
+        if ($synth === null) {
+            return $value;
+        }
+
+        $coerced = $synth->hydrateFromType($typeName, $value);
+
+        // A synth may hand back a value it couldn't coerce (FloatSynth returns a
+        // raw non-numeric string); a typed property can't hold that, so treat it
+        // as "no value" and let validation report it instead of a TypeError.
+        if ($coerced !== null && ! $this->valueFitsType($typeName, $coerced)) {
+            $coerced = null;
+        }
+
+        // A non-nullable field can't hold null (an emptied input): numerics fall
+        // back to zero; other typed props should be declared nullable to accept
+        // an empty value.
+        if ($coerced === null && ! $type->allowsNull()) {
+            return match ($typeName) {
+                'int'   => 0,
+                'float' => 0.0,
+                default => $value,
+            };
+        }
+
+        return $coerced;
+    }
+
+    /** Whether a coerced value is assignable to the declared scalar/class type. */
+    private function valueFitsType(string $typeName, mixed $value): bool
+    {
+        return match ($typeName) {
+            'int'   => is_int($value),
+            'float' => is_int($value) || is_float($value),
+            default => $value instanceof $typeName,
+        };
+    }
+
+    /** @var array<class-string, array<string, bool>> Memoized #[Locked] flags per class. */
+    private static array $lockedCache = [];
+
+    /**
+     * Whether the root property behind an update key is marked #[Locked] — i.e.
+     * the browser must not be allowed to change it. Nested keys (form.x) resolve
+     * to their root property.
+     */
+    public function isPropertyLocked(string $key): bool
+    {
+        $root = str_contains($key, '.') ? explode('.', $key, 2)[0] : $key;
+
+        if (! isset(self::$lockedCache[static::class][$root])) {
+            $locked = property_exists($this, $root)
+                && (new ReflectionProperty($this, $root))
+                    ->getAttributes(\Nitro\Livewire\Attributes\Locked::class) !== [];
+
+            self::$lockedCache[static::class][$root] = $locked;
+        }
+
+        return self::$lockedCache[static::class][$root];
+    }
+
+    /** @var array<class-string, true> Classes already validated as fully typed. */
+    private static array $typedChecked = [];
+
+    /**
+     * Enforce Nitro's typed-property design: every public component property must
+     * declare a type, so incoming wire:model values coerce deterministically
+     * (see coerce()). An untyped property is a bug and fails loudly. Validated
+     * once per component class.
+     */
+    public function assertPropertiesAreTyped(): void
+    {
+        if (isset(self::$typedChecked[static::class])) {
+            return;
+        }
+
+        foreach ((new ReflectionObject($this))->getProperties(ReflectionProperty::IS_PUBLIC) as $property) {
+            if ($property->isStatic()) {
+                continue;
+            }
+
+            if (! $property->hasType()) {
+                throw new \RuntimeException(sprintf(
+                    'Livewire component [%s]: public property [$%s] has no type. Nitro requires '
+                    . 'typed public properties (e.g. `public ?string $%s = null;`) so wire:model '
+                    . 'values coerce correctly instead of silently mis-casting.',
+                    static::class,
+                    $property->getName(),
+                    $property->getName(),
+                ));
+            }
+        }
+
+        self::$typedChecked[static::class] = true;
     }
 
     /** Assign the manager-owned identity. */
