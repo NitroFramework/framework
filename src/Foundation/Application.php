@@ -3,6 +3,7 @@
 namespace Nitro\Foundation;
 
 use Nitro\Cache\CacheServiceProvider;
+use Nitro\Concurrency\ConcurrencyServiceProvider;
 use Nitro\Container\Container;
 use Nitro\Container\ContainerProfiler;
 use Nitro\Container\Contracts\ContainerInterface;
@@ -358,6 +359,7 @@ class Application
             HtmxServiceProvider::class,
             PerformanceBarServiceProvider::class,
             CacheServiceProvider::class,
+            ConcurrencyServiceProvider::class,
             FilesystemServiceProvider::class,
             RedisServiceProvider::class,
             QueueServiceProvider::class,
