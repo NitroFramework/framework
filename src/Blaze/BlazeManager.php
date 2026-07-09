@@ -162,7 +162,12 @@ class BlazeManager
 
     protected function hasBlazeMarker(string $path): bool
     {
-        return str_contains((string) file_get_contents($path), '@blaze');
+        // @blaze is a top-of-file opt-in directive, so probe the first bytes
+        // instead of reading the whole component — the same bounded-read pattern
+        // ViewRenderer uses to sniff @stream.
+        $head = @file_get_contents($path, false, null, 0, 512);
+
+        return $head !== false && str_contains($head, '@blaze');
     }
 
     protected function normalize(string $path): string

@@ -50,6 +50,26 @@ class Kernel
     private array $responseReadyHooks = [];
     private array $terminatingHooks = [];
 
+    /**
+     * Per-route gathered middleware-name lists, keyed by the route's own
+     * middleware signature. The global stack + group expansion are deterministic
+     * for a given route, so this is computed once and reused every request —
+     * only the instances are resolved fresh (below), keeping request-scoped
+     * middleware dependencies correct.
+     *
+     * @var array<string, array<int, string>>
+     */
+    private array $gatheredMiddlewareCache = [];
+
+    /**
+     * Resolved middleware name → class-string (or null when unresolvable). Pure
+     * string lookup, safe to memoize for the kernel's lifetime; avoids repeating
+     * the alias lookup + class_exists() on every request.
+     *
+     * @var array<string, string|null>
+     */
+    private array $middlewareClassCache = [];
+
     protected RouteDispatcher $dispatcher;
 
     public function __construct(
@@ -139,9 +159,19 @@ class Kernel
      */
     protected function gatherMiddleware(Route $resolvedRoute): array
     {
+        $routeMiddleware = $resolvedRoute->getMiddleware();
+
+        // The gathered list depends only on the route's own middleware (the
+        // global stack + groups are fixed), so memoize by that signature and
+        // skip the group expansion on every subsequent request for this shape.
+        $key = $routeMiddleware === [] ? '' : implode("\0", $routeMiddleware);
+        if (isset($this->gatheredMiddlewareCache[$key])) {
+            return $this->gatheredMiddlewareCache[$key];
+        }
+
         $gathered = $this->middleware;
 
-        foreach ($resolvedRoute->getMiddleware() as $name) {
+        foreach ($routeMiddleware as $name) {
             if (isset($this->middlewareGroups[$name])) {
                 foreach ($this->middlewareGroups[$name] as $groupMiddleware) {
                     $gathered[] = $groupMiddleware;
@@ -151,16 +181,24 @@ class Kernel
             $gathered[] = $name;
         }
 
-        return $gathered;
+        return $this->gatheredMiddlewareCache[$key] = $gathered;
     }
 
     /** Resolve a middleware alias (or a fully-qualified class name) to an instance. */
     protected function resolveRouteMiddleware(string $name): ?object
     {
         // Registered alias first (resolved from the Router); otherwise accept a
-        // class-name middleware directly (Laravel allows ->middleware(MyMiddleware::class)),
-        // so app middleware works without registering an alias.
-        $class = $this->router->getMiddlewareAlias($name) ?? ($name !== '' && class_exists($name) ? $name : null);
+        // class-name middleware directly (->middleware(MyMiddleware::class)), so
+        // app middleware works without registering an alias. The name→class step
+        // is pure, so memoize it; the instance itself is still resolved per
+        // request so request-scoped dependencies stay fresh.
+        if (!array_key_exists($name, $this->middlewareClassCache)) {
+            $this->middlewareClassCache[$name] =
+                $this->router->getMiddlewareAlias($name)
+                ?? ($name !== '' && class_exists($name) ? $name : null);
+        }
+
+        $class = $this->middlewareClassCache[$name];
         if ($class === null) {
             return null;
         }

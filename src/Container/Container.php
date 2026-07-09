@@ -85,6 +85,17 @@ class Container implements ContainerInterface
      */
     private array $reflectionCache = [];
 
+    /**
+     * Cached ReflectionMethod + parameter metadata for call() targets, keyed by
+     * "Class::method". Controller dispatch goes through call() on every request;
+     * without this each dispatch rebuilds a ReflectionMethod and re-materializes
+     * its ReflectionParameter objects. Methods are stateless w.r.t. the instance,
+     * so one cache entry serves every future invocation.
+     *
+     * @var array<string, array{reflector: \ReflectionMethod, params: array}>
+     */
+    private array $callableCache = [];
+
     // ============================================
     // SINGLETON
     // ============================================
@@ -431,6 +442,7 @@ class Container implements ContainerInterface
     public function clearReflectionCache(): void
     {
         $this->reflectionCache = [];
+        $this->callableCache = [];
     }
 
     /**
@@ -694,16 +706,25 @@ class Container implements ContainerInterface
     {
         if (is_array($callable)) {
             [$object, $method] = $callable;
-            $reflector = new \ReflectionMethod($object, $method);
-        } else {
-            $reflector = new \ReflectionFunction($callable);
+
+            // Cache the ReflectionMethod + its parameter list per Class::method.
+            // The reflector is instance-independent, so invokeArgs() below can
+            // reuse it for any instance — the controller-dispatch hot path then
+            // skips ReflectionMethod construction entirely after the first hit.
+            $key = (is_object($object) ? $object::class : $object) . '::' . $method;
+            $meta = $this->callableCache[$key]
+                ??= (static function () use ($object, $method): array {
+                    $r = new \ReflectionMethod($object, $method);
+                    return ['reflector' => $r, 'params' => $r->getParameters()];
+                })();
+
+            $dependencies = $this->resolveDependencies(null, $meta['params'], $parameters);
+
+            return $meta['reflector']->invokeArgs($object, $dependencies);
         }
 
+        $reflector = new \ReflectionFunction($callable);
         $dependencies = $this->resolveDependencies(null, $reflector->getParameters(), $parameters);
-
-        if (is_array($callable)) {
-            return $reflector->invokeArgs($callable[0], $dependencies);
-        }
 
         return $reflector->invokeArgs($dependencies);
     }

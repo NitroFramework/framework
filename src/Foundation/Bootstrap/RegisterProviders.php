@@ -13,7 +13,13 @@ class RegisterProviders implements BootstrapperInterface
     {
         $cachePath = $app->paths()->cache('bootstrap.php');
 
-        if (is_file($cachePath)) {
+        // The pre-merged provider list is a PRODUCTION optimization. In debug we
+        // must always discover live, so a newly added module or provider appears
+        // immediately — without a manual `optimize:clear`. Honouring a stale
+        // bootstrap cache in dev silently freezes the provider list (new modules
+        // never load), the same footgun RouteLoader avoids with its !app.debug
+        // cache gate. So: use the cache only in production.
+        if (!$app->isDebug() && is_file($cachePath)) {
             $cached = require $cachePath;
             // Use the pre-merged provider list straight from cache and skip the
             // live array_merge + config lookup in registerConfiguredProviders.

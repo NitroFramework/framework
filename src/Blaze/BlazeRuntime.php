@@ -19,6 +19,9 @@ use Nitro\View\Support\HtmlString;
  */
 class BlazeRuntime
 {
+    /** Resolved view engine, memoized so each helper forward skips app(). */
+    private ?ViewEngine $engine = null;
+
     public function __construct(protected BlazeManager $manager) {}
 
     /**
@@ -85,6 +88,6 @@ class BlazeRuntime
 
     protected function engine(): ViewEngine
     {
-        return app(ViewEngine::class);
+        return $this->engine ??= app(ViewEngine::class);
     }
 }

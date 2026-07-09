@@ -52,35 +52,62 @@ class PerformanceMetrics
     /**
      * Start performance tracking.
      *
-     * We ALWAYS record the start time + start memory (two cheap calls) so the
-     * `@elapsed_time` / `@memory_usage` Blade directives work even in
-     * production. Only the expensive collection (class list, file list) and
-     * the full performance bar UI are gated behind `APP_DEBUG` / ?performance.
+     * `start()` runs at t=0 in Application::create(), BEFORE the environment
+     * file and config are loaded. We therefore cannot ask config('app.debug')
+     * here — and reading the raw APP_DEBUG env is unreliable, because on a
+     * standard SAPI the .env file hasn't been parsed yet, so a value that lives
+     * only in .env is invisible at this point. That mismatch is why metrics used
+     * to silently stay off in debug. So:
      *
-     * The owner can force a value via the $enabled argument.
+     *   - We ALWAYS capture the full baseline (timing, memory, class + file
+     *     snapshots) at t=0. This keeps `@elapsed_time` / `@memory_usage` and the
+     *     class/file counts accurate regardless of when `enabled` is decided.
+     *   - The authoritative enabled decision is DEFERRED to setEnabled(), which
+     *     Application calls once config is loaded, using config('app.debug') so
+     *     the gate matches every other debug feature in the framework.
+     *
+     * The provisional env/query gate below only affects the brief window before
+     * setEnabled() runs (and worker mode, where the runtime exposes a real
+     * APP_DEBUG env). The owner can force a value via the $enabled argument.
      */
     public static function start(?bool $enabled = null): void
     {
-        // Cheap timing baseline — always captured.
         self::$startTime   = microtime(true);
         self::$startMemory = memory_get_usage();
         self::$timers['app_start'] = self::$startTime;
 
+        // Baseline snapshots — always captured at t=0 so counts stay accurate no
+        // matter when the enabled decision is finalized.
+        self::$startClasses = get_declared_classes();
+        self::$startFiles   = get_included_files();
+
         if ($enabled !== null) {
             self::$enabled = $enabled;
-        } else {
-            $debug = $_ENV['APP_DEBUG'] ?? $_SERVER['APP_DEBUG'] ?? getenv('APP_DEBUG');
-            $debug = is_string($debug) ? filter_var($debug, FILTER_VALIDATE_BOOLEAN) : (bool) $debug;
-            self::$enabled = $debug || isset($_GET['performance']);
-        }
-
-        if (!self::$enabled) {
             return;
         }
 
-        // Heavy snapshots only when the dev tooling is on.
-        self::$startClasses = get_declared_classes();
-        self::$startFiles   = get_included_files();
+        // Provisional gate for the pre-config window / worker mode (where a real
+        // APP_DEBUG env is present). setEnabled() applies the config-based value.
+        self::$enabled = self::debugFromEnv() || isset($_GET['performance']);
+    }
+
+    /**
+     * Apply the authoritative enabled decision once config is available.
+     * Called by the Application after bootstrap so the gate derives from
+     * config('app.debug') (plus the ?performance override) — consistent with
+     * the rest of the framework and immune to how APP_DEBUG is delivered.
+     */
+    public static function setEnabled(bool $enabled): void
+    {
+        self::$enabled = $enabled;
+    }
+
+    /** Read APP_DEBUG straight from the process environment (best-effort). */
+    private static function debugFromEnv(): bool
+    {
+        $debug = $_ENV['APP_DEBUG'] ?? $_SERVER['APP_DEBUG'] ?? getenv('APP_DEBUG');
+
+        return is_string($debug) ? filter_var($debug, FILTER_VALIDATE_BOOLEAN) : (bool) $debug;
     }
 
     /**

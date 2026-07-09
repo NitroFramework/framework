@@ -175,20 +175,31 @@ class ViewRenderer implements ViewEngine
      */
     protected function isStreamView(string $view): bool
     {
+        // Inherent, per-view verdict (does the template declare @stream?) — this
+        // is what's cacheable. The overwhelming majority of views don't stream,
+        // so this returns early WITHOUT the container/Request probe below.
+        $isStream = $this->streamViewCache[$view] ??= $this->computeStreamView($view);
+        if (! $isStream) {
+            return false;
+        }
+
+        // The view streams, but HTMX partials and fragment requests never do —
+        // ask the bound Request rather than reading $_GET directly. Only paid
+        // for the rare view that actually declares @stream.
         $container = Container::getInstance();
         if ($container->has('request')) {
             $request = $container->make('request');
-            // HTMX partials and fragment requests never stream — ask the bound
-            // Request rather than reading $_GET directly.
             if ($request->isHtmx() || !empty($request->query('_fragment'))) {
                 return false;
             }
         }
 
-        if (isset($this->streamViewCache[$view])) {
-            return $this->streamViewCache[$view];
-        }
+        return true;
+    }
 
+    /** The view's declared streaming status, ignoring the per-request override. */
+    private function computeStreamView(string $view): bool
+    {
         $templateFile = $this->getTemplatePath($view);
 
         // Trust the manifest only when it's at least as new as the source view.
@@ -196,14 +207,14 @@ class ViewRenderer implements ViewEngine
         // otherwise be misrouted; when stale, fall through to the live probe.
         $manifestVerdict = ViewManifest::isStream($view);
         if ($manifestVerdict !== null && ViewManifest::isFresh($templateFile)) {
-            return $this->streamViewCache[$view] = $manifestVerdict;
+            return $manifestVerdict;
         }
 
-        $firstBytes   = @file_get_contents($templateFile, false, null, 0, 256);
+        $firstBytes = @file_get_contents($templateFile, false, null, 0, 256);
         if ($firstBytes === false) {
-            return $this->streamViewCache[$view] = false;
+            return false;
         }
-        return $this->streamViewCache[$view] = str_contains($firstBytes, '@stream');
+        return str_contains($firstBytes, '@stream');
     }
 
     /**

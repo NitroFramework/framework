@@ -18,6 +18,9 @@ use Nitro\Http\Response;
  */
 class EncryptCookies
 {
+    /** Memoized never-encrypt list — the config lookups happen once, not per cookie. */
+    private ?array $except = null;
+
     public function __construct(
         protected Encrypter $encrypter
     ) {}
@@ -32,7 +35,7 @@ class EncryptCookies
     /** Names that are never encrypted/decrypted. */
     protected function except(): array
     {
-        return array_merge(
+        return $this->except ??= array_merge(
             [(string) config('session.cookie', 'nitro_session')],
             (array) config('cookie.except', []),
         );

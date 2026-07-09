@@ -37,10 +37,21 @@ trait ResetsForWorkerMode
         // THIS request, not the worker's uptime.
         PerformanceMetrics::reset();
 
-        // Drop any directive-cache memoization that might have grown during
-        // the request. The compiler's per-source freshness verdicts are
-        // request-lifetime caches.
-        if (class_exists(CompiledTemplateCache::class)
+        // The compiler's per-source freshness verdicts are request-lifetime
+        // caches ONLY so a developer editing a template mid-worker sees the
+        // change without restarting. In production a source file cannot change
+        // under a running worker (a deploy restarts the workers), so clearing
+        // the cache every request just re-pays a filemtime() pair per template
+        // on every render. Gate the clear behind debug: prod keeps its verdicts
+        // for the process lifetime and does zero freshness stats after warmup.
+        // Read debug through the container (not the config() helper) so this is
+        // safe even when no config repository is bound, defaulting to the
+        // production behaviour of not clearing.
+        $debug = $this->container->has('config')
+            && (bool) $this->container->get('config')->get('app.debug', false);
+
+        if ($debug
+            && class_exists(CompiledTemplateCache::class)
             && $this->container->has(CompiledTemplateCache::class)) {
             try {
                 $this->container->get(CompiledTemplateCache::class)

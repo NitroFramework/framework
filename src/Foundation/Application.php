@@ -177,16 +177,27 @@ class Application
     }
 
     /**
-     * Turn on the container profiler when app.debug is enabled. Runs after the
-     * config is loaded, so it reads config rather than parsing env by hand.
+     * Finalize debug-only tooling now that config is loaded. Runs after the
+     * bootstrappers so it can read config('app.debug') rather than parsing env
+     * by hand — the single source of truth every other debug feature uses.
      */
-    protected function enableProfilerIfDebugging(): void
+    protected function applyDebugGates(): void
     {
-        if (! (bool) config('app.debug', false)) {
-            return;
-        }
+        $debug = (bool) config('app.debug', false);
 
-        if (method_exists($this->container, 'setProfiler')) {
+        // Authoritative gate for the performance metrics. start() captured the
+        // baseline at t=0 from a provisional env guess; here we correct it from
+        // config so metrics track app.debug regardless of how APP_DEBUG is
+        // delivered (fixes the standard-mode .env-only case). ?performance still
+        // forces it on for an ad-hoc look in production.
+        PerformanceMetrics::setEnabled($debug || isset($_GET['performance']));
+
+        // The container profiler records a span on every resolution — useful,
+        // but not free. Make it OPT-IN (?profile / ?performance) rather than on
+        // for every debug request, so day-to-day dev isn't taxed. Still gated to
+        // debug so it can never be switched on against production.
+        if ($debug && (isset($_GET['profile']) || isset($_GET['performance']))
+            && method_exists($this->container, 'setProfiler')) {
             $this->container->setProfiler(ContainerProfiler::getInstance());
         }
     }
@@ -203,7 +214,7 @@ class Application
 
         $this->runHooks($this->bootingHooks);
         $this->runBootstrappers();
-        $this->enableProfilerIfDebugging();
+        $this->applyDebugGates();
         $this->bootProviders();
         $this->runHooks($this->bootedHooks);
 
