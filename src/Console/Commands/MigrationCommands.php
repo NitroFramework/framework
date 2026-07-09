@@ -416,12 +416,23 @@ class MigrationCommands implements CommandInterface
 
         $this->output->info("Dropping all tables...");
 
-        foreach ($this->getAllTables() as $table) {
-            // table names come back as objects via information_schema
-            $name = is_object($table) ? ($table->table_name ?? $table->TABLE_NAME ?? null) : $table;
-            if (!$name || $name === $this->migrationsTable) continue;
-            $this->schema->dropIfExists($name);
-            $this->output->write("Dropped: {$name}\n");
+        // Drop with foreign-key checks disabled so tables come down regardless of
+        // FK dependency order. Without this, dropping a parent table that a
+        // child's FK still references fails mid-loop and leaves the schema
+        // half-dropped (e.g. attendances gone, categories un-droppable because
+        // posts references it). Restored in the finally so the connection isn't
+        // left with checks off for the migrate run that follows.
+        $this->setForeignKeyChecks(false);
+        try {
+            foreach ($this->getAllTables() as $table) {
+                // table names come back as objects via information_schema
+                $name = is_object($table) ? ($table->table_name ?? $table->TABLE_NAME ?? null) : $table;
+                if (!$name || $name === $this->migrationsTable) continue;
+                $this->schema->dropIfExists($name);
+                $this->output->write("Dropped: {$name}\n");
+            }
+        } finally {
+            $this->setForeignKeyChecks(true);
         }
 
         DB::table($this->migrationsTable)->delete();
@@ -626,6 +637,32 @@ class MigrationCommands implements CommandInterface
         // Driver-aware listing — the schema grammar reads sqlite_master on
         // SQLite and information_schema on MySQL. Rows expose `table_name`.
         return \Nitro\Database\Schema\SchemaBuilder::getTables();
+    }
+
+    /**
+     * Toggle foreign-key enforcement on the active connection so all tables can
+     * be dropped regardless of FK dependency order (see freshMigrations).
+     * Driver-aware — MySQL/MariaDB use SET FOREIGN_KEY_CHECKS, SQLite uses
+     * PRAGMA foreign_keys — matching Laravel's Schema disable/enable helpers.
+     */
+    private function setForeignKeyChecks(bool $enabled): void
+    {
+        $sql = match ($this->databaseDriver()) {
+            'sqlite' => 'PRAGMA foreign_keys = ' . ($enabled ? '1' : '0'),
+            default  => 'SET FOREIGN_KEY_CHECKS=' . ($enabled ? '1' : '0'),
+        };
+
+        DB::statement($sql);
+    }
+
+    /** The active PDO driver name ('mysql', 'sqlite', …); defaults to mysql. */
+    private function databaseDriver(): string
+    {
+        try {
+            return (string) DB::connection()->getPdo()->getAttribute(\PDO::ATTR_DRIVER_NAME);
+        } catch (\Throwable) {
+            return 'mysql';
+        }
     }
 
     private function recordMigration(string $migration, int $batch): void
