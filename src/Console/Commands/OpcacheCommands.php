@@ -134,7 +134,7 @@ class OpcacheCommands implements CommandInterface
             $result = curl_exec($ch);
             $error  = curl_error($ch);
             $code   = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            curl_close($ch);
+            // No curl_close(): $ch frees when it drops (deprecated no-op on 8.5+).
 
             if ($result === false) {
                 throw new \RuntimeException("curl: {$error}");
