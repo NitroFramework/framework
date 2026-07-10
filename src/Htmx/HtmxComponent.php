@@ -683,7 +683,7 @@ class HtmxComponent
     /**
      * Wrap rendered HTML in the framework's instance-ID envelope. No-op
      * when the component doesn't persist state. Single source of truth
-     * for the wrapper markup — used by HtmxKernel for action responses,
+     * for the wrapper markup — used by HtmxDispatcher for action responses,
      * by HtmxComponentRenderer for @widget embeds, and by the fragment
      * renderer for fragment-scoped responses.
      */

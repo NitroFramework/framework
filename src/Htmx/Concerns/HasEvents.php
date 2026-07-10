@@ -64,7 +64,7 @@ trait HasEvents
 
     /**
      * Apply pending event headers to a response.
-     * Called by HtmxKernel after action execution.
+     * Called by HtmxDispatcher after action execution.
      */
     public function applyEventHeaders(Response $response): Response
     {

@@ -15,30 +15,33 @@ use Nitro\Htmx\RenderContext;
  * The server-side counterpart to hx-component.js.
  *
  * While the JS runtime compiles ergonomic attributes into HTMX requests,
- * this kernel receives those requests and routes them through the component
+ * this dispatcher receives those requests and routes them through the component
  * lifecycle. Together they form a complete round trip:
  *
- *   Browser:  hx-click="delete(5)"
- *        ↓    (JS compiles → HTMX fires POST /hx/todo/delete)
- *   Kernel:   resolve("todo") → Todo::delete(5) → render → HTML response
- *        ↓    (HTMX swaps response into target)
- *   Browser:  DOM updated, re-compiled for new elements
+ *   Browser:   hx-click="delete(5)"
+ *        ↓     (JS compiles → HTMX fires POST /hx/todo/delete)
+ *   Dispatch:  resolve("todo") → Todo::delete(5) → render → HTML response
+ *        ↓     (HTMX swaps response into target)
+ *   Browser:   DOM updated, re-compiled for new elements
  *
  * The developer-facing interface is the attribute API surface — developers
  * write hx-click, hx-model, hx-change and never touch URLs, HTTP methods,
- * or request plumbing. The kernel + JS runtime are the translation layer
+ * or request plumbing. The dispatcher + JS runtime are the translation layer
  * that makes this abstraction work.
+ *
+ * Not a front-controller kernel like Http\Kernel — it runs INSIDE the HTTP
+ * request to dispatch a component interaction; hence "dispatcher", not "kernel".
  *
  * Processes three types of requests:
  *   1. Page requests  — full page loads with layout wrapping
  *   2. HTMX actions   — partial responses from component actions
  *   3. Lazy loading   — deferred widget rendering via __lazy
  *
- * The kernel determines the rendering context and applies layout wrapping
- * automatically. Components just call render() — the kernel decides whether
+ * The dispatcher determines the rendering context and applies layout wrapping
+ * automatically. Components just call render() — the dispatcher decides whether
  * to wrap with a layout (page requests) or return a partial (HTMX/embed).
  */
-class HtmxKernel
+class HtmxDispatcher
 {
     /** Action name used internally for lazy-loaded component requests */
     private const LAZY_ACTION = '__lazy';

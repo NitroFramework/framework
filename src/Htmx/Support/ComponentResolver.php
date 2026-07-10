@@ -11,7 +11,7 @@ use ReflectionMethod;
  * Resolves HTMX component instances from short names and validates
  * that requested actions are safe to call.
  *
- * Used by HtmxKernel to map incoming request parameters (component name,
+ * Used by HtmxDispatcher to map incoming request parameters (component name,
  * action name) to actual class instances and callable methods.
  */
 class ComponentResolver

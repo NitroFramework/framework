@@ -6,7 +6,7 @@ use Nitro\Cache\CacheManager;
 use Nitro\Foundation\Http\Kernel;
 use Nitro\Foundation\Providers\ServiceProvider;
 use Nitro\Htmx\HtmxComponentRenderer;
-use Nitro\Htmx\HtmxKernel;
+use Nitro\Htmx\HtmxDispatcher;
 use Nitro\Htmx\Navigation\NitroNavigation;
 use Nitro\Http\Request;
 use Nitro\Http\Response;
@@ -104,8 +104,8 @@ class HtmxServiceProvider extends ServiceProvider
             return new ArgumentResolver($container);
         });
 
-        $this->container->singleton(HtmxKernel::class, function ($container) {
-            return new HtmxKernel(
+        $this->container->singleton(HtmxDispatcher::class, function ($container) {
+            return new HtmxDispatcher(
                 $container,
                 $container->make(RequestGuard::class),
                 $container->make(ComponentResolver::class),
@@ -180,7 +180,7 @@ class HtmxServiceProvider extends ServiceProvider
             // $this is bound to the Router instance, so the protected addRoute()
             // is reachable. The HTMX kernel is resolved lazily at request time.
             return $this->addRoute('GET', $path, function (Request $request) use ($container, $component, $action) {
-                return $container->make(HtmxKernel::class)->handle($request, $component, $action, true);
+                return $container->make(HtmxDispatcher::class)->handle($request, $component, $action, true);
             });
         });
     }
@@ -209,7 +209,7 @@ class HtmxServiceProvider extends ServiceProvider
             $realComponent = $obfuscator->reverseLookup($hashedComp);
             $realAction = $obfuscator->reverseActionLookup($realComponent, $hashedAction);
 
-            return $this->container->make(HtmxKernel::class)
+            return $this->container->make(HtmxDispatcher::class)
                 ->handle($this->container->make('request'), $realComponent, $realAction);
         });
     }

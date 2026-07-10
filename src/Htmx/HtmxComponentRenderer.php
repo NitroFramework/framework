@@ -11,7 +11,7 @@ use Nitro\Htmx\Support\HxObfuscator;
  * This is the non-HTMX code path — used when a Blade template wants to embed
  * a component on first load (before any HTMX requests are made).
  *
- * For HTMX requests (hx-get, hx-post, etc.) the HtmxKernel handles execution
+ * For HTMX requests (hx-get, hx-post, etc.) the HtmxDispatcher handles execution
  * and applies security checks (HX-Request header, CSRF). This renderer skips
  * those checks intentionally since it runs server-side during a normal page render.
  *
@@ -240,7 +240,7 @@ class HtmxComponentRenderer
      *   @widget('Counter', [], ['counter', 'modals'], lazy: 'intersect')
      *
      * Same as renderLazy() but encodes the fragment names into the URL
-     * as a _fragments query parameter. The HtmxKernel reads this and
+     * as a _fragments query parameter. The HtmxDispatcher reads this and
      * sets renderFragments after the component lifecycle completes.
      *
      * @param  string      $name       Component short name
