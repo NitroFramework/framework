@@ -222,6 +222,11 @@ class Kernel
             return $result;
         }
 
+        // 3b. An object that renders itself (API resources, self-serializing DTOs).
+        if ($result instanceof \Nitro\Http\Contracts\Responsable) {
+            return $result->toResponse($request);
+        }
+
         // 4. Handle Strings (HTML)
         if (is_string($result)) {
             return Response::html($result);

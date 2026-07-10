@@ -52,11 +52,56 @@ class Request
     /** Create a Request from PHP superglobals (Laravel-style). */
     public static function capture(): self
     {
-        $method  = $_SERVER['REQUEST_METHOD'] ?? 'GET';
         $path    = static::normalizePath($_SERVER['REQUEST_URI'] ?? '/');
         $headers = static::parseHeaders();
+        $method  = static::resolveMethod();
+        $body    = static::resolveBody($headers);
 
-        return new static($method, $path, $headers, $_GET, $_POST, $_FILES, $_SERVER, $_COOKIE);
+        return new static($method, $path, $headers, $_GET, $body, $_FILES, $_SERVER, $_COOKIE);
+    }
+
+    /**
+     * The HTTP method, honouring POST method spoofing — a `_method` form field or
+     * an `X-HTTP-Method-Override` header (only PUT/PATCH/DELETE). This is what makes
+     * the @method / method_field() form helpers actually take effect server-side.
+     */
+    private static function resolveMethod(): string
+    {
+        $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
+        if ($method !== 'POST') {
+            return $method;
+        }
+
+        $spoofed = $_POST['_method'] ?? $_SERVER['HTTP_X_HTTP_METHOD_OVERRIDE'] ?? null;
+        if ($spoofed !== null) {
+            $spoofed = strtoupper((string) $spoofed);
+            if (in_array($spoofed, ['PUT', 'PATCH', 'DELETE'], true)) {
+                return $spoofed;
+            }
+        }
+
+        return $method;
+    }
+
+    /**
+     * The request body bag: form fields for urlencoded/multipart, or the decoded
+     * JSON body for `application/json` — so input()/all() see JSON API payloads.
+     *
+     * @param array<string, string> $headers Lowercase-keyed request headers.
+     * @return array<string, mixed>
+     */
+    private static function resolveBody(array $headers): array
+    {
+        $contentType = strtolower($headers['content-type'] ?? ($_SERVER['CONTENT_TYPE'] ?? ''));
+
+        if (str_contains($contentType, '/json')) {
+            $decoded = json_decode((string) file_get_contents('php://input'), true);
+            if (is_array($decoded)) {
+                return $decoded;
+            }
+        }
+
+        return $_POST;
     }
 
     /**
@@ -231,6 +276,25 @@ class Request
     public function isHtmx(): bool
     {
         return !empty($this->header('hx-request'));
+    }
+
+    /** Whether the request carries a JSON body (Content-Type: application/json). */
+    public function isJson(): bool
+    {
+        return str_contains(strtolower((string) $this->header('Content-Type')), '/json');
+    }
+
+    /**
+     * The decoded JSON body, or a single top-level key from it. For a JSON request
+     * the body bag already holds the decoded payload, so input()/all() work too.
+     */
+    public function json(?string $key = null, mixed $default = null): mixed
+    {
+        if ($key === null) {
+            return $this->body;
+        }
+
+        return $this->body[$key] ?? $default;
     }
 
     /**

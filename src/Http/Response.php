@@ -134,6 +134,46 @@ class Response
         return $this->header('Content-Type', $contentType);
     }
 
+    // ─── HTTP caching ───────────────────────────────────────────────────────────
+
+    /** Mark the response cacheable for $seconds (private by default; public = shared caches). */
+    public function cache(int $seconds, bool $public = false): self
+    {
+        $visibility = $public ? 'public' : 'private';
+
+        return $this->header('Cache-Control', "{$visibility}, max-age={$seconds}");
+    }
+
+    /** Forbid caching entirely. */
+    public function noCache(): self
+    {
+        $this->header('Cache-Control', 'no-store, no-cache, must-revalidate');
+
+        return $this->header('Pragma', 'no-cache');
+    }
+
+    /** Set Last-Modified from a unix timestamp or DateTimeInterface (validator for conditional GET). */
+    public function lastModified(int|\DateTimeInterface $time): self
+    {
+        $timestamp = $time instanceof \DateTimeInterface ? $time->getTimestamp() : $time;
+
+        return $this->header('Last-Modified', gmdate('D, d M Y H:i:s', $timestamp) . ' GMT');
+    }
+
+    /** Set an ETag validator (quoted; weak validators prefixed with W/). */
+    public function etag(string $tag, bool $weak = false): self
+    {
+        return $this->header('ETag', ($weak ? 'W/' : '') . '"' . trim($tag, '"') . '"');
+    }
+
+    /** Turn this into a 304 Not Modified with an empty body (answer to a conditional GET). */
+    public function notModified(): self
+    {
+        $this->setStatusCode(304);
+
+        return $this->setContent('');
+    }
+
     public function send(): void
 {
     if (headers_sent()) {
