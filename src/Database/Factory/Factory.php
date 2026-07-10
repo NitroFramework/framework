@@ -2,7 +2,7 @@
 
 namespace Nitro\Database\Factory;
 
-use Nitro\Database\Model\BaseModel;
+use Nitro\Database\Model\Model;
 
 /**
  * Base class for model factories. Laravel-shaped:
@@ -90,9 +90,9 @@ abstract class Factory
      * instance when count is 1, an array otherwise — matches Laravel's
      * shape so test code reads identically.
      *
-     * @return BaseModel|array<int, BaseModel>
+     * @return Model|array<int, Model>
      */
-    public function make(array $attributes = []): BaseModel|array
+    public function make(array $attributes = []): Model|array
     {
         if ($this->count > 1) {
             return $this->seq($this->count, fn() => $this->makeOne($attributes));
@@ -103,9 +103,9 @@ abstract class Factory
     /**
      * Build AND persist model instance(s).
      *
-     * @return BaseModel|array<int, BaseModel>
+     * @return Model|array<int, Model>
      */
-    public function create(array $attributes = []): BaseModel|array
+    public function create(array $attributes = []): Model|array
     {
         if ($this->count > 1) {
             return $this->seq($this->count, fn() => $this->createOne($attributes));
@@ -128,17 +128,17 @@ abstract class Factory
         return $this->mergeStates($attributes);
     }
 
-    private function makeOne(array $overrides): BaseModel
+    private function makeOne(array $overrides): Model
     {
         $attrs = $this->mergeStates($overrides);
         $class = $this->resolveModelClass();
-        /** @var BaseModel $instance */
+        /** @var Model $instance */
         $instance = new $class();
         $instance->fill($attrs);
         return $instance;
     }
 
-    private function createOne(array $overrides): BaseModel
+    private function createOne(array $overrides): Model
     {
         $attrs = $this->mergeStates($overrides);
         $class = $this->resolveModelClass();

@@ -34,8 +34,10 @@ trait HasAggregates
 
     protected function aggregate(string $function, string $column): mixed
     {
-        $sql = $this->grammar->compileAggregate($this, $function, $column);
-        $result = $this->connection->selectOne($sql, $this->getBindings());
-        return $result ? $result->aggregate : null;
+        return $this->cacheResult("agg:{$function}:{$column}", function () use ($function, $column) {
+            $sql = $this->grammar->compileAggregate($this, $function, $column);
+            $result = $this->connection->selectOne($sql, $this->getBindings());
+            return $result ? $result->aggregate : null;
+        });
     }
 }

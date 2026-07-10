@@ -3,7 +3,7 @@
 namespace Nitro\Foundation\Providers;
 
 use Nitro\Container\Container;
-use Nitro\Database\Model\BaseModel;
+use Nitro\Database\Model\Model;
 use Nitro\Exceptions\HttpException;
 use Nitro\Routing\RouteLoader;
 use Nitro\Routing\Contracts\RouterInterface;
@@ -41,7 +41,7 @@ class RoutingServiceProvider extends ServiceProvider
     protected function registerRouteModelBinding(): void
     {
         $this->container->bindParametersUsing(function (string $type, mixed $value) {
-            if (!is_subclass_of($type, BaseModel::class)) {
+            if (!is_subclass_of($type, Model::class)) {
                 return Container::PARAM_UNRESOLVED;
             }
 

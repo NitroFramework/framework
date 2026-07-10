@@ -3,10 +3,10 @@
 namespace Nitro\Database\Factory;
 
 /**
- * Mixin for BaseModel subclasses that exposes ::factory(). Matches the
+ * Mixin for Model subclasses that exposes ::factory(). Matches the
  * Laravel API exactly so test/seeder code copied between projects works:
  *
- *   class User extends BaseModel {
+ *   class User extends Model {
  *       use HasFactory;
  *   }
  *

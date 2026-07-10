@@ -5,6 +5,7 @@ namespace Nitro\Foundation\Providers;
 use Nitro\Database\DB;
 use Nitro\Database\Connection;
 use Nitro\Database\Migration\MigrationPathRegistry;
+use Nitro\Database\Model\Model;
 use Nitro\Database\Query\Paginator;
 use Nitro\Database\Schema\SchemaBuilder;
 use Nitro\Foundation\Contracts\ConfigRepository;
@@ -23,6 +24,11 @@ class DatabaseServiceProvider extends ServiceProvider
 
         $this->container->singleton(Connection::class, fn() => DB::connection());
         $this->container->alias('db', Connection::class);
+
+        // Route model lifecycle events through the app event bus. Set in register()
+        // (before any provider boot()) so model-event listeners registered in a
+        // provider's boot() land on the dispatcher.
+        Model::setEventDispatcher($this->container->get('events'));
 
         // $this->container->singleton(SchemaBuilder::class, fn() => new SchemaBuilder());
         $this->container->alias('schema', SchemaBuilder::class);

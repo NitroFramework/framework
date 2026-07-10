@@ -1,5 +1,6 @@
 <?php
 
+use Nitro\Exceptions\HttpException;
 use Nitro\Http\RedirectResponse;
 use Nitro\Http\Redirector;
 use Nitro\Http\Response;

@@ -5,7 +5,7 @@ namespace Tests\Unit\Database;
 use PHPUnit\Framework\TestCase;
 use Nitro\Database\Connection;
 use Nitro\Database\DB;
-use Nitro\Database\Model\BaseModel;
+use Nitro\Database\Model\Model;
 use Nitro\Database\Model\ModelBuilder;
 use Nitro\Database\Model\Relations\BelongsTo;
 use Nitro\Database\Model\Relations\HasMany;
@@ -188,7 +188,7 @@ class ModelDispatchTest extends TestCase
     }
 }
 
-class DummyUser extends BaseModel
+class DummyUser extends Model
 {
     protected string $table = 'users';
     protected array $fillable = ['name', 'email'];
@@ -205,7 +205,7 @@ class DummyUser extends BaseModel
     }
 }
 
-class DummyPost extends BaseModel
+class DummyPost extends Model
 {
     protected string $table = 'posts';
     protected array $fillable = ['user_id', 'title', 'status'];

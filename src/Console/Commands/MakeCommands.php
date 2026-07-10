@@ -68,9 +68,9 @@ class MakeCommands implements CommandInterface
 
         namespace {$ns};
 
-        use Nitro\\Http\\Controller\\BaseController;
+        use Nitro\\Http\\Controller\\Controller;
 
-        class {$class} extends BaseController
+        class {$class} extends Controller
         {
         {$body}}
 
@@ -115,9 +115,9 @@ class MakeCommands implements CommandInterface
 
         namespace {$ns};
 
-        use Nitro\\Database\\Model\\BaseModel;
+        use Nitro\\Database\\Model\\Model;
 
-        class {$class} extends BaseModel
+        class {$class} extends Model
         {
             protected array \$fillable = [];
         }

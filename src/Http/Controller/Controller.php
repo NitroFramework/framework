@@ -17,17 +17,17 @@ use Nitro\Http\Controller\Concerns\RendersViews;
  * 
  * DESIGN PRINCIPLES:
  * - Each trait handles a single concern (requests, responses, validation, database)
- * - BaseController becomes an assembly layer with minimal logic
+ * - Controller becomes an assembly layer with minimal logic
  * - Lazy service loading still applies within traits
  * - Clear and consistent API across all controllers
  */
-abstract class BaseController
+abstract class Controller
 {
 
     protected ContainerInterface $container;
 
     /**
-     * Initialize BaseController and container
+     * Initialize Controller and container
      */
     public function __construct()
     {

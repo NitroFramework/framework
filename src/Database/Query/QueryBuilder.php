@@ -8,6 +8,7 @@ use Nitro\Database\Query\Grammar\Grammar;
 use Nitro\Database\Query\RawExpression;
 use Nitro\Database\Query\Concerns\BuildsJoins;
 use Nitro\Database\Query\Concerns\BuildsWheres;
+use Nitro\Database\Query\Concerns\CachesQueries;
 use Nitro\Database\Query\Concerns\ExecutesQueries;
 use Nitro\Database\Query\Concerns\HasAggregates;
 
@@ -20,6 +21,7 @@ class QueryBuilder
     use BuildsJoins;
     use ExecutesQueries;
     use HasAggregates;
+    use CachesQueries;
 
     protected Connection $connection;
     protected Grammar $grammar;

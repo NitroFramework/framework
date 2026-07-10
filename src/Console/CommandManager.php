@@ -42,7 +42,6 @@ class CommandManager
             Commands\RouteCommands::class,
             Commands\ViewCommands::class,
             Commands\ConfigCacheCommand::class,
-            Commands\OpcacheCommands::class,
             Commands\MigrationCommands::class,
             Commands\MakeCommands::class,
             Commands\OptimizeCommand::class,

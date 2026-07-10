@@ -9,7 +9,7 @@ namespace Nitro\Auth\Concerns;
  * configurable password column (default "password"), so a model becomes
  * authenticatable by adding `use Authenticatable;` and implementing the
  * contract — no per-model boilerplate. Assumes a host with getKey()/getKeyName()
- * /getAttribute() (i.e. a BaseModel descendant).
+ * /getAttribute() (i.e. a Model descendant).
  */
 trait Authenticatable
 {

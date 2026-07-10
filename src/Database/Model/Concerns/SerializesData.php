@@ -2,7 +2,7 @@
 
 namespace Nitro\Database\Model\Concerns;
 
-use Nitro\Database\Model\BaseModel;
+use Nitro\Database\Model\Model;
 use Nitro\Support\Collection;
 
 /**
@@ -36,7 +36,7 @@ trait SerializesData
             foreach ($this->relations as $key => $value) {
                 if ($value instanceof Collection) {
                     $array[$key] = array_map(fn($m) => $m->toArray(), $value->all());
-                } elseif ($value instanceof BaseModel) {
+                } elseif ($value instanceof Model) {
                     $array[$key] = $value->toArray();
                 } else {
                     $array[$key] = $value;

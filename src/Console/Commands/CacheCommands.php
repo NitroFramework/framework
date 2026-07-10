@@ -9,8 +9,8 @@ use Nitro\Container\Contracts\ContainerInterface;
 use Nitro\Foundation\Contracts\ConfigRepository;
 
 /**
- * Data-cache commands (distinct from opcache:clear, which is PHP
- * opcode-cache and lives in OpcacheCommands).
+ * Data-cache commands (distinct from the opcode cache — opcache preload/reset
+ * is handled by `nitro optimize` / `optimize:clear`).
  *
  *   cache:clear [--store=name]   Flush every key in a cache store.
  *   cache:forget <key>           Drop one key (e.g. "students.page.1").

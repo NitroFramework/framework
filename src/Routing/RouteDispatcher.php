@@ -3,6 +3,7 @@
 namespace Nitro\Routing;
 
 use Closure;
+use Nitro\Actions\Action;
 use Nitro\Container\Contracts\ContainerInterface;
 use Nitro\Http\ViewResponse;
 use Nitro\Http\Request;
@@ -82,7 +83,7 @@ class RouteDispatcher
 
         // Single-action classes run through their own pipeline (authorize →
         // validate → body → response negotiation) instead of a plain call.
-        if ($controller instanceof \Nitro\Actions\Action) {
+        if ($controller instanceof Action) {
             return $controller->runAsController($request, $parameters, $this->container);
         }
 

@@ -56,7 +56,7 @@ class ModelBuilder
         return new Collection($models);
     }
 
-    public function first(): ?BaseModel
+    public function first(): ?Model
     {
         $row = $this->query->first();
         if ($row === null) return null;
@@ -72,7 +72,7 @@ class ModelBuilder
         return $model;
     }
 
-    public function find(int|string $id, string $column = 'id'): ?BaseModel
+    public function find(int|string $id, string $column = 'id'): ?Model
     {
         $row = $this->query->find($id, $column);
         if ($row === null) return null;
@@ -88,7 +88,7 @@ class ModelBuilder
         return $model;
     }
 
-    public function findOrFail(int|string $id, string $column = 'id'): BaseModel
+    public function findOrFail(int|string $id, string $column = 'id'): Model
     {
         $result = $this->find($id, $column);
         if (!$result) {
@@ -97,7 +97,7 @@ class ModelBuilder
         return $result;
     }
 
-    public function firstOrFail(): BaseModel
+    public function firstOrFail(): Model
     {
         $result = $this->first();
         if (!$result) {
@@ -110,7 +110,7 @@ class ModelBuilder
      * Get the first record matching $attributes, or return a new unsaved model
      * filled with $attributes + $values (Laravel's firstOrNew).
      */
-    public function firstOrNew(array $attributes, array $values = []): BaseModel
+    public function firstOrNew(array $attributes, array $values = []): Model
     {
         $existing = $this->whereAttributes($attributes)->first();
         if ($existing !== null) {
@@ -126,7 +126,7 @@ class ModelBuilder
      * Get the first record matching $attributes, or create and persist one from
      * $attributes + $values (Laravel's firstOrCreate).
      */
-    public function firstOrCreate(array $attributes, array $values = []): BaseModel
+    public function firstOrCreate(array $attributes, array $values = []): Model
     {
         $existing = $this->whereAttributes($attributes)->first();
         if ($existing !== null) {
@@ -140,7 +140,7 @@ class ModelBuilder
      * Update the first record matching $attributes with $values, or create it
      * (Laravel's updateOrCreate).
      */
-    public function updateOrCreate(array $attributes, array $values = []): BaseModel
+    public function updateOrCreate(array $attributes, array $values = []): Model
     {
         $existing = $this->whereAttributes($attributes)->first();
         if ($existing !== null) {

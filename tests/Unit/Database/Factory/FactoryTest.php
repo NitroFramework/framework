@@ -5,7 +5,7 @@ namespace Tests\Unit\Database\Factory;
 use Nitro\Database\Factory\Factory;
 use Nitro\Database\Factory\Generator;
 use Nitro\Database\Factory\UniqueGenerator;
-use Nitro\Database\Model\BaseModel;
+use Nitro\Database\Model\Model;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -177,11 +177,11 @@ class FactoryTest extends TestCase
 }
 
 /**
- * Minimal stand-in for a real BaseModel — avoids touching the DB layer.
+ * Minimal stand-in for a real Model — avoids touching the DB layer.
  * The factory only calls new $class() + fill(), which the parent already
  * provides via HasAttributes.
  */
-class FactoryTestUser extends BaseModel
+class FactoryTestUser extends Model
 {
     protected string $table = 'factory_test_users';
     protected array $fillable = ['name', 'email', 'status', 'is_admin', 'slug'];

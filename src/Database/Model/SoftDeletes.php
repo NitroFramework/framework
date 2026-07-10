@@ -7,17 +7,17 @@ use Nitro\Database\DB;
 /**
  * Soft deletes — Laravel's SoftDeletes trait.
  *
- *   class Post extends BaseModel { use SoftDeletes; }
+ *   class Post extends Model { use SoftDeletes; }
  *
  * delete() then sets a `deleted_at` timestamp instead of removing the row, and
- * normal queries hide trashed rows (BaseModel::query() adds the global scope).
+ * normal queries hide trashed rows (Model::query() adds the global scope).
  * Use withTrashed()/onlyTrashed() to include them, restore() to undo, and
  * forceDelete() to remove permanently. Needs a nullable `deleted_at` column
  * (`$table->softDeletes()` in the migration).
  */
 trait SoftDeletes
 {
-    /** Tells BaseModel::query() to apply the trashed-hiding scope. */
+    /** Tells Model::query() to apply the trashed-hiding scope. */
     public function usesSoftDeletes(): bool
     {
         return true;

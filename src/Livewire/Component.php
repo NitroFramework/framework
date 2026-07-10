@@ -2,6 +2,10 @@
 
 namespace Nitro\Livewire;
 
+use Nitro\Support\Arr;
+use Nitro\Livewire\Attributes\On;
+use Nitro\Livewire\Synthesizers\SynthManager;
+use Nitro\Livewire\Attributes\Locked;
 use Nitro\Livewire\Attributes\Computed;
 use Nitro\Livewire\Attributes\Url;
 use Nitro\Validation\ValidationException;
@@ -442,7 +446,7 @@ abstract class Component
             [$root, $path] = explode('.', $name, 2);
             if (property_exists($this, $root) && is_array($this->{$root})) {
                 $array = $this->{$root};
-                \Nitro\Support\Arr::set($array, $path, $value);
+                Arr::set($array, $path, $value);
                 $this->{$root} = $array;
             }
             return;

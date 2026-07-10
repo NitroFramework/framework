@@ -2,6 +2,7 @@
 
 namespace Nitro\Foundation\Providers;
 
+use Nitro\Thrust\WorkerMode;
 use Nitro\Foundation\Http\Kernel;
 use Nitro\Http\Request;
 use Nitro\Http\Response;
@@ -37,7 +38,7 @@ class SessionServiceProvider extends ServiceProvider
             // Thrust/worker mode, transparently use the worker-safe file store,
             // which mints a fresh Store per request and never touches
             // session_start(). Non-worker (FPM/serve) keeps native as-is.
-            if ($config['driver'] === 'native' && $c->has(\Nitro\Thrust\WorkerMode::class)) {
+            if ($config['driver'] === 'native' && $c->has(WorkerMode::class)) {
                 $config['driver'] = 'file';
             }
 

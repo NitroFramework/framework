@@ -4,8 +4,9 @@ namespace Tests\Unit\Database;
 
 use Nitro\Database\Connection;
 use Nitro\Database\DB;
-use Nitro\Database\Model\BaseModel;
+use Nitro\Database\Model\Model;
 use Nitro\Database\Model\SoftDeletes;
+use Nitro\Events\Dispatcher;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -32,6 +33,9 @@ class SoftDeletesAndEventsTest extends TestCase
         $this->injectConnection($conn);
         $conn->statement('CREATE TABLE soft_posts (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, deleted_at TEXT, created_at TEXT, updated_at TEXT)');
         $conn->statement('CREATE TABLE event_posts (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, created_at TEXT, updated_at TEXT)');
+
+        // Model events route through a dispatcher; a fresh one per test isolates listeners.
+        Model::setEventDispatcher(new Dispatcher());
 
         SoftPost::flushEventListeners();
         EventPost::flushEventListeners();
@@ -142,9 +146,40 @@ class SoftDeletesAndEventsTest extends TestCase
         $this->assertTrue($GLOBALS['__obs_creating']);
         unset($GLOBALS['__obs_creating']);
     }
+
+    /** The payoff: model events are first-class dispatcher events. */
+    public function test_events_are_listenable_directly_and_by_wildcard(): void
+    {
+        $seen = [];
+        $bus  = EventPost::getEventDispatcher();
+
+        // Registered straight on the bus — no EventPost::saved() sugar needed.
+        $bus->listen('model.saved: ' . EventPost::class, function ($m) use (&$seen) { $seen[] = 'external'; });
+        // A wildcard across every model event.
+        $bus->listen('model.*', function ($m) use (&$seen) { $seen[] = 'wildcard'; });
+
+        EventPost::create(['title' => 'X']); // fires saving → creating → created → saved
+
+        $this->assertContains('external', $seen);
+        $this->assertSame(4, count(array_filter($seen, fn ($s) => $s === 'wildcard')));
+    }
+
+    public function test_object_event_is_dispatched_for_mapped_events(): void
+    {
+        $captured = null;
+        DispatchingPost::getEventDispatcher()->listen(
+            PostSaved::class,
+            function ($event) use (&$captured) { $captured = $event; }
+        );
+
+        DispatchingPost::create(['title' => 'obj']);
+
+        $this->assertInstanceOf(PostSaved::class, $captured);
+        $this->assertSame('obj', $captured->model->title);
+    }
 }
 
-class SoftPost extends BaseModel
+class SoftPost extends Model
 {
     use SoftDeletes;
 
@@ -152,8 +187,23 @@ class SoftPost extends BaseModel
     protected array $fillable = ['title'];
 }
 
-class EventPost extends BaseModel
+class EventPost extends Model
 {
     protected string $table = 'event_posts';
     protected array $fillable = ['title'];
+}
+
+/** Maps its 'saved' event to an object event (reuses the event_posts table). */
+class DispatchingPost extends Model
+{
+    protected string $table = 'event_posts';
+    protected array $fillable = ['title'];
+    protected array $dispatchesEvents = ['saved' => PostSaved::class];
+}
+
+class PostSaved
+{
+    public function __construct(public $model)
+    {
+    }
 }

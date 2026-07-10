@@ -2,7 +2,7 @@
 
 namespace Tests\Unit\Database;
 
-use Nitro\Database\Model\BaseModel;
+use Nitro\Database\Model\Model;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -49,18 +49,18 @@ class MassAssignmentGuardTest extends TestCase
     }
 }
 
-class TotallyGuardedModel extends BaseModel
+class TotallyGuardedModel extends Model
 {
     protected string $table = 'stub';
 }
 
-class ColumnGuardedModel extends BaseModel
+class ColumnGuardedModel extends Model
 {
     protected string $table = 'stub';
     protected array $guarded = ['secret'];
 }
 
-class FillableModel extends BaseModel
+class FillableModel extends Model
 {
     protected string $table = 'stub';
     protected array $fillable = ['name', 'email'];

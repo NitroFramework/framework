@@ -69,8 +69,7 @@ class DispatchesEventsLazyTest extends TestCase
 
         $emitter->eventLazy('watched.event', fn() => ['payload' => 42]);
 
-        // Dispatcher injects _event into the payload before calling listeners.
-        $this->assertSame(42, $received['payload']);
-        $this->assertSame('watched.event', $received['_event']);
+        // The listener receives the payload as its single argument, untouched.
+        $this->assertSame(['payload' => 42], $received);
     }
 }

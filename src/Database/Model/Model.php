@@ -4,6 +4,7 @@ namespace Nitro\Database\Model;
 
 use Nitro\Support\Collection;
 use Nitro\Database\DB;
+use Nitro\Database\Query\QueryBuilder;
 use Nitro\Database\Model\Concerns\HasAttributes;
 use Nitro\Database\Model\Concerns\HasCrud;
 use Nitro\Database\Model\Concerns\HasEvents;
@@ -17,7 +18,7 @@ use Nitro\Database\Model\Concerns\SerializesData;
  * (from the Concerns traits) over a database table. Application models extend this
  * class; the table name is inferred from the class unless overridden.
  */
-abstract class BaseModel
+abstract class Model
 {
     use HasAttributes;
     use HasCrud;
@@ -84,6 +85,16 @@ abstract class BaseModel
         }
 
         return $builder;
+    }
+
+    /**
+     * Invalidate every cached query for this model's table. Writes through the
+     * builder do this automatically; call it after a raw-SQL write the builder
+     * couldn't see, or to force-refresh.
+     */
+    public static function flushQueryCache(): void
+    {
+        QueryBuilder::bumpCacheVersion((new static)->getTable());
     }
 
     // ─── Static Proxies ───────────────────────────────────

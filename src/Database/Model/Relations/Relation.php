@@ -3,7 +3,7 @@
 namespace Nitro\Database\Model\Relations;
 
 use Nitro\Support\Collection;
-use Nitro\Database\Model\BaseModel;
+use Nitro\Database\Model\Model;
 use Nitro\Database\Model\ModelBuilder;
 use Nitro\Database\Query\QueryBuilder;
 
@@ -20,20 +20,20 @@ use Nitro\Database\Query\QueryBuilder;
  */
 abstract class Relation extends ModelBuilder
 {
-    protected BaseModel $parent;
+    protected Model $parent;
 
     /**
      * Set up the underlying ModelBuilder by deferring to the parent
      * ModelBuilder constructor, then store the parent model. Subclasses
      * configure the query (where, join, etc.) AFTER calling parent::__construct.
      */
-    public function __construct(BaseModel $parent, QueryBuilder $query, string $relatedClass)
+    public function __construct(Model $parent, QueryBuilder $query, string $relatedClass)
     {
         parent::__construct($query, $relatedClass);
         $this->parent = $parent;
     }
 
-    public function getParent(): BaseModel
+    public function getParent(): Model
     {
         return $this->parent;
     }

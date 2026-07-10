@@ -2,6 +2,9 @@
 
 namespace Nitro\Livewire;
 
+use Nitro\View\Contracts\ViewEngine;
+use Nitro\Livewire\Attributes\Layout;
+use Nitro\Livewire\Exceptions\CannotUpdateLockedProperty;
 use Nitro\Container\Contracts\ContainerInterface;
 use Nitro\Http\Response;
 use Nitro\Livewire\Attributes\Lazy;
@@ -207,7 +210,7 @@ class LivewireManager
             return $html;
         }
 
-        return app(\Nitro\View\Contracts\ViewEngine::class)->render('livewire::page', [
+        return app(ViewEngine::class)->render('livewire::page', [
             '__layout'  => $layout[0],
             '__section' => $layout[1],
             '__slot'    => $html,

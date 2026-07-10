@@ -2,34 +2,55 @@
 
 namespace Nitro\Database\Model\Concerns;
 
+use Nitro\Events\Dispatcher;
+
 /**
- * Model lifecycle events — Laravel's creating/created/updating/updated/
- * saving/saved/deleting/deleted (+ restoring/restored for soft deletes).
+ * Model lifecycle events — creating/created, updating/updated, saving/saved,
+ * deleting/deleted (+ restoring/restored for soft deletes).
  *
- * Register a listener per model class, or an observer object:
+ * Events route through the app's Events\Dispatcher, keyed as
+ * "model.{event}: {ClassName}", so they're first-class app events: any listener
+ * (a service provider, a package, a wildcard "model.*") can react without
+ * touching the model. The static registrars and observe() are sugar over that.
  *
  *   User::creating(fn (User $u) => $u->uuid ??= bin2hex(random_bytes(8)));
  *   User::observe(UserObserver::class);
+ *   app('events')->listen('model.saved: App\Models\User', fn ($u) => ...);
  *
- * A "*ing" listener that returns false halts the operation (the save/delete is
- * aborted). Listeners are keyed by concrete class; firing is a cheap no-op when
- * none are registered, so the CRUD hot path is unaffected.
+ * A "*ing" listener returning false halts the operation (save/delete aborts).
+ * Optionally map an event to an object event via $dispatchesEvents on the model
+ * (['created' => UserCreated::class]) to reach external/wildcard/queued listeners.
+ *
+ * Requires a dispatcher (set at boot via Model::setEventDispatcher()); with none
+ * set, firing is a silent no-op so the CRUD path still works — matching Laravel.
  */
 trait HasEvents
 {
-    /**
-     * Listeners, keyed by class → event → callbacks. Static, so registration
-     * persists for the process (e.g. set up in a service provider's boot()).
-     *
-     * @var array<string, array<string, list<callable>>>
-     */
-    protected static array $modelEventCallbacks = [];
+    protected static ?Dispatcher $dispatcher = null;
 
     /** Events a model (incl. soft deletes) may fire. */
     protected static array $observableEvents = [
         'creating', 'created', 'updating', 'updated',
         'saving', 'saved', 'deleting', 'deleted', 'restoring', 'restored',
     ];
+
+    /** The "*ing" events that veto the operation when a listener returns false. */
+    protected static array $haltingEvents = ['saving', 'creating', 'updating', 'deleting', 'restoring'];
+
+    public static function setEventDispatcher(Dispatcher $dispatcher): void
+    {
+        static::$dispatcher = $dispatcher;
+    }
+
+    public static function getEventDispatcher(): ?Dispatcher
+    {
+        return static::$dispatcher;
+    }
+
+    public static function unsetEventDispatcher(): void
+    {
+        static::$dispatcher = null;
+    }
 
     public static function creating(callable $cb): void { static::registerModelEvent('creating', $cb); }
     public static function created(callable $cb): void { static::registerModelEvent('created', $cb); }
@@ -59,26 +80,51 @@ trait HasEvents
 
     protected static function registerModelEvent(string $event, callable $callback): void
     {
-        static::$modelEventCallbacks[static::class][$event][] = $callback;
+        static::$dispatcher?->listen(static::modelEventKey($event), $callback);
     }
 
     /**
-     * Fire an event for this model. Returns false if any "*ing" listener
-     * vetoed the operation, so callers can abort.
+     * Fire an event for this model. Returns false only when a "*ing" listener
+     * vetoes the operation (returns false), so callers can abort.
      */
     protected function fireModelEvent(string $event): bool
     {
-        foreach (static::$modelEventCallbacks[static::class][$event] ?? [] as $callback) {
-            if ($callback($this) === false) {
-                return false;
-            }
+        if (static::$dispatcher === null) {
+            return true;
         }
+
+        // Object event (external/wildcard/queued listeners) — fire-and-forget.
+        if (isset($this->dispatchesEvents[$event])) {
+            static::$dispatcher->dispatch(new $this->dispatchesEvents[$event]($this));
+        }
+
+        $key = static::modelEventKey($event);
+
+        // "*ing" events halt: the first non-null (false) response vetoes.
+        if (in_array($event, static::$haltingEvents, true)) {
+            return static::$dispatcher->until($key, $this) !== false;
+        }
+
+        static::$dispatcher->dispatch($key, $this);
+
         return true;
     }
 
-    /** Drop all registered listeners (test isolation). */
+    /** The dispatcher key for a model event, namespaced by concrete class. */
+    protected static function modelEventKey(string $event): string
+    {
+        return "model.{$event}: " . static::class;
+    }
+
+    /** Drop all of this model's registered listeners (test isolation). */
     public static function flushEventListeners(): void
     {
-        unset(static::$modelEventCallbacks[static::class]);
+        if (static::$dispatcher === null) {
+            return;
+        }
+
+        foreach (static::$observableEvents as $event) {
+            static::$dispatcher->forget(static::modelEventKey($event));
+        }
     }
 }

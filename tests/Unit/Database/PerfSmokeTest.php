@@ -85,7 +85,7 @@ class PerfSmokeTest extends TestCase
 
     public function test_cast_cache_avoids_repeat_datetime(): void
     {
-        $model = new class extends \Nitro\Database\Model\BaseModel {
+        $model = new class extends \Nitro\Database\Model\Model {
             protected string $table = 't';
             protected array $casts = ['created_at' => 'datetime'];
         };
@@ -103,7 +103,7 @@ class PerfSmokeTest extends TestCase
 
     public function test_cast_cache_invalidates_on_set(): void
     {
-        $model = new class extends \Nitro\Database\Model\BaseModel {
+        $model = new class extends \Nitro\Database\Model\Model {
             protected string $table = 't';
             protected array $casts = ['flag' => 'bool'];
         };

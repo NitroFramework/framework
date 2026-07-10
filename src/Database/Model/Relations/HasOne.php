@@ -3,7 +3,7 @@
 namespace Nitro\Database\Model\Relations;
 
 use Nitro\Database\DB;
-use Nitro\Database\Model\BaseModel;
+use Nitro\Database\Model\Model;
 use Nitro\Database\Model\RelationLoader;
 
 /**
@@ -16,7 +16,7 @@ class HasOne extends Relation
     protected string $ownerKey;
 
     public function __construct(
-        BaseModel $parent,
+        Model $parent,
         string $relatedClass,
         string $foreignKey,
         string $ownerKey

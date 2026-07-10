@@ -2,6 +2,7 @@
 
 namespace Nitro\Foundation\Providers;
 
+use Nitro\Http\Middleware\ThrottleRequests;
 use Nitro\Auth\Contracts\Guard;
 use Nitro\Auth\Contracts\UserProvider;
 use Nitro\Auth\EloquentUserProvider;
@@ -74,6 +75,6 @@ class AuthServiceProvider extends ServiceProvider
         // General HTTP throttle (config-driven via throttle.*). Registered here
         // since this is the framework's middleware-alias hub; login lockout uses
         // the RateLimiter directly in the controller.
-        $router->aliasMiddleware('throttle', \Nitro\Http\Middleware\ThrottleRequests::class);
+        $router->aliasMiddleware('throttle', ThrottleRequests::class);
     }
 }

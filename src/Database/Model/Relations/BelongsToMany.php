@@ -4,7 +4,7 @@ namespace Nitro\Database\Model\Relations;
 
 use Nitro\Support\Collection;
 use Nitro\Database\DB;
-use Nitro\Database\Model\BaseModel;
+use Nitro\Database\Model\Model;
 use Nitro\Database\Model\RelationLoader;
 
 /**
@@ -22,7 +22,7 @@ class BelongsToMany extends Relation
     protected string $relatedKey;        // owner key on related (usually 'id')
 
     public function __construct(
-        BaseModel $parent,
+        Model $parent,
         string $relatedClass,
         string $pivotTable,
         string $foreignPivotKey,

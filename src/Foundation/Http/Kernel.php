@@ -6,6 +6,7 @@ use Nitro\Container\Contracts\ContainerInterface;
 use Nitro\Exceptions\ExceptionHandler;
 use Nitro\Exceptions\HttpException;
 use Nitro\Foundation\Application;
+use Nitro\Http\Contracts\Responsable;
 use Nitro\Http\Exceptions\HttpResponseException;
 use Nitro\Http\Middleware\AddQueuedCookiesToResponse;
 use Nitro\Http\Middleware\EncryptCookies;
@@ -223,7 +224,7 @@ class Kernel
         }
 
         // 3b. An object that renders itself (API resources, self-serializing DTOs).
-        if ($result instanceof \Nitro\Http\Contracts\Responsable) {
+        if ($result instanceof Responsable) {
             return $result->toResponse($request);
         }
 

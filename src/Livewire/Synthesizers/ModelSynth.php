@@ -2,7 +2,7 @@
 
 namespace Nitro\Livewire\Synthesizers;
 
-use Nitro\Database\Model\BaseModel;
+use Nitro\Database\Model\Model;
 
 /**
  * Carries a Nitro model as component state. A persisted model is stored by
@@ -20,10 +20,10 @@ class ModelSynth implements Synth
 
     public function match(mixed $value): bool
     {
-        return $value instanceof BaseModel;
+        return $value instanceof Model;
     }
 
-    /** @param BaseModel $value */
+    /** @param Model $value */
     public function dehydrate(mixed $value): array
     {
         $key = $value->getKey();
@@ -36,7 +36,7 @@ class ModelSynth implements Synth
 
     public function hydrate(mixed $payload, array $meta): mixed
     {
-        /** @var class-string<BaseModel> $class */
+        /** @var class-string<Model> $class */
         $class = $meta['class'];
         $key = $meta['key'] ?? null;
 

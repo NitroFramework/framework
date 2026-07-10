@@ -4,7 +4,7 @@ namespace Tests\Unit\Database;
 
 use Nitro\Database\Connection;
 use Nitro\Database\DB;
-use Nitro\Database\Model\BaseModel;
+use Nitro\Database\Model\Model;
 use Nitro\Database\Model\ModelBuilder;
 use PHPUnit\Framework\TestCase;
 
@@ -123,7 +123,7 @@ class EloquentParityTest extends TestCase
     }
 }
 
-class ParityUser extends BaseModel
+class ParityUser extends Model
 {
     protected string $table = 'parity_users';
     protected array $fillable = ['name', 'email', 'status', 'secret'];

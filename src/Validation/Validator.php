@@ -2,6 +2,7 @@
 
 namespace Nitro\Validation;
 
+use Nitro\Support\Arr;
 use Nitro\Validation\Rules\Nullable;
 
 /**
@@ -107,7 +108,7 @@ class Validator
             : explode('|', $ruleString);
 
         // Dot-aware so nested fields ('form.email') validate against nested data.
-        $value = \Nitro\Support\Arr::get($this->data, $field);
+        $value = Arr::get($this->data, $field);
 
         // Base rule names (strip 'min:3' → 'min') for presence/implicit checks.
         $baseNames = array_map(

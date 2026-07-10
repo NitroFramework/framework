@@ -16,9 +16,11 @@ trait ExecutesQueries
 
     public function get(): Collection
     {
-        $sql = $this->grammar->compileSelect($this);
-        $results = $this->connection->select($sql, $this->getBindings());
-        return new Collection($results);
+        return $this->cacheResult('get', function () {
+            $sql = $this->grammar->compileSelect($this);
+            $results = $this->connection->select($sql, $this->getBindings());
+            return new Collection($results);
+        });
     }
 
     /**
@@ -114,7 +116,9 @@ trait ExecutesQueries
                 $bindings[] = $v;
             }
         }
-        return $this->connection->insert($sql, $bindings);
+        $result = $this->connection->insert($sql, $bindings);
+        static::bumpCacheVersion((string) $this->from);
+        return $result;
     }
 
     /**
@@ -133,7 +137,9 @@ trait ExecutesQueries
         }
 
         $sql = $this->grammar->compileInsertGetId($this, $values);
-        return $this->connection->insertGetId($sql, array_values($values));
+        $id = $this->connection->insertGetId($sql, array_values($values));
+        static::bumpCacheVersion((string) $this->from);
+        return $id;
     }
 
     // ─── Update ───────────────────────────────────────────
@@ -151,7 +157,9 @@ trait ExecutesQueries
         foreach ($this->bindings['where'] as $b) {
             $bindings[] = $b;
         }
-        return $this->connection->update($sql, $bindings);
+        $affected = $this->connection->update($sql, $bindings);
+        static::bumpCacheVersion((string) $this->from);
+        return $affected;
     }
 
     public function upsert(array $values, array $uniqueBy, array $update): int
@@ -206,7 +214,9 @@ trait ExecutesQueries
     public function delete(): int
     {
         $sql = $this->grammar->compileDelete($this);
-        return $this->connection->delete($sql, $this->bindings['where']);
+        $affected = $this->connection->delete($sql, $this->bindings['where']);
+        static::bumpCacheVersion((string) $this->from);
+        return $affected;
     }
 
     public function truncate(): void
