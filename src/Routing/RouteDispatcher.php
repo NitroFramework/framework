@@ -80,6 +80,12 @@ class RouteDispatcher
         // on the hot path for every dispatch.
         $controller = $this->container->make($controllerClass);
 
+        // Single-action classes run through their own pipeline (authorize →
+        // validate → body → response negotiation) instead of a plain call.
+        if ($controller instanceof \Nitro\Actions\Action) {
+            return $controller->runAsController($request, $parameters, $this->container);
+        }
+
         return $this->container->call([$controller, $method], $parameters);
     }
 

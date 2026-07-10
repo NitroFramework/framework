@@ -1,20 +1,18 @@
 <?php
 
-namespace Tests\Unit\Foundation;
+namespace Tests\Unit\Actions;
 
+use Nitro\Actions\Action;
 use Nitro\Container\Container;
 use Nitro\Foundation\Application;
 use Nitro\Http\Request;
 use Nitro\Routing\RouteDispatcher;
 use Nitro\Routing\Router;
-use Nitro\Support\Concerns\AsAction;
 use PHPUnit\Framework\TestCase;
 
 /** A single-action class used as the fixture for the tests below. */
-class GreetAction
+class GreetAction extends Action
 {
-    use AsAction;
-
     public function handle(string $name = 'World'): string
     {
         return "Hello {$name}";
@@ -22,10 +20,10 @@ class GreetAction
 }
 
 /**
- * Coverage for Actions support: the AsAction trait (run/make) and a bare action
- * class used directly as a route handler.
+ * End-to-end coverage: an Action dispatched through the real Router + booted
+ * Application, exercising the dispatcher's action pipeline hook.
  */
-class ActionSupportTest extends TestCase
+class ActionRoutingTest extends TestCase
 {
     private Application $app;
 

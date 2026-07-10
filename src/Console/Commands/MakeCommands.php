@@ -195,14 +195,13 @@ class MakeCommands implements CommandInterface
 
         namespace {$ns};
 
-        use Nitro\\Support\\Concerns\\AsAction;
+        use Nitro\\Actions\\Action;
 
-        class {$class}
+        class {$class} extends Action
         {
-            use AsAction;
-
             /**
-             * Run the action.
+             * Run the action. Call it as an object with {$class}::run(...),
+             * or point a route at it: Route::post('/...', {$class}::class).
              */
             public function handle()
             {

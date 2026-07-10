@@ -233,6 +233,21 @@ class Request
         return !empty($this->header('hx-request'));
     }
 
+    /**
+     * Whether the client wants a JSON response — an AJAX/fetch call or an Accept
+     * header asking for JSON. Used to negotiate JSON vs HTML responses.
+     */
+    public function expectsJson(): bool
+    {
+        if ($this->ajax()) {
+            return true;
+        }
+
+        $accept = strtolower((string) ($this->header('Accept') ?? ''));
+
+        return str_contains($accept, '/json') || str_contains($accept, '+json');
+    }
+
     /** True if behind HTTPS (handles common edge proxies via HTTPS=on). */
     public function secure(): bool
     {
