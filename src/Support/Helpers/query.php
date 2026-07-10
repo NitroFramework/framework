@@ -1,14 +1,16 @@
 <?php
 
-use App\Services\QueryRegistry;
+use Nitro\Database\Query\QueryRegistry;
 
 if (!function_exists('query')) {
     /**
-     * Resolve a registered query by name, or return the registry
+     * The named-query registry, or a named query resolved to a live builder.
      *
-     * @param string|null $name
-     * @param array $params
-     * @return QueryRegistry|\Nitro\Database\Query\QueryBuilder
+     *   query()                             // the registry (->register(), ->has(), ->names())
+     *   query('students.honor_roll')        // resolve → a builder you can chain
+     *   query('students.in', ['Lahore'])    // resolve with parameters
+     *
+     * @return QueryRegistry|\Nitro\Database\Query\QueryBuilder|mixed
      */
     function query(?string $name = null, array $params = [])
     {

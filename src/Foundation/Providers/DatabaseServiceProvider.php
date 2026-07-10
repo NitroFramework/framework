@@ -7,6 +7,7 @@ use Nitro\Database\Connection;
 use Nitro\Database\Migration\MigrationPathRegistry;
 use Nitro\Database\Model\Model;
 use Nitro\Database\Query\Paginator;
+use Nitro\Database\Query\QueryRegistry;
 use Nitro\Database\Schema\SchemaBuilder;
 use Nitro\Foundation\Contracts\ConfigRepository;
 
@@ -29,6 +30,10 @@ class DatabaseServiceProvider extends ServiceProvider
         // (before any provider boot()) so model-event listeners registered in a
         // provider's boot() land on the dispatcher.
         Model::setEventDispatcher($this->container->get('events'));
+
+        // Named-query registry (query('name')). Definitions auto-load from
+        // app/Queries/ in boot(); apps needn't have that directory.
+        $this->container->singleton(QueryRegistry::class);
 
         // $this->container->singleton(SchemaBuilder::class, fn() => new SchemaBuilder());
         $this->container->alias('schema', SchemaBuilder::class);
@@ -58,5 +63,8 @@ class DatabaseServiceProvider extends ServiceProvider
                 ? $container->make('request')->query($pageName)
                 : null;
         });
+
+        // Auto-load named-query definitions from app/Queries/*.php (no-op if absent).
+        $container->get(QueryRegistry::class)->loadFrom($container->get('paths')->base('app/Queries'));
     }
 }
