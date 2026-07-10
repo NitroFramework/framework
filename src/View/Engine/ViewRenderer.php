@@ -2,7 +2,6 @@
 
 namespace Nitro\View\Engine;
 
-use Nitro\Container\Container;
 use Nitro\Foundation\Contracts\ConfigRepository;
 use Nitro\Foundation\PathRegistry;
 use Nitro\Support\Arr;
@@ -186,7 +185,7 @@ class ViewRenderer implements ViewEngine
         // The view streams, but HTMX partials and fragment requests never do —
         // ask the bound Request rather than reading $_GET directly. Only paid
         // for the rare view that actually declares @stream.
-        $container = Container::getInstance();
+        $container = app();
         if ($container->has('request')) {
             $request = $container->make('request');
             if ($request->isHtmx() || !empty($request->query('_fragment'))) {

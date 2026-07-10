@@ -1,7 +1,6 @@
 <?php
 
 use Nitro\Auth\Contracts\Guard;
-use Nitro\Container\Container;
 
 if (!function_exists('auth')) {
     /**
@@ -11,6 +10,6 @@ if (!function_exists('auth')) {
      */
     function auth(): Guard
     {
-        return Container::getInstance()->get('auth');
+        return app('auth');
     }
 }

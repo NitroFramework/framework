@@ -2,7 +2,6 @@
 
 namespace Nitro\Http\Controller;
 
-use Nitro\Container\Container;
 use Nitro\Container\Contracts\ContainerInterface;
 use Nitro\Http\Controller\Concerns\BuildsResponses;
 use Nitro\Http\Controller\Concerns\HandlesRequests;
@@ -33,7 +32,7 @@ abstract class BaseController
     public function __construct()
     {
 
-        $this->container = Container::getInstance();
+        $this->container = app();
     }
 
     // ============================================

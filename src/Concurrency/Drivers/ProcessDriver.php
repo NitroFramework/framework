@@ -5,7 +5,6 @@ namespace Nitro\Concurrency\Drivers;
 use Nitro\Concurrency\Console\ConcurrencyInvokeCommand;
 use Nitro\Concurrency\Contracts\Driver;
 use Nitro\Concurrency\TaskInvoker;
-use Nitro\Container\Container;
 
 /**
  * Runs each task in its OWN php subprocess (`php nitro concurrency:invoke`), all
@@ -42,7 +41,7 @@ class ProcessDriver implements Driver
             }
         }
 
-        $paths   = Container::getInstance()->get('paths');
+        $paths   = app('paths');
         $console = $paths->base('nitro');
         $descriptor = [1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
 

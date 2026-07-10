@@ -2,7 +2,6 @@
 
 namespace Nitro\PerformanceBar;
 
-use Nitro\Container\Container;
 
 /**
  * Performance Metrics Tracker for NitroPHP
@@ -468,7 +467,7 @@ HTML;
      */
     private static function isHtmxRequest(): bool
     {
-        $container = Container::getInstance();
+        $container = app();
         return $container->has('request') && $container->make('request')->isHtmx();
     }
 

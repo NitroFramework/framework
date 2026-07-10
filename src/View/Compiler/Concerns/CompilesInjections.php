@@ -23,6 +23,6 @@ trait CompilesInjections
             throw new \InvalidArgumentException("Invalid @inject class name: {$class}");
         }
 
-        return "<?php \${$var} = \\Nitro\\Container\\Container::getInstance()->make('{$class}'); ?>";
+        return "<?php \${$var} = app('{$class}'); ?>";
     }
 }

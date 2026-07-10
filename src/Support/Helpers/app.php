@@ -4,9 +4,17 @@ use Nitro\Container\Container;
 
 if (!function_exists('app')) {
     /**
-     * Get the Application instance or resolve a service from container
-     * 
-     * @param string|null $abstract Service to resolve
+     * The service container, or a resolved service from it.
+     *
+     *   app()                 // the container itself
+     *   app(UserRepo::class)  // resolve a binding (make)
+     *   app('paths')          // resolve by alias
+     *
+     * `app()` is the container (as in Laravel) — the one canonical way to reach it
+     * from outside a class that has it injected. The Application is a distinct
+     * object; ask for it by name when you need it: app(\Nitro\Foundation\Application::class).
+     *
+     * @param string|null $abstract Service to resolve, or null for the container.
      * @return mixed
      */
     function app(?string $abstract = null)
@@ -14,7 +22,7 @@ if (!function_exists('app')) {
         $container = Container::getInstance();
 
         if ($abstract === null) {
-            return $container->get('app');
+            return $container;
         }
 
         return $container->make($abstract); // use make() not get()

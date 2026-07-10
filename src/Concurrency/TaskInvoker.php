@@ -3,7 +3,6 @@
 namespace Nitro\Concurrency;
 
 use Closure;
-use Nitro\Container\Container;
 
 /**
  * Normalises and runs a single "task" through the container so DI works the same
@@ -22,7 +21,7 @@ class TaskInvoker
 {
     public static function invoke(mixed $task): mixed
     {
-        $container = Container::getInstance();
+        $container = app();
 
         // Closure / already-bound callable — call through the container so its
         // parameters are auto-wired, matching how controllers are dispatched.

@@ -127,7 +127,7 @@ if (!function_exists('dump')) {
 //     function logger(string $message, string $level = 'info'): void
 //     {
 //         try {
-//             $container = app()->container();
+//             $container = app();
 //             if ($container->has(DebugBar::class)) {  // ← Checks if class exists
 //                 $container->get(DebugBar::class)->addMessage($message, $level);
 //             }
@@ -148,7 +148,7 @@ if (!function_exists('dump')) {
 //     function debug_message(string $message, string $type = 'info'): void
 //     {
 //         try {
-//             $container = app()->container();
+//             $container = app();
 //             if ($container->has(DebugBar::class)) {
 //                 $container->get(DebugBar::class)->addMessage($message, $type);
 //             }
@@ -168,7 +168,7 @@ if (!function_exists('dump')) {
 //     function debug_timer_start(string $name): void
 //     {
 //         try {
-//             $container = app()->container();
+//             $container = app();
 //             if ($container->has(DebugBar::class)) {
 //                 $container->get(DebugBar::class)->startTimer($name);
 //             }
@@ -188,7 +188,7 @@ if (!function_exists('dump')) {
 //     function debug_timer_end(string $name): void
 //     {
 //         try {
-//             $container = app()->container();
+//             $container = app();
 //             if ($container->has(DebugBar::class)) {
 //                 $container->get(DebugBar::class)->endTimer($name);
 //             }
@@ -209,7 +209,7 @@ if (!function_exists('dump')) {
 //     function debug_var(string $name, $value): void
 //     {
 //         try {
-//             $container = app()->container();
+//             $container = app();
 //             if ($container->has(DebugBar::class)) {
 //                 $container->get(DebugBar::class)->addVar($name, $value);
 //             }

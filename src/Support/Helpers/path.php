@@ -22,7 +22,7 @@ if (!function_exists('base_path')) {
      */
     function base_path(string $path = ''): string
     {
-        return app()->paths()->base($path);
+        return app('paths')->base($path);
     }
 }
 
@@ -35,7 +35,7 @@ if (!function_exists('config_path')) {
      */
     function config_path(string $path = ''): string
     {
-        return app()->paths()->config($path);
+        return app('paths')->config($path);
     }
 }
 
@@ -48,7 +48,7 @@ if (!function_exists('public_path')) {
      */
     function public_path(string $path = ''): string
     {
-        return app()->publicPath($path);
+        return app('paths')->public($path);
     }
 }
 
@@ -61,7 +61,7 @@ if (!function_exists('resource_path')) {
      */
     function resource_path(string $path = ''): string
     {
-        return app()->paths()->resources($path);
+        return app('paths')->resources($path);
     }
 }
 
@@ -74,7 +74,7 @@ if (!function_exists('view_path')) {
      */
     function view_path(string $path = ''): string
     {
-        return app()->paths()->views($path);
+        return app('paths')->views($path);
     }
 }
 
@@ -87,7 +87,7 @@ if (!function_exists('storage_path')) {
      */
     function storage_path(string $path = ''): string
     {
-        return app()->paths()->storage($path);
+        return app('paths')->storage($path);
     }
 }
 
@@ -100,7 +100,7 @@ if (!function_exists('cache_path')) {
      */
     function cache_path(string $path = ''): string
     {
-        return app()->paths()->cache($path);
+        return app('paths')->cache($path);
     }
 }
 
@@ -113,7 +113,7 @@ if (!function_exists('database_path')) {
      */
     function database_path(string $path = ''): string
     {
-        return app()->databasePath($path);
+        return app('paths')->database($path);
     }
 }
 
@@ -126,6 +126,6 @@ if (!function_exists('migrations_path')) {
      */
     function migrations_path(string $path = ''): string
     {
-        return app()->paths()->migrations($path);
+        return app('paths')->migrations($path);
     }
 }

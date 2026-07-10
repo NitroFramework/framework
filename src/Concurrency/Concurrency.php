@@ -5,7 +5,6 @@ namespace Nitro\Concurrency;
 use Nitro\Concurrency\Contracts\Driver;
 use Nitro\Concurrency\Drivers\ProcessDriver;
 use Nitro\Concurrency\Drivers\SyncDriver;
-use Nitro\Container\Container;
 
 /**
  * Per-request task fan-out — run a handful of INDEPENDENT operations at once so a
@@ -63,7 +62,7 @@ class Concurrency
      */
     public function defer(array $tasks): void
     {
-        $paths   = Container::getInstance()->get('paths');
+        $paths   = app('paths');
         $console = $paths->base('nitro');
 
         foreach ($tasks as $task) {

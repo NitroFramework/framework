@@ -1,6 +1,5 @@
 <?php
 
-use Nitro\Container\Container;
 use Nitro\Http\Request;
 
 if (!function_exists('request')) {
@@ -26,7 +25,7 @@ if (!function_exists('nitro_current_request')) {
      */
     function nitro_current_request(): ?Request
     {
-        $container = Container::getInstance();
+        $container = app();
 
         if (!$container->has('request')) {
             return null;

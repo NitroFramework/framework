@@ -2,7 +2,6 @@
 
 namespace Nitro\Htmx\Testing;
 
-use Nitro\Container\Container;
 use Nitro\Http\Request;
 use Nitro\Htmx\HtmxComponent;
 use Nitro\Htmx\State\ArrayStateStore;
@@ -167,7 +166,7 @@ class ComponentHarness
      */
     private function withBindings(callable $fn): void
     {
-        $container = Container::getInstance();
+        $container = app();
         $previousRequest = $container->has('request') ? $container->make('request') : null;
         $previousStore   = $container->has(StateStore::class) ? $container->make(StateStore::class) : null;
 

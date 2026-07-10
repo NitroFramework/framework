@@ -40,7 +40,7 @@ abstract class Seeder
 
     public function __construct(?Container $container = null)
     {
-        $this->container = $container ?? Container::getInstance();
+        $this->container = $container ?? app();
     }
 
     /**

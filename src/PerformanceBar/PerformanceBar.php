@@ -2,7 +2,6 @@
 
 namespace Nitro\PerformanceBar;
 
-use Nitro\Container\Container;
 use Nitro\PerformanceBar\Contracts\PanelInterface;
 use Nitro\Http\Response;
 
@@ -92,7 +91,7 @@ class PerformanceBar
     {
         if (empty($this->panels)) return '';
 
-        $container = Container::getInstance();
+        $container = app();
         $isHtmx = $container->has('request') && $container->make('request')->isHtmx();
         $oob = $isHtmx ? ' hx-swap-oob="true"' : '';
 
