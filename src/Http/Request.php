@@ -223,23 +223,67 @@ class Request
         return $this->server[$key] ?? $default;
     }
 
-    /** Best-effort client IP, honouring common proxy headers. */
+    /**
+     * Client IP. Forwarded headers (X-Forwarded-For / X-Real-IP / Client-IP) are
+     * honoured ONLY when the request arrives from a configured trusted proxy —
+     * otherwise a client could spoof its IP (and bypass IP-keyed throttling) just
+     * by sending the header. Falls back to REMOTE_ADDR, the one value a client
+     * can't forge. See Request::isFromTrustedProxy().
+     */
     public function ip(): ?string
     {
-        $candidates = [
-            'HTTP_X_FORWARDED_FOR',
-            'HTTP_CLIENT_IP',
-            'HTTP_X_REAL_IP',
-            'REMOTE_ADDR',
-        ];
-        foreach ($candidates as $key) {
-            if (!empty($this->server[$key])) {
-                // X-Forwarded-For may contain a comma-separated list.
-                $value = explode(',', (string) $this->server[$key])[0];
-                return trim($value);
+        if ($this->isFromTrustedProxy()) {
+            foreach (['HTTP_X_FORWARDED_FOR', 'HTTP_X_REAL_IP', 'HTTP_CLIENT_IP'] as $key) {
+                if (!empty($this->server[$key])) {
+                    // X-Forwarded-For may be a comma-separated list; the first
+                    // entry is the original client.
+                    return trim(explode(',', (string) $this->server[$key])[0]);
+                }
             }
         }
-        return null;
+
+        return isset($this->server['REMOTE_ADDR']) ? (string) $this->server['REMOTE_ADDR'] : null;
+    }
+
+    /**
+     * The proxies whose forwarded headers we trust: config('app.trusted_proxies')
+     * — an array of exact REMOTE_ADDR values, or '*' to trust all (only safe when
+     * the app is reachable solely via a known proxy). Empty means trust nothing.
+     *
+     * @return array<int, string>|array{0: '*'}
+     */
+    protected function trustedProxies(): array
+    {
+        // Resolve defensively: config may be unavailable (early bootstrap, CLI,
+        // isolated unit tests). Absent config → trust nothing, the safe default.
+        try {
+            $proxies = function_exists('config') ? config('app.trusted_proxies', []) : [];
+        } catch (\Throwable) {
+            $proxies = [];
+        }
+
+        if ($proxies === '*' || $proxies === ['*']) {
+            return ['*'];
+        }
+
+        return is_array($proxies) ? $proxies : [];
+    }
+
+    /** Whether this request's immediate peer (REMOTE_ADDR) is a trusted proxy. */
+    protected function isFromTrustedProxy(): bool
+    {
+        $proxies = $this->trustedProxies();
+
+        if ($proxies === []) {
+            return false;
+        }
+        if ($proxies === ['*']) {
+            return true;
+        }
+
+        $remote = (string) ($this->server['REMOTE_ADDR'] ?? '');
+
+        return $remote !== '' && in_array($remote, $proxies, true);
     }
 
     /** Convenience alias for input() — Laravel's Request supports this. */
@@ -312,9 +356,21 @@ class Request
         return str_contains($accept, '/json') || str_contains($accept, '+json');
     }
 
-    /** True if behind HTTPS (handles common edge proxies via HTTPS=on). */
+    /**
+     * True if the request is over HTTPS. Behind a configured trusted proxy that
+     * terminates TLS, X-Forwarded-Proto is honoured so cookies keep their Secure
+     * flag and url()/redirects stay on https; otherwise only the real HTTPS
+     * server var is trusted (a client can't downgrade/forge the scheme).
+     */
     public function secure(): bool
     {
+        if ($this->isFromTrustedProxy()) {
+            $proto = strtolower((string) ($this->server['HTTP_X_FORWARDED_PROTO'] ?? ''));
+            if ($proto !== '') {
+                return $proto === 'https';
+            }
+        }
+
         return !empty($this->server['HTTPS']) && $this->server['HTTPS'] !== 'off';
     }
 

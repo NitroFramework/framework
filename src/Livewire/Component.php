@@ -444,7 +444,7 @@ abstract class Component
         // Nested binding: wire:model="form.email" writes into an array property.
         if (str_contains($name, '.')) {
             [$root, $path] = explode('.', $name, 2);
-            if (property_exists($this, $root) && is_array($this->{$root})) {
+            if ($this->isPublicProperty($root) && is_array($this->{$root})) {
                 $array = $this->{$root};
                 Arr::set($array, $path, $value);
                 $this->{$root} = $array;
@@ -452,9 +452,26 @@ abstract class Component
             return;
         }
 
-        if (property_exists($this, $name)) {
+        if ($this->isPublicProperty($name)) {
             $this->{$name} = $this->coerce($name, $value);
         }
+    }
+
+    /**
+     * Whether $name is a PUBLIC property — the only kind the browser may write.
+     *
+     * A forged `updates` entry / wire:model must never reach protected or private
+     * state (server-only invariants, cached flags, service handles). This matches
+     * both the properties Nitro exposes in the snapshot (public only) and
+     * Livewire's own update guard (getPublicPropertiesDefinedOnSubclass).
+     */
+    private function isPublicProperty(string $name): bool
+    {
+        if (! property_exists($this, $name)) {
+            return false;
+        }
+
+        return (new ReflectionProperty($this, $name))->isPublic();
     }
 
     /** Coerce an incoming wire:model value to the property's declared type. */

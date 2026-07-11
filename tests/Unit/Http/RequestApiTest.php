@@ -25,6 +25,22 @@ class RequestApiTest extends TestCase
         );
     }
 
+    protected function tearDown(): void
+    {
+        // Drop any config we bound so trusted-proxy state never leaks between tests.
+        \Nitro\Container\Container::getInstance()->forget('config');
+        parent::tearDown();
+    }
+
+    /** Bind a minimal config so config('app.trusted_proxies') resolves in-test. */
+    private function trustProxies(array $proxies): void
+    {
+        \Nitro\Container\Container::getInstance()->instance(
+            'config',
+            \Nitro\Foundation\Config::fromArray(['app' => ['trusted_proxies' => $proxies]]),
+        );
+    }
+
     // ─── New (Laravel-style) accessors ────────────────────────────────────
 
     public function test_method_returns_upper_case_verb(): void
@@ -87,9 +103,24 @@ class RequestApiTest extends TestCase
         $this->assertIsArray($req->server());
     }
 
-    public function test_ip_picks_first_forwarded_for(): void
+    public function test_ip_ignores_forwarded_for_from_untrusted_client(): void
     {
-        $req = new Request('GET', '/', server: ['HTTP_X_FORWARDED_FOR' => '203.0.113.5, 198.51.100.10']);
+        // Secure default: with no trusted proxies configured, X-Forwarded-For is
+        // ignored (a client can't spoof its IP) — we use REMOTE_ADDR.
+        $req = new Request('GET', '/', server: [
+            'HTTP_X_FORWARDED_FOR' => '203.0.113.5, 198.51.100.10',
+            'REMOTE_ADDR'          => '10.0.0.1',
+        ]);
+        $this->assertSame('10.0.0.1', $req->ip());
+    }
+
+    public function test_ip_picks_first_forwarded_for_from_trusted_proxy(): void
+    {
+        $this->trustProxies(['10.0.0.1']);
+        $req = new Request('GET', '/', server: [
+            'HTTP_X_FORWARDED_FOR' => '203.0.113.5, 198.51.100.10',
+            'REMOTE_ADDR'          => '10.0.0.1',
+        ]);
         $this->assertSame('203.0.113.5', $req->ip());
     }
 

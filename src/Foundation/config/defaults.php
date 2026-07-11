@@ -26,6 +26,12 @@ return [
         'url'                   => 'http://localhost',
         'controllers_namespace' => 'App\\Controllers\\',
         'providers'             => [],
+        // IPs of proxies/load balancers whose X-Forwarded-* headers may be
+        // trusted (an array of exact REMOTE_ADDR values, or '*' to trust all —
+        // only safe when the app is reachable ONLY through a known proxy).
+        // Empty = trust nothing, so Request::ip()/secure() ignore forwarded
+        // headers and a client can't spoof its IP or scheme.
+        'trusted_proxies'       => [],
     ],
 
     'auth' => [

@@ -3,6 +3,7 @@
 namespace Nitro\Livewire\Synthesizers;
 
 use Nitro\Database\Model\Model;
+use Nitro\Livewire\SecurityPolicy;
 
 /**
  * Carries a Nitro model as component state. A persisted model is stored by
@@ -37,8 +38,21 @@ class ModelSynth implements Synth
     public function hydrate(mixed $payload, array $meta): mixed
     {
         /** @var class-string<Model> $class */
-        $class = $meta['class'];
+        $class = $meta['class'] ?? '';
         $key = $meta['key'] ?? null;
+
+        // Defense-in-depth: the snapshot is checksum-verified before we get here,
+        // but constrain what this synth may instantiate anyway — a checksum
+        // bypass (e.g. a leaked APP_KEY) must not be able to turn `new $class` /
+        // `$class::find()` into a gadget sink. The class must be a real Model and
+        // must not be on the security denylist.
+        if (! is_string($class) || ! is_subclass_of($class, Model::class)) {
+            throw new \RuntimeException(
+                'ModelSynth refused to hydrate a non-Model class from a snapshot: '
+                . (is_string($class) ? $class : get_debug_type($class))
+            );
+        }
+        SecurityPolicy::validateClass($class);
 
         // Persisted record: re-fetch so callers get a live, saveable model.
         if ($key !== null && $key !== '') {

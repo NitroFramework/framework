@@ -529,6 +529,16 @@ class Router implements RouterInterface
         $method = $request->method();
         $path = $request->path();
 
+        // HTTP requires HEAD to be served wherever GET is. Fall back to the GET
+        // table for a HEAD request unless the app registered explicit HEAD routes
+        // (the response body is irrelevant for HEAD). Without this, HEAD requests
+        // — health checks, `curl -I`, some crawlers — 404 on every GET route.
+        if ($method === 'HEAD'
+            && !isset($this->staticRoutes['HEAD'])
+            && !isset($this->dynamicRoutes['HEAD'])) {
+            $method = 'GET';
+        }
+
         // Event payloads built lazily — skipped entirely when no listener bound.
         $this->eventLazy(CoreEvents::ROUTE_MATCHED, fn() => [
             'method' => $method,

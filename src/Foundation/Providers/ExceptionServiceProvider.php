@@ -60,7 +60,13 @@ class ExceptionServiceProvider extends ServiceProvider
             }
         );
 
-        // Validation failures are expected control flow, not errors to report.
-        $handler->dontReport([ValidationException::class]);
+        // Expected control-flow exceptions are not errors to log. Without this
+        // every 404/403/419 (any HttpException) hits the error log, so scanner
+        // and bot traffic floods it. Mirrors Laravel's internal don't-report list.
+        $handler->dontReport([
+            ValidationException::class,
+            \Nitro\Exceptions\HttpException::class,
+            \Nitro\Http\Exceptions\HttpResponseException::class,
+        ]);
     }
 }

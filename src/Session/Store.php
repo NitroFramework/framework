@@ -35,7 +35,7 @@ class Store implements SessionInterface
     {
         $this->attributes = array_merge($this->attributes, $this->readFromHandler());
 
-        if (!$this->has('_token')) {
+        if (!$this->has('_csrf')) {
             $this->regenerateToken();
         }
 
@@ -254,12 +254,16 @@ class Store implements SessionInterface
 
     public function token(): ?string
     {
-        return $this->get('_token');
+        return $this->get('_csrf');
     }
 
     public function regenerateToken(): void
     {
-        $this->put('_token', bin2hex(random_bytes(20)));
+        // Canonical CSRF key is '_csrf' — the same key csrf_token(), the
+        // VerifyCsrfToken middleware, Livewire and HTMX all read/write. Keeping
+        // token()/regenerateToken() on this key means session()->token() returns
+        // the token the framework actually verifies (and regenerate() rotates it).
+        $this->put('_csrf', bin2hex(random_bytes(20)));
     }
 
     public function getHandler(): SessionHandlerInterface

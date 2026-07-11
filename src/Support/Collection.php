@@ -598,12 +598,25 @@ class Collection implements ArrayAccess, Countable, IteratorAggregate, JsonSeria
 
     public function avg($key = null): int|float|null
     {
-        if ($this->isEmpty()) {
+        // Exclude nulls from BOTH the sum and the divisor — a null value must not
+        // count as a zero in the numerator nor pad the denominator, or the mean is
+        // skewed. Matches Laravel's avg(), which only folds non-null values.
+        $values = [];
+        foreach ($this->items as $item) {
+            $value = $key === null
+                ? $item
+                : (is_callable($key) ? $key($item) : $this->getItemValue($item, $key));
+            if ($value !== null) {
+                $values[] = $value;
+            }
+        }
+
+        $count = count($values);
+        if ($count === 0) {
             return null;
         }
 
-        $count = $this->count();
-        return $this->sum($key) / $count;
+        return array_sum($values) / $count;
     }
 
     public function average($key = null): int|float|null
@@ -1305,7 +1318,10 @@ class Collection implements ArrayAccess, Countable, IteratorAggregate, JsonSeria
 
     public function offsetGet($offset): mixed
     {
-        return $this->items[$offset];
+        // Null-coalesce so `$collection['missing']` returns null instead of
+        // emitting an "Undefined array key" warning — which the worker's strict
+        // error handler (FrankenPHP PHP 8.5) would otherwise promote to a 500.
+        return $this->items[$offset] ?? null;
     }
 
     public function offsetSet($offset, $value): void

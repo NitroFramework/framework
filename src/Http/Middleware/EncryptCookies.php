@@ -56,7 +56,7 @@ class EncryptCookies
 
             try {
                 $decrypted = $this->encrypter->decryptString($value);
-                $cookies[$name] = CookieValuePrefix::validate($name, $decrypted, [$this->encrypter->getKey()]);
+                $cookies[$name] = CookieValuePrefix::validate($name, $decrypted, $this->encrypter->getAllKeys());
             } catch (DecryptException) {
                 $cookies[$name] = null;
             }

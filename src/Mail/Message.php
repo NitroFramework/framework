@@ -29,32 +29,52 @@ class Message
 
     public function from(string $address, ?string $name = null): static
     {
-        $this->from = ['address' => $address, 'name' => $name];
+        $this->from = ['address' => $this->assertValidAddress($address), 'name' => $name];
         return $this;
     }
 
     public function to(string $address, ?string $name = null): static
     {
-        $this->to[] = ['address' => $address, 'name' => $name];
+        $this->to[] = ['address' => $this->assertValidAddress($address), 'name' => $name];
         return $this;
     }
 
     public function cc(string $address, ?string $name = null): static
     {
-        $this->cc[] = ['address' => $address, 'name' => $name];
+        $this->cc[] = ['address' => $this->assertValidAddress($address), 'name' => $name];
         return $this;
     }
 
     public function bcc(string $address, ?string $name = null): static
     {
-        $this->bcc[] = ['address' => $address, 'name' => $name];
+        $this->bcc[] = ['address' => $this->assertValidAddress($address), 'name' => $name];
         return $this;
     }
 
     public function replyTo(string $address, ?string $name = null): static
     {
-        $this->replyTo = ['address' => $address, 'name' => $name];
+        $this->replyTo = ['address' => $this->assertValidAddress($address), 'name' => $name];
         return $this;
+    }
+
+    /**
+     * Validate an email address before it can reach a mail header. Rejects
+     * anything that isn't a valid address — which crucially rejects embedded
+     * CR/LF, closing off SMTP header injection (a user-supplied address like
+     * "x@x.dev\r\nBcc: victim@evil.com" could otherwise inject headers, since
+     * the transport writes the address into To/From/Cc verbatim).
+     *
+     * @throws \InvalidArgumentException on an invalid address.
+     */
+    private function assertValidAddress(string $address): string
+    {
+        $address = trim($address);
+
+        if ($address === '' || filter_var($address, FILTER_VALIDATE_EMAIL) === false) {
+            throw new \InvalidArgumentException("Invalid email address: [{$address}].");
+        }
+
+        return $address;
     }
 
     public function subject(string $subject): static

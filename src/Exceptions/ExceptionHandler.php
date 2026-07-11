@@ -325,15 +325,23 @@ class ExceptionHandler
             header('Content-Type: application/json; charset=UTF-8');
         }
 
+        $debug = $this->isDebug();
+
+        // In production, never echo the raw exception message to a JSON client:
+        // it can carry SQL, file paths, or other internals. Only HttpExceptions
+        // (whose message is a deliberate, safe status text) pass through. Mirrors
+        // Laravel's Handler::convertExceptionToArray.
         $data = [
-            'error' => true,
-            'message' => $e->getMessage(),
-            'type' => get_class($e),
+            'error'   => true,
+            'message' => $debug || $e instanceof HttpException
+                ? $e->getMessage()
+                : 'Server Error',
         ];
 
-        if ($this->isDebug()) {
-            $data['file'] = $e->getFile();
-            $data['line'] = $e->getLine();
+        if ($debug) {
+            $data['type']  = get_class($e);
+            $data['file']  = $e->getFile();
+            $data['line']  = $e->getLine();
             $data['trace'] = $this->getSimpleTrace($e);
         }
 

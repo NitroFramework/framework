@@ -20,10 +20,18 @@ class SessionGuard implements Guard
     protected const INTENDED_KEY = '_url_intended';
 
     /**
-     * Dummy bcrypt hash used to equalise timing when no user matches the given
-     * credentials, defeating user-enumeration via response-time differences.
+     * Lazily-built dummy hash used to equalise timing when no user matches,
+     * defeating user-enumeration via response-time differences. Built with
+     * PASSWORD_DEFAULT so it shares the exact algorithm and cost of real stored
+     * hashes — a hardcoded cost that differs from the app's would itself leak
+     * (a miss would be measurably slower/faster than a wrong password).
      */
-    protected const DUMMY_HASH = '$2y$12$cQ2P0z7gkq3uJ9w8nQnq2eY8wYh3yqgkq3uJ9w8nQnq2eY8wYh3y';
+    protected static ?string $dummyHash = null;
+
+    protected static function dummyHash(): string
+    {
+        return self::$dummyHash ??= password_hash('nitro-timing-equaliser', PASSWORD_DEFAULT);
+    }
 
     protected ?Authenticatable $user = null;
 
@@ -85,7 +93,7 @@ class SessionGuard implements Guard
         if ($user === null) {
             // Burn a hash comparison so a missing user costs the same as a
             // wrong password — no timing oracle for enumeration.
-            password_verify((string) ($credentials['password'] ?? ''), self::DUMMY_HASH);
+            password_verify((string) ($credentials['password'] ?? ''), self::dummyHash());
             return false;
         }
 

@@ -73,9 +73,29 @@ trait HasAttributes
             return $this;
         }
 
-        $this->attributes[$key] = $value;
+        $this->attributes[$key] = $this->castValueForStorage($key, $value);
         unset($this->castCache[$key]);
         return $this;
+    }
+
+    /**
+     * Encode a value for storage when its cast requires it. array/json/object
+     * casts must be serialized to a JSON string on write — PDO can't bind a PHP
+     * array/object, and the read-side cast (castAttribute) decodes it back. Other
+     * casts (and already-encoded strings) pass through untouched.
+     */
+    protected function castValueForStorage(string $key, mixed $value): mixed
+    {
+        if ($value === null || !isset($this->casts[$key])) {
+            return $value;
+        }
+
+        if (in_array($this->casts[$key], ['array', 'json', 'object'], true)
+            && (is_array($value) || is_object($value))) {
+            return json_encode($value);
+        }
+
+        return $value;
     }
 
     /**

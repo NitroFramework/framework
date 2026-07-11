@@ -31,6 +31,17 @@ class RateLimiterTest extends TestCase
         $this->assertGreaterThan(0, $l->availableIn('k'));
     }
 
+    public function test_hit_returns_the_running_count_via_atomic_increment(): void
+    {
+        $l = $this->limiter();
+
+        // hit() returns the post-increment count (atomic increment, not get+put).
+        $this->assertSame(1, $l->hit('c', 60));
+        $this->assertSame(2, $l->hit('c', 60));
+        $this->assertSame(3, $l->hit('c', 60));
+        $this->assertSame(3, $l->attempts('c'));
+    }
+
     public function test_clear_resets_the_key(): void
     {
         $l = $this->limiter();

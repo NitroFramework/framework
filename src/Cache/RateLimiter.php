@@ -58,12 +58,18 @@ class RateLimiter
             $this->cache->put($k . ':timer', time() + $decaySeconds, $decaySeconds);
         }
 
-        // get+put (not increment) so the counter always carries the decay TTL —
-        // some stores' increment resets missing keys to a far-future expiry.
-        $hits = ((int) $this->cache->get($k, 0)) + 1;
-        $this->cache->put($k, $hits, $decaySeconds);
+        // Seed the counter WITH the decay TTL when the window opens, then use the
+        // store's ATOMIC increment. A plain get+put lost concurrent hits (two
+        // requests both read N and both write N+1), letting a parallel attacker
+        // slip past the cap — the whole point of a limiter. Stores preserve an
+        // existing entry's TTL on increment, so seeding first keeps the window
+        // finite (rather than the far-future expiry a fresh counter would get).
+        // Mirrors Laravel's RateLimiter::increment (add-then-increment).
+        if (! $this->cache->has($k)) {
+            $this->cache->put($k, 0, $decaySeconds);
+        }
 
-        return $hits;
+        return (int) $this->cache->increment($k);
     }
 
     /** How many attempts have been recorded for the key in the current window. */

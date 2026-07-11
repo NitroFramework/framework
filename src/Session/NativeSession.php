@@ -50,7 +50,7 @@ class NativeSession extends Store
 
         $this->attributes = &$_SESSION;
 
-        if (!$this->has('_token')) {
+        if (!$this->has('_csrf')) {
             $this->regenerateToken();
         }
 

@@ -207,9 +207,15 @@ class SmtpTransport implements Transport
             return '';
         }
 
+        // Belt-and-suspenders against header injection: the address is written
+        // into a header verbatim, so strip any CR/LF even though Message already
+        // rejects invalid addresses at the setter (an address may reach a
+        // transport constructed directly).
+        $email = str_replace(["\r", "\n"], '', (string) $address['address']);
+
         return $address['name']
-            ? $this->encodeHeader($address['name']) . ' <' . $address['address'] . '>'
-            : $address['address'];
+            ? $this->encodeHeader($address['name']) . ' <' . $email . '>'
+            : $email;
     }
 
     protected function formatAddressList(array $addresses): string

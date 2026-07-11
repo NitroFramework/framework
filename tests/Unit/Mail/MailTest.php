@@ -37,6 +37,20 @@ class MailTest extends TestCase
         $this->assertEqualsCanonicalizing(['a@x.dev', 'b@x.dev', 'c@x.dev', 'd@x.dev'], $m->recipients());
     }
 
+    public function test_message_rejects_an_address_with_crlf_header_injection(): void
+    {
+        // A CR/LF in the address would let an attacker inject extra headers
+        // (e.g. Bcc) since the transport writes it into To/From/Cc verbatim.
+        $this->expectException(InvalidArgumentException::class);
+        (new Message())->to("victim@x.dev\r\nBcc: attacker@evil.com");
+    }
+
+    public function test_message_rejects_a_malformed_address(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        (new Message())->from('not-an-email');
+    }
+
     public function test_array_transport_collects_messages(): void
     {
         $transport = new ArrayTransport();
