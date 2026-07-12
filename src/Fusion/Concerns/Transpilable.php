@@ -2,7 +2,8 @@
 
 namespace Nitro\Fusion\Concerns;
 
-use Nitro\Livewire\Synthesizers\SynthManager;
+use Nitro\Fusion\State\StateSerializer;
+use ReflectionNamedType;
 use ReflectionObject;
 use ReflectionProperty;
 
@@ -16,21 +17,21 @@ use ReflectionProperty;
  *    the server when handling a `#[Server]` RPC call, so the real method runs
  *    against the same state the browser had.
  *
- * Non-scalar props (models, enums, collections) round-trip through Livewire's
- * {@see SynthManager} — Fusion reuses Livewire's serialization rather than
- * inventing its own. Only PUBLIC props cross the boundary; protected/private
- * state is server-only and is never sent to, or writable from, the client.
+ * Props round-trip through Fusion's own {@see StateSerializer} — scalars,
+ * arrays and backed enums — with NO dependency on the Livewire layer (Fusion
+ * state is plain, JSON-round-trippable client state). Only PUBLIC props cross
+ * the boundary; protected/private state is server-only and is never sent to, or
+ * writable from, the client.
  */
 trait Transpilable
 {
     /** Serialize public props → the transport state embedded for client hydration. */
     public function fusionState(): array
     {
-        $synths = SynthManager::default();
         $state = [];
 
         foreach ($this->fusionPublicProps() as $name) {
-            $state[$name] = $synths->dehydrate($this->{$name} ?? null);
+            $state[$name] = StateSerializer::dehydrate($this->{$name} ?? null);
         }
 
         return $state;
@@ -39,14 +40,20 @@ trait Transpilable
     /** Rebuild public props from a client-sent state (server-side, for #[Server] calls). */
     public function fusionFill(array $state): static
     {
-        $synths = SynthManager::default();
         $public = $this->fusionPublicProps();
+        $reflection = new ReflectionObject($this);
 
         foreach ($state as $name => $value) {
             // Only public props are client-writable — protected/private stay server-only.
-            if (in_array($name, $public, true)) {
-                $this->{$name} = $synths->hydrate($value);
+            if (! in_array($name, $public, true)) {
+                continue;
             }
+
+            $type = $reflection->getProperty($name)->getType();
+            $this->{$name} = StateSerializer::hydrate(
+                $value,
+                $type instanceof ReflectionNamedType ? $type : null
+            );
         }
 
         return $this;
