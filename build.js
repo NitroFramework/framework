@@ -8,8 +8,6 @@ const targets = [
   { in: 'js/livewire.js',        out: 'src/Livewire/dist/livewire.js' },
   { in: 'js/hx-component.js',    out: 'src/Htmx/dist/hx-component.js' },
   { in: 'js/nitro-nprogress.js', out: 'src/Htmx/dist/nitro-nprogress.js' },
-  { in: 'js/fusion.js',          out: 'src/Fusion/dist/fusion.js' },
-  { in: 'js/fusion-nprogress.js', out: 'src/Fusion/dist/fusion-nprogress.js' },
 ];
 
 await Promise.all(targets.map((t) =>

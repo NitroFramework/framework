@@ -29,20 +29,9 @@ inspiration.
   hypermedia approach. It is an independent implementation and does not bundle
   htmx itself.
 
-- **Viewi** — an open-source PHP front-end framework (MIT License) created by
-  Ivan Voitovych and its contributors. <https://viewi.net>
-  Unlike the projects above, NitroPHP's `Nitro\Fusion` layer **includes adapted
-  source** from Viewi: its PHP→JavaScript transpiler (`JsTranspile`) and its
-  PHP-standard-library-in-JavaScript runtime (`PhpJsFunctions`) are vendored
-  under the `Nitro\Fusion\*` namespace (see `src/Fusion/JsTranspile` and
-  `src/Fusion/PhpJsFunctions`). Copyright © Ivan Voitovych, used under the MIT
-  License. The surrounding Fusion component model, reactive-Blade compiler, SSR
-  bridge, and runtime are original NitroPHP code.
-
-- **Locutus** (php.js) — MIT-licensed JavaScript reimplementations of PHP's
-  standard library. <https://locutus.io>
-  The `.js` files under `src/Fusion/PhpJsFunctions` derive from Locutus (via
-  Viewi) and remain under their MIT License.
+> The Fusion client-side layer (transpiler, `PhpJsFunctions`/Locutus shim, Viewi
+> attribution) now lives in its own package, **`nitro/fusion`** — see that
+> repository's `CREDITS.md`.
 
 All original NitroPHP source code is released under the MIT License — see
 [LICENSE](LICENSE).
