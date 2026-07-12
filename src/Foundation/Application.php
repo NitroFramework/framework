@@ -11,6 +11,7 @@ use Nitro\Cookie\CookieServiceProvider;
 use Nitro\Encryption\EncryptionServiceProvider;
 use Nitro\Events\Dispatcher as EventDispatcher;
 use Nitro\Filesystem\FilesystemServiceProvider;
+use Nitro\Fusion\FusionServiceProvider;
 use Nitro\Foundation\Bootstrap\BootstrapperInterface;
 use Nitro\Foundation\Http\Kernel;
 use Nitro\Foundation\Providers\AuthServiceProvider;
@@ -364,6 +365,7 @@ class Application
             RedisServiceProvider::class,
             QueueServiceProvider::class,
             ScheduleServiceProvider::class,
+            FusionServiceProvider::class,
         ];
     }
 

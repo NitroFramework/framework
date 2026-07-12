@@ -17,6 +17,7 @@
     },
     "require": {
         "php": "^8.2",
+        "nikic/php-parser": "^5.3",
         "phpoption/phpoption": "^1.9",
         "vlucas/phpdotenv": "^5.6"
     },

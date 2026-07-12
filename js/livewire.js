@@ -1034,6 +1034,75 @@
         };
     }
 
+    // ---- wire:current (active-link highlighting) ----------------------------
+    // Port of Livewire's wire:current + automatic data-current. After every
+    // wire:navigate (and on first load) each opted-in link is matched against
+    // the current URL: `wire:current="classes"` toggles those classes, and every
+    // wire:navigate link gets a bare `data-current` attribute you can style in
+    // CSS. Global (not component-scoped) — nav links live outside components.
+    // Matching is on the link's own href (no separate marker attribute needed).
+    // Modifiers: .exact (whole path), .strict (respect trailing slash), .ignore.
+
+    function pathMatches(hrefUrl, actualUrl, options) {
+        if (hrefUrl.hostname !== actualUrl.hostname) return false;
+        var hrefPath = options.strict ? hrefUrl.pathname : hrefUrl.pathname.replace(/\/+$/, '');
+        var actualPath = options.strict ? actualUrl.pathname : actualUrl.pathname.replace(/\/+$/, '');
+        if (options.exact) return hrefPath === actualPath;
+        var h = hrefPath.split('/'), a = actualPath.split('/');
+        for (var i = 0; i < h.length; i++) { if (h[i] !== a[i]) return false; }
+        return true;
+    }
+
+    function firstAttrStarting(el, prefix) {
+        for (var i = 0; i < el.attributes.length; i++) {
+            if (el.attributes[i].name.indexOf(prefix) === 0) return el.attributes[i];
+        }
+        return null;
+    }
+
+    function refreshCurrentLinks() {
+        var url = new URL(window.location.href);
+
+        Array.prototype.forEach.call(document.querySelectorAll('a[href]'), function (el) {
+            var currentAttr = firstAttrStarting(el, 'wire:current');
+            var navigates = firstAttrStarting(el, 'wire:navigate') !== null;
+            if (!currentAttr && !navigates) return; // not a navigation-aware link
+
+            var href = el.getAttribute('href');
+            if (!href || href.charAt(0) === '#') return; // fragment links unsupported
+
+            var hrefUrl;
+            try { hrefUrl = new URL(href, window.location.href); } catch (e) { return; }
+
+            var m = currentAttr ? mods(currentAttr.name, 'wire:current') : [];
+            if (m.indexOf('ignore') !== -1) return;
+
+            // Explicit wire:current honours its modifiers; a bare wire:navigate
+            // link only gets data-current, via Livewire's default (exact) match.
+            var options = currentAttr
+                ? { exact: m.indexOf('exact') !== -1, strict: m.indexOf('strict') !== -1 }
+                : { exact: true, strict: false };
+
+            var isCurrent = pathMatches(hrefUrl, url, options);
+            var classes = currentAttr ? (currentAttr.value || '').split(' ').filter(Boolean) : [];
+
+            if (isCurrent) {
+                if (classes.length) el.classList.add.apply(el.classList, classes);
+                el.setAttribute('data-current', '');
+            } else {
+                if (classes.length) el.classList.remove.apply(el.classList, classes);
+                el.removeAttribute('data-current');
+            }
+        });
+    }
+
+    window.addEventListener('livewire:navigated', refreshCurrentLinks);
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', refreshCurrentLinks);
+    } else {
+        refreshCurrentLinks();
+    }
+
     // ---- public surface -----------------------------------------------------
 
     window.Livewire = window.Livewire || {};

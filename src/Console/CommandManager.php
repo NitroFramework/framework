@@ -4,6 +4,7 @@ namespace Nitro\Console;
 
 use Nitro\Concurrency\Console\ConcurrencyInvokeCommand;
 use Nitro\Container\Contracts\ContainerInterface;
+use Nitro\Fusion\Console\FusionBuildCommand;
 use Nitro\Thrust\Commands\ThrustCommands;
 
 /**
@@ -56,6 +57,7 @@ class CommandManager
             Commands\DatabaseCommands::class,
             Commands\CacheCommands::class,
             ConcurrencyInvokeCommand::class,
+            FusionBuildCommand::class,
         ];
 
         foreach ($builtIns as $class) {

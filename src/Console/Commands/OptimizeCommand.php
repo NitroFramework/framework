@@ -62,28 +62,31 @@ class OptimizeCommand implements CommandInterface
 
         $startTime = microtime(true);
 
-        $this->output->info("Step 1/8: Caching configuration...");
+        $this->output->info("Step 1/9: Caching configuration...");
         $this->cacheConfig();
 
-        $this->output->info("Step 2/8: Caching routes...");
+        $this->output->info("Step 2/9: Caching routes...");
         $this->cacheRoutes();
 
-        $this->output->info("Step 3/8: Caching views...");
+        $this->output->info("Step 3/9: Compiling container...");
+        $this->cacheContainer();
+
+        $this->output->info("Step 4/9: Caching views...");
         $this->cacheViews();
 
-        $this->output->info("Step 4/8: Caching service providers...");
+        $this->output->info("Step 5/9: Caching service providers...");
         $this->cacheBootstrap();
 
-        $this->output->info("Step 5/8: Bundling helpers...");
+        $this->output->info("Step 6/9: Bundling helpers...");
         $this->bundleHelpers();
 
-        $this->output->info("Step 6/8: Caching database schema...");
+        $this->output->info("Step 7/9: Caching database schema...");
         $this->cacheSchema();
 
-        $this->output->info("Step 7/8: Generating opcache preload script...");
+        $this->output->info("Step 8/9: Generating opcache preload script...");
         $this->generatePreload();
 
-        $this->output->info("Step 8/8: Dumping optimized autoloader...");
+        $this->output->info("Step 9/9: Dumping optimized autoloader...");
         $this->dumpAutoloader();
 
         $duration = round((microtime(true) - $startTime) * 1000, 2);
@@ -242,6 +245,44 @@ class OptimizeCommand implements CommandInterface
             $this->output->writeln($this->output->color("  ✓ Bundled " . count($files) . " helper files", 'green'));
         } catch (\Throwable $e) {
             $this->output->writeln($this->output->color("  ✖ Helper bundling failed: " . $e->getMessage(), 'red'));
+        }
+    }
+
+    /**
+     * Compile a reflection-free container for the app's autowired entry classes.
+     *
+     * Route controllers (and their constructor graphs) are resolved by
+     * class-string on every request; ContainerCompiler emits a factory that
+     * inlines each graph so production skips reflection. Bound deps stay deferred
+     * to the container (bindings/singletons/aliases still apply), and anything
+     * uncompilable simply falls back to reflection — the map is a pure
+     * accelerator. Loaded in production by the RegisterProviders bootstrapper.
+     */
+    protected function cacheContainer(): void
+    {
+        try {
+            $container = $this->app->getContainer();
+            $router = $container->make('router');
+
+            $entries = [];
+            foreach ($router->getRoutes() as $methodRoutes) {
+                foreach ($methodRoutes as $routeData) {
+                    if (($routeData['type'] ?? null) === 'controller' && isset($routeData['controller'])) {
+                        $entries[] = $routeData['controller'];
+                    }
+                }
+            }
+            $entries = array_values(array_unique($entries));
+
+            $php = (new \Nitro\Container\ContainerCompiler())->compile($container, $entries);
+            file_put_contents($this->paths->cache('container.php'), $php);
+
+            $this->output->writeln($this->output->color(
+                "  ✓ Compiled " . substr_count($php, '=> static fn') . " container factories",
+                'green'
+            ));
+        } catch (\Throwable $e) {
+            $this->output->writeln($this->output->color("  ✖ Container compile failed: " . $e->getMessage(), 'red'));
         }
     }
 
@@ -503,6 +544,7 @@ class OptimizeCommand implements CommandInterface
         $caches  = [
             'config.php'         => 'Configuration',
             'bootstrap.php'      => 'Bootstrap',
+            'container.php'      => 'Compiled container',
             'views_warmup.php'   => 'View warmup bundle',
             ViewWarmup::META_FILE => 'View warmup metadata',
             'views_manifest.php' => 'View manifest',

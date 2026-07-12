@@ -31,6 +31,18 @@ class RegisterProviders implements BootstrapperInterface
             $app->registerConfiguredProviders();
         }
 
+        // Install the AOT-compiled container factories so autowired controllers
+        // resolve with zero reflection. Production only: gated on !debug like
+        // every optimize cache, so dev always reflects and code changes take
+        // effect without re-running `nitro optimize`.
+        $containerCache = $app->paths()->cache('container.php');
+        if (! $app->isDebug() && is_file($containerCache)) {
+            $factories = require $containerCache;
+            if (is_array($factories)) {
+                $app->getContainer()->setCompiledFactories($factories);
+            }
+        }
+
         // Opcache warmup for compiled views — `nitro optimize` writes a
         // tiny bundle that opcache_compile_file()s every compiled view in
         // one pass. First request primes apache's opcache for all of

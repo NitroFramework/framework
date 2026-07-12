@@ -1440,9 +1440,78 @@
   // so dynamically inserted components are picked up automatically.
   // ═══════════════════════════════════════════════════════════════════════
 
+  // ═══════════════════════════════════════════════════════════════════════
+  // SECTION: hx-current (active-link highlighting)
+  //
+  // The htmx layer's counterpart to Livewire's wire:current. After every htmx
+  // navigation (nitro:navigation / htmx:afterSettle) and on first load, each
+  // [hx-current] link is matched against the current URL: hx-current="classes"
+  // toggles those classes and sets a bare data-current attribute you can style
+  // in CSS. Matching is on the link's own href — no separate marker attribute.
+  // Modifiers: .exact (whole path), .strict (respect trailing slash), .ignore.
+  // Self-contained — no dependency on the Livewire or Fusion layers.
+  // ═══════════════════════════════════════════════════════════════════════
+
+  function pathMatches(hrefUrl, actualUrl, options) {
+    if (hrefUrl.hostname !== actualUrl.hostname) return false;
+    var hrefPath = options.strict ? hrefUrl.pathname : hrefUrl.pathname.replace(/\/+$/, "");
+    var actualPath = options.strict ? actualUrl.pathname : actualUrl.pathname.replace(/\/+$/, "");
+    if (options.exact) return hrefPath === actualPath;
+    var h = hrefPath.split("/"), a = actualPath.split("/");
+    for (var i = 0; i < h.length; i++) {
+      if (h[i] !== a[i]) return false;
+    }
+    return true;
+  }
+
+  function currentAttrFor(el) {
+    for (var i = 0; i < el.attributes.length; i++) {
+      if (el.attributes[i].name.indexOf("hx-current") === 0) return el.attributes[i];
+    }
+    return null;
+  }
+
+  function refreshCurrentLinks() {
+    var url = new URL(window.location.href);
+
+    Array.prototype.forEach.call(document.querySelectorAll("a[href]"), function (el) {
+      var attr = currentAttrFor(el);
+      if (!attr) return;
+
+      var href = el.getAttribute("href");
+      if (!href || href.charAt(0) === "#") return;
+
+      var hrefUrl;
+      try {
+        hrefUrl = new URL(href, window.location.href);
+      } catch (e) {
+        return;
+      }
+
+      var m = attr.name === "hx-current" ? [] : attr.name.slice("hx-current".length + 1).split(".");
+      if (m.indexOf("ignore") !== -1) return;
+
+      var options = { exact: m.indexOf("exact") !== -1, strict: m.indexOf("strict") !== -1 };
+      var isCurrent = pathMatches(hrefUrl, url, options);
+      var classes = (attr.value || "").split(" ").filter(Boolean);
+
+      if (isCurrent) {
+        if (classes.length) el.classList.add.apply(el.classList, classes);
+        el.setAttribute("data-current", "");
+      } else {
+        if (classes.length) el.classList.remove.apply(el.classList, classes);
+        el.removeAttribute("data-current");
+      }
+    });
+  }
+
+  document.body.addEventListener("nitro:navigation", refreshCurrentLinks);
+  document.body.addEventListener("htmx:afterSettle", refreshCurrentLinks);
+
   function boot() {
     compile(document.body);
     seedCurrentPage(getDefaultNavigationContext());
+    refreshCurrentLinks();
   }
 
   if (document.readyState === "loading") {

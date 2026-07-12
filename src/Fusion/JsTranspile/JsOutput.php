@@ -1,0 +1,72 @@
+<?php
+
+namespace Nitro\Fusion\JsTranspile;
+
+use Throwable;
+
+class JsOutput
+{
+    public ?Throwable $error = null;
+    public ?string $errorCode = null;
+    public ?int $errorPosition = null;
+    public ?int $errorLine = null;
+    public ?int $errorEndPosition = null;
+    public ?string $errorMessage = null;
+    public ?string $filePath = null;
+
+    public function __construct(
+        private string $jsCode,
+        private array $exports = [],
+        private array $uses = [],
+        private array $varDeps = [],
+        private array $transforms = [],
+        private array $tokens = []
+    ) {}
+
+    /**
+     * 
+     * @return array<string, ExportItem>
+     */
+    public function getExports(): array
+    {
+        return $this->exports;
+    }
+
+    /**
+     * 
+     * @return array<string, bool>
+     */
+    public function getTokens(): array
+    {
+        return $this->tokens;
+    }
+
+    /**
+     * 
+     * @return array<string, UseItem>> 
+     */
+    public function getUses(): array
+    {
+        return $this->uses;
+    }
+
+    public function getVariableDependencies(): array
+    {
+        return $this->uses;
+    }
+
+    public function getTransforms(): array
+    {
+        return $this->transforms;
+    }
+
+    public function getDeps(): array
+    {
+        return $this->varDeps;
+    }
+
+    public function __toString(): string
+    {
+        return $this->jsCode;
+    }
+}
