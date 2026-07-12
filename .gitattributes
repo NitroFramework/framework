@@ -1,0 +1,3 @@
+# Keep design/dev docs in the repo but out of the Composer dist archive
+# (so they don't ship into every app's vendor/nitro/framework).
+src/Fusion/DESIGN.md export-ignore

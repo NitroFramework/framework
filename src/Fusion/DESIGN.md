@@ -3,9 +3,10 @@
 > **Name:** Fusion (isomorphic = *fusing* server + client execution from one
 > PHP source). Namespace `Nitro\Fusion`. — decided.
 
-**Status:** **P0 spike VALIDATED** ✅ — the core bet works end to end. Opt-in third
-reactive layer alongside Livewire & HTMX. Livewire (server-authoritative
-round-trips) and HTMX (hypermedia) are **not** touched.
+**Status:** **SHIPPED in framework v0.20.0** ✅ — this is the design of record and
+how it was built (the P0/P1 log below is history). Opt-in third reactive layer
+alongside Livewire & HTMX. Livewire (server-authoritative round-trips) and HTMX
+(hypermedia) are **not** touched. Fusion owns `fusion:` directives — never `wire:`.
 
 ## P0 spike results (validated)
 
