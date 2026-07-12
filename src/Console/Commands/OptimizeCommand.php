@@ -299,13 +299,21 @@ class OptimizeCommand implements CommandInterface
             $config = $this->config;
             $userProviders = $config->get('app.providers');
 
+            // Bake auto-discovered package providers (extra.nitro.providers) into
+            // the cache too, so production registers them from bootstrap.php.
+            $packageProviders = (new \Nitro\Foundation\PackageManifest(
+                $paths->base('vendor'),
+                $paths->base(),
+                $paths->cache('packages.php')
+            ))->providers();
+
             // Bake discovered module providers into the cache so production
             // registers them from bootstrap.php without a per-request scan.
             $moduleProviders = (new \Nitro\Foundation\ModuleManifest(
                 $paths->base('app' . DIRECTORY_SEPARATOR . 'Modules')
             ))->providers();
 
-            $allProviders = array_merge($defaults, $userProviders, $moduleProviders);
+            $allProviders = array_merge($defaults, $packageProviders, $userProviders, $moduleProviders);
 
             // NOTE: Blade directives are intentionally NOT cached here. A directive
             // callback receives the invocation's $expression; caching its output
@@ -545,6 +553,7 @@ class OptimizeCommand implements CommandInterface
             'config.php'         => 'Configuration',
             'bootstrap.php'      => 'Bootstrap',
             'container.php'      => 'Compiled container',
+            'packages.php'       => 'Package discovery',
             'views_warmup.php'   => 'View warmup bundle',
             ViewWarmup::META_FILE => 'View warmup metadata',
             'views_manifest.php' => 'View manifest',

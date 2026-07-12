@@ -316,6 +316,7 @@ class Application
         if ($providers === null) {
             $providers = array_merge(
                 $this->getDefaultProviders(),
+                $this->discoverPackageProviders(),
                 $this->config->get('app.providers'),
                 $this->discoverModuleProviders()
             );
@@ -339,6 +340,23 @@ class Application
         $modulesPath = $this->paths->base('app' . DIRECTORY_SEPARATOR . 'Modules');
 
         return (new ModuleManifest($modulesPath))->providers();
+    }
+
+    /**
+     * Discover service providers from installed Composer packages that opt in via
+     * `extra.nitro.providers` (Laravel-style package auto-discovery). Live path
+     * only — in production `nitro optimize` bakes them into the bootstrap cache,
+     * so installed.json is not read per request.
+     *
+     * @return array<int, class-string>
+     */
+    private function discoverPackageProviders(): array
+    {
+        return (new PackageManifest(
+            $this->paths->base('vendor'),
+            $this->paths->base(),
+            $this->paths->cache('packages.php'),
+        ))->providers();
     }
 
     /** Get the default service providers if none are defined in configuration */

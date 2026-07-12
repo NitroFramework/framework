@@ -33,7 +33,30 @@ class CommandManager
         private OutputFormatter $output
     ) {
         $this->registerBuiltInCommands();
+        $this->discoverPackageCommands();
         $this->discoverUserCommands();
+    }
+
+    /**
+     * Console commands contributed by installed packages via `extra.nitro.commands`
+     * (Laravel-style auto-discovery) — so a package's commands register on
+     * `composer require` without touching the framework's built-in list.
+     */
+    private function discoverPackageCommands(): void
+    {
+        $paths = $this->container->get('paths');
+
+        $manifest = new \Nitro\Foundation\PackageManifest(
+            $paths->base('vendor'),
+            $paths->base(),
+            $paths->cache('packages.php')
+        );
+
+        foreach ($manifest->config('commands') as $class) {
+            if (is_string($class) && class_exists($class)) {
+                $this->registerCommandClass($class);
+            }
+        }
     }
 
     private function registerBuiltInCommands(): void
@@ -46,6 +69,7 @@ class CommandManager
             Commands\MigrationCommands::class,
             Commands\MakeCommands::class,
             Commands\OptimizeCommand::class,
+            Commands\PackageDiscoverCommand::class,
             Commands\KeyGenerateCommand::class,
             Commands\ServeCommand::class,
             ThrustCommands::class,
