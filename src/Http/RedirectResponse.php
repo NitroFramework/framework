@@ -20,8 +20,30 @@ use Nitro\Validation\ErrorBag;
  */
 class RedirectResponse extends Response
 {
-    /** Password-like fields never flashed back into old input. */
-    protected const NEVER_FLASH = ['password', 'password_confirmation', 'current_password'];
+    /**
+     * Fields never flashed back to the session on a redirect-with-input.
+     *
+     * The password fields are the framework's floor and can't be removed; an
+     * application adds its own secrets (api_token, card_number, ssn) via
+     * ExceptionHandler::dontFlash(), which calls the setter below.
+     *
+     * @var array<int, string>
+     */
+    protected static array $neverFlash = ['password', 'password_confirmation', 'current_password'];
+
+    /** Add fields to the never-flash list. */
+    public static function dontFlash(array $attributes): void
+    {
+        static::$neverFlash = array_values(array_unique(
+            array_merge(static::$neverFlash, $attributes)
+        ));
+    }
+
+    /** @return array<int, string> The current never-flash list (introspection/tests). */
+    public static function neverFlashed(): array
+    {
+        return static::$neverFlash;
+    }
 
     public function __construct(string $url, int $status = self::HTTP_REDIRECT, array $headers = [])
     {
@@ -35,8 +57,8 @@ class RedirectResponse extends Response
     public function with(string|array $key, mixed $value = null): self
     {
         $pairs = is_array($key) ? $key : [$key => $value];
-        foreach ($pairs as $k => $v) {
-            session()->flash($k, $v);
+        foreach ($pairs as $flashKey => $flashValue) {
+            session()->flash($flashKey, $flashValue);
         }
         return $this;
     }
@@ -71,7 +93,7 @@ class RedirectResponse extends Response
         $request = app('request');
         $input = ($request instanceof Request) ? $request->all() : [];
 
-        foreach (self::NEVER_FLASH as $field) {
+        foreach (static::$neverFlash as $field) {
             unset($input[$field]);
         }
 

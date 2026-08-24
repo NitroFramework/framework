@@ -21,13 +21,23 @@ class Authenticate
     ) {}
 
     /**
-     * Allow authenticated requests to continue; otherwise remember the target
-     * URL and redirect to the configured login route.
+     * Allow authenticated requests to continue; otherwise reject them in the
+     * shape the client can actually use.
+     *
+     * A browser gets the login redirect, with the target URL remembered so it
+     * lands back where it was going. An API client — anything sending
+     * `Accept: application/json` or an XHR header — gets a 401 instead: sending
+     * it a 302 to an HTML login form tells it nothing, and a fetch() following
+     * that redirect ends up parsing a login page as its response.
      */
     public function handle(Request $request, callable $next): Response
     {
         if ($this->auth->check()) {
             return $next($request);
+        }
+
+        if ($request->expectsJson()) {
+            return Response::json(['message' => 'Unauthenticated.'], 401);
         }
 
         $this->auth->setIntendedUrl($request->path());

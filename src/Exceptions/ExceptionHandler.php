@@ -3,25 +3,56 @@
 namespace Nitro\Exceptions;
 
 use Throwable;
+use WeakMap;
 use Nitro\Foundation\Application;
 use Nitro\Foundation\Contracts\ConfigRepository;
 use Nitro\Container\Contracts\ContainerInterface;
+use Nitro\Support\Logger;
 
 /**
  * ExceptionHandler — The single brain for all exception handling in NitroPHP.
- * 
- * Responsibilities:
- *  1. Custom handlers per exception type (with inheritance matching)
- *  2. Reporting & logging
- *  3. Rendering (dev HTML, prod HTML, JSON, HTMX-aware)
- *  4. Output buffer cleaning (prevents errors hiding inside partial HTML)
- * 
- * Two entry points:
- *  - render($e)        → returns string (for Kernel — wraps in Response)
- *  - handleAndExit($e) → cleans buffers, echoes, exits (for fatal/shutdown)
+ *
+ * The request path through here is a fixed pipeline, and each stage is a seam an
+ * application can extend:
+ *
+ *   map()      rewrite the exception into another one
+ *   report()   decide whether it is worth recording, then record it
+ *   prepare()  give a domain exception its correct HTTP status
+ *   render()   turn it into a body — dev page, error view, JSON, console
+ *
+ * Registration is fluent and lives on this object; a provider's
+ * boot(ExceptionHandler $handler) is where an app wires its own rules.
+ *
+ * Three entry points:
+ *  - report($exception)         → record it (Kernel calls this before rendering)
+ *  - render($exception)         → returns string (for Kernel — wraps in Response)
+ *  - handleAndExit($exception)  → cleans buffers, echoes, exits (for fatal/shutdown)
  */
 class ExceptionHandler
 {
+    /** Fallback log level for an exception with no explicit mapping. */
+    public const DEFAULT_LEVEL = 'error';
+
+    /**
+     * Output-buffer depth when the handler was installed, set by
+     * HandleExceptions. Everything below this belongs to whatever is hosting the
+     * process — a Thrust worker, a test harness — and must survive even a fatal.
+     */
+    public static int $initialObLevel = 0;
+
+    /**
+     * Output-buffer depth at the start of the current request, set by the Kernel.
+     *
+     * This is the only line the renderer is allowed to unwind to. Anything ABOVE
+     * it was opened while handling this request (a half-written layout, an open
+     * @section) and should be discarded so the error page isn't nested inside
+     * it; anything BELOW belongs to the host and is not ours to close.
+     *
+     * Null means "not inside a request" — in which case we touch nothing at all,
+     * because there is no way to tell our buffers from someone else's.
+     */
+    public static ?int $requestObLevel = null;
+
     private ConfigRepository $config;
     private ContainerInterface $container;
 
@@ -35,6 +66,23 @@ class ExceptionHandler
     private array $dontReport = [];
 
     /**
+     * Control-flow exceptions the framework never reports. These are not errors:
+     * a 404, a rejected CSRF token or a failed validation is the application
+     * working as designed, and logging them floods the log with bot traffic.
+     * An app can override with stopIgnoring().
+     *
+     * @var array<int, class-string>
+     */
+    private array $internalDontReport = [
+        \Nitro\Exceptions\HttpException::class,
+        \Nitro\Http\Exceptions\HttpResponseException::class,
+        \Nitro\Validation\ValidationException::class,
+    ];
+
+    /** @var array<int, class-string> Classes removed from the internal ignore list. */
+    private array $stopIgnoring = [];
+
+    /**
      * Exception→Response converters keyed by exception class. Unlike custom
      * handlers (which return a string body), these return a full Response object
      * — used for exceptions that must redirect or set headers (e.g. a validation
@@ -44,6 +92,33 @@ class ExceptionHandler
      * @var array<string, callable>
      */
     private array $responseHandlers = [];
+
+    /** @var array<string, callable|string> Exception rewriters keyed by source class. */
+    private array $exceptionMap = [];
+
+    /** @var array<class-string, string> Per-exception log levels. */
+    private array $levels = [];
+
+    /** @var array<int, callable> Callbacks contributing to every log context. */
+    private array $contextCallbacks = [];
+
+    /** @var array<int, callable> Predicates that can veto reporting. */
+    private array $dontReportCallbacks = [];
+
+    /** @var array<int, callable> Callbacks returning a ReportRate for an exception. */
+    private array $throttleCallbacks = [];
+
+    /** Report each exception instance at most once. */
+    private bool $withoutDuplicates = false;
+
+    /** @var WeakMap<Throwable, bool>|null Instances already reported. */
+    private ?WeakMap $reportedExceptions = null;
+
+    /** Overrides the default "does this client want JSON?" decision. */
+    private mixed $shouldRenderJsonCallback = null;
+
+    /** Post-processes every Response the handler produces. */
+    private mixed $finalizeResponseCallback = null;
 
     private int $contextLines = 10;
 
@@ -58,8 +133,8 @@ class ExceptionHandler
     /**
      * Register a custom handler for a specific exception type.
      * 
-     * $handler->register(ValidationException::class, function ($e, $container) {
-     *     return Response::json(['errors' => $e->errors()], 422);
+     * $handler->register(ValidationException::class, function ($exception, $container) {
+     *     return Response::json(['errors' => $exception->errors()], 422);
      * });
      */
     public function register(string $exceptionClass, callable $handler): self
@@ -73,10 +148,25 @@ class ExceptionHandler
      * (redirect, JSON, headers) rather than an HTML string. The callable receives
      * ($exception, $request) and must return a Response. Used e.g. by
      * ExceptionServiceProvider to map ValidationException → redirect-back / 422 JSON.
+     *
+     * Named renderableResponse() rather than respondUsing() on purpose: in Laravel
+     * respondUsing() is the single global callback that post-processes EVERY
+     * rendered response, and that name is reserved here for the same thing.
      */
-    public function respondUsing(string $exceptionClass, callable $handler): self
+    public function renderableResponse(string $exceptionClass, callable $handler): self
     {
         $this->responseHandlers[$exceptionClass] = $handler;
+        return $this;
+    }
+
+    /**
+     * Post-process every Response this layer produces — the last word on
+     * headers, status or body before it goes out. Receives ($response,
+     * $exception, $request) and must return the Response to send.
+     */
+    public function respondUsing(callable $callback): self
+    {
+        $this->finalizeResponseCallback = $callback;
         return $this;
     }
 
@@ -86,27 +176,46 @@ class ExceptionHandler
      * case the caller falls back to the string renderer. Returned untyped so this
      * layer stays free of any Http dependency.
      */
-    public function renderResponse(Throwable $e, mixed $request): mixed
+    public function renderResponse(Throwable $exception, mixed $request): mixed
     {
-        $handler = $this->responseHandlers[get_class($e)] ?? null;
+        $exception = $this->mapException($exception);
+
+        $handler = $this->responseHandlers[get_class($exception)] ?? null;
 
         if ($handler === null) {
             foreach ($this->responseHandlers as $class => $candidate) {
-                if ($e instanceof $class) {
+                if ($exception instanceof $class) {
                     $handler = $candidate;
                     break;
                 }
             }
         }
 
-        return $handler !== null ? $handler($e, $request) : null;
+        if ($handler === null) {
+            return null;
+        }
+
+        return $this->finalize($handler($exception, $request), $exception, $request);
+    }
+
+    /**
+     * Hand a finished Response to the respondUsing() callback, if one is set.
+     * Untyped for the same reason as renderResponse(): no Http import here.
+     */
+    public function finalize(mixed $response, Throwable $exception, mixed $request = null): mixed
+    {
+        if ($response === null || $this->finalizeResponseCallback === null) {
+            return $response;
+        }
+
+        return ($this->finalizeResponseCallback)($response, $exception, $request);
     }
 
     /**
      * Register a custom reporter for a specific exception type.
      * 
-     * $handler->reportUsing(PaymentException::class, function ($e, $container) {
-     *     $container->get(SlackNotifier::class)->send($e->getMessage());
+     * $handler->reportUsing(PaymentException::class, function ($exception, $container) {
+     *     $container->createOrResolve(SlackNotifier::class)->send($exception->getMessage());
      * });
      */
     public function reportUsing(string $exceptionClass, callable $reporter): self
@@ -117,12 +226,123 @@ class ExceptionHandler
 
     /**
      * Mark exception classes that should not be reported/logged.
-     * 
+     *
      * $handler->dontReport([ValidationException::class, NotFoundException::class]);
      */
-    public function dontReport(array $classes): self
+    public function dontReport(array|string $classes): self
     {
-        $this->dontReport = array_merge($this->dontReport, $classes);
+        $this->dontReport = array_merge($this->dontReport, (array) $classes);
+        return $this;
+    }
+
+    /**
+     * Silence reporting by predicate rather than by class — for the cases a
+     * class name can't express ("don't report a 503 from the payment gateway
+     * during a known maintenance window"). Returning true suppresses.
+     */
+    public function dontReportWhen(callable $predicate): self
+    {
+        $this->dontReportCallbacks[] = $predicate;
+        return $this;
+    }
+
+    /**
+     * Put a class the framework ignores by default back into reporting — e.g.
+     * an app that DOES want its 404s logged.
+     */
+    public function stopIgnoring(array|string $classes): self
+    {
+        foreach ((array) $classes as $class) {
+            $this->stopIgnoring[] = $class;
+            $this->dontReport = array_values(array_filter(
+                $this->dontReport,
+                static fn(string $ignored): bool => $ignored !== $class
+            ));
+        }
+
+        return $this;
+    }
+
+    /**
+     * Report each exception INSTANCE at most once. Guards the case where an
+     * exception is reported, rethrown, and caught again further up — without
+     * this the same failure lands in the log two or three times.
+     */
+    public function dontReportDuplicates(): self
+    {
+        $this->withoutDuplicates = true;
+        $this->reportedExceptions ??= new WeakMap();
+        return $this;
+    }
+
+    /**
+     * Rewrite one exception type into another before anything else sees it.
+     * Accepts a target class (constructed with the original as $previous) or a
+     * callable receiving the original.
+     *
+     * $handler->map(PDOException::class, ServiceUnavailableException::class);
+     */
+    public function map(string $from, callable|string $to): self
+    {
+        $this->exceptionMap[$from] = $to;
+        return $this;
+    }
+
+    /**
+     * Set the log level an exception type is recorded at. Without this every
+     * exception logs at 'error', which makes a genuine outage indistinguishable
+     * from a noisy edge case.
+     *
+     * $handler->level(ThrottleException::class, 'warning');
+     */
+    public function level(string $exceptionClass, string $level): self
+    {
+        $this->levels[$exceptionClass] = $level;
+        return $this;
+    }
+
+    /**
+     * Add data to the context of EVERY logged exception — a request id, the
+     * tenant, the queue job. Receives ($exception, $contextSoFar) and returns
+     * the entries to merge in.
+     */
+    public function buildContextUsing(callable $callback): self
+    {
+        $this->contextCallbacks[] = $callback;
+        return $this;
+    }
+
+    /**
+     * Override how the handler decides a client wants JSON. Receives
+     * ($request, $exception) and returns bool.
+     */
+    public function shouldRenderJsonWhen(callable $callback): self
+    {
+        $this->shouldRenderJsonCallback = $callback;
+        return $this;
+    }
+
+    /**
+     * Cap how often an exception may be reported. The callback receives the
+     * exception and returns a {@see ReportRate} (or null for no limit).
+     *
+     * Without this, one broken dependency throwing in a loop writes a log line
+     * every time — the first few are diagnostic, the rest are just disk.
+     */
+    public function throttle(callable $using): self
+    {
+        $this->throttleCallbacks[] = $using;
+        return $this;
+    }
+
+    /**
+     * Add fields that must never be flashed back to the session on a validation
+     * redirect. The framework already excludes the password fields; this is for
+     * app-specific secrets (api_token, ssn, card_number).
+     */
+    public function dontFlash(array|string $attributes): self
+    {
+        \Nitro\Http\RedirectResponse::dontFlash((array) $attributes);
         return $this;
     }
 
@@ -133,44 +353,123 @@ class ExceptionHandler
      * Used by Kernel::handleException() to wrap in a Response object.
      * Does NOT clean output buffers (Kernel manages its own output).
      */
-    public function render(Throwable $e): string
+    public function render(Throwable $exception): string
     {
-        // Clean any partial output (half-rendered views, etc.)
-        while (ob_get_level() > 0) {
-            ob_end_clean();
+        // Discard partially-rendered output (a half-written layout) so the error
+        // doesn't end up buried inside a navbar. Unwind only the buffers opened
+        // BELOW us: in worker mode (see Nitro\Thrust) the outermost buffer
+        // belongs to the runtime, and tearing it down eats the server's output.
+        $this->unwindOutputBuffers();
+
+        $exception = $this->mapException($exception);
+
+        // An exception may render itself — the most idiomatic place to put the
+        // behaviour, since it lives with the thing it describes.
+        if (($own = $this->renderUsingException($exception)) !== null) {
+            return $own;
         }
 
-        $this->report($e);
-
-        // 1. Try custom handler (exact match first, then inheritance)
-        $custom = $this->tryCustomHandler($e);
+        // Registered handlers (exact class match first, then inheritance).
+        $custom = $this->tryCustomHandler($exception);
         if ($custom !== null) {
             return $custom;
         }
 
-        // 2. HTMX request — return full error page with retarget headers
+        // Give a domain exception its HTTP identity before choosing a renderer.
+        $exception = $this->prepareException($exception);
+
         if ($this->isHtmxRequest()) {
-            return $this->renderForHtmx($e);
+            return $this->renderForHtmx($exception);
         }
 
-        // 3. AJAX request — return JSON
-        if ($this->isAjaxRequest()) {
-            return $this->renderJson($e);
+        if ($this->wantsJson($exception)) {
+            return $this->renderJson($exception);
         }
 
-        // 4. Normal request — full HTML error page
         return $this->isDebug()
-            ? $this->renderDevelopment($e)
-            : $this->renderProduction($e);
+            ? $this->renderDevelopment($exception)
+            : $this->renderProduction($exception);
     }
 
     /**
-     * Get the appropriate HTTP status code for an exception.
+     * Render an exception for the console: the message always, and the full
+     * file/line/trace when debug is on. A command that dies in a scheduled run
+     * is the case this exists for — "Error: SQLSTATE[HY000]" with no location
+     * tells you nothing.
      */
-    public function getStatusCode(Throwable $e): int
+    public function renderForConsole(Throwable $exception): string
     {
-        if ($e instanceof HttpException) {
-            return $e->getStatusCode();
+        $exception = $this->mapException($exception);
+
+        $out = sprintf("%s: %s\n", $this->shortClass($exception), $exception->getMessage());
+        $out .= sprintf("  at %s:%d\n", $exception->getFile(), $exception->getLine());
+
+        if (! $this->isDebug()) {
+            return $out;
+        }
+
+        foreach ($this->getSimpleTrace($exception) as $i => $frame) {
+            $out .= sprintf("  #%d %s\n", $i, $frame);
+        }
+
+        for ($previous = $exception->getPrevious(); $previous !== null; $previous = $previous->getPrevious()) {
+            $out .= sprintf(
+                "\nCaused by %s: %s\n  at %s:%d\n",
+                $this->shortClass($previous),
+                $previous->getMessage(),
+                $previous->getFile(),
+                $previous->getLine()
+            );
+        }
+
+        return $out;
+    }
+
+    /** Whether we are running under the CLI (or phpdbg) rather than serving a request. */
+    private function runningInConsole(): bool
+    {
+        return PHP_SAPI === 'cli' || PHP_SAPI === 'phpdbg';
+    }
+
+    /** Class name without its namespace, for console and log output. */
+    private function shortClass(Throwable $exception): string
+    {
+        $parts = explode('\\', get_class($exception));
+
+        return end($parts);
+    }
+
+    /**
+     * Discard buffers opened while handling this request, and only those.
+     *
+     * Outside a request there is no way to tell our buffers from the host's, so
+     * nothing is touched — better to render into an enclosing buffer than to
+     * tear down output that belongs to a worker or a test runner.
+     */
+    private function unwindOutputBuffers(): void
+    {
+        if (self::$requestObLevel === null) {
+            return;
+        }
+
+        $floor = max(self::$requestObLevel, self::$initialObLevel);
+
+        while (ob_get_level() > $floor) {
+            ob_end_clean();
+        }
+    }
+
+    /**
+     * The HTTP status an exception should produce. Runs the mapping pipeline
+     * first, so a domain exception (a model that wasn't found, a rejected
+     * token) reports its real status rather than a blanket 500.
+     */
+    public function getStatusCode(Throwable $exception): int
+    {
+        $exception = $this->prepareException($this->mapException($exception));
+
+        if ($exception instanceof HttpException) {
+            return $exception->getStatusCode();
         }
 
         return 500;
@@ -180,79 +479,326 @@ class ExceptionHandler
      * Handle a fatal/uncaught exception.
      * Cleans ALL output buffers, echoes error, exits.
      * Used by HandleExceptions bootstrapper for shutdown/fatal errors.
+     *
+     * This is the one place that has to CHOOSE a medium, because an uncaught
+     * exception can surface either way. render() is the HTTP renderer and
+     * renderForConsole() the terminal one; the SAPI decides which applies.
+     * Without the branch a command that died printed a full HTML error page —
+     * <head>, CSS and all — into the terminal.
      */
-    public function handleAndExit(Throwable $e): never
+    public function handleAndExit(Throwable $exception): never
     {
         $this->cleanOutputBuffers();
 
-        if (!headers_sent()) {
-            http_response_code($this->getStatusCode($e));
+        $this->report($exception);
+
+        if ($this->runningInConsole()) {
+            echo $this->renderForConsole($exception);
+            exit(1);
+        }
+
+        if (! headers_sent()) {
+            http_response_code($this->getStatusCode($exception));
             header('Content-Type: text/html; charset=UTF-8');
         }
 
-        echo $this->render($e);
+        echo $this->render($exception);
         exit(1);
+    }
+
+    // ─── Mapping ──────────────────────────────────────────
+
+    /**
+     * Rewrite the exception before anything else sees it: an inner exception a
+     * wrapper is carrying, then any map() registration. Runs at the head of
+     * both report() and render() so the two never disagree about what failed.
+     */
+    public function mapException(Throwable $exception): Throwable
+    {
+        if (method_exists($exception, 'getInnerException') && ($inner = $exception->getInnerException()) instanceof Throwable) {
+            return $inner;
+        }
+
+        foreach ($this->exceptionMap as $class => $mapper) {
+            if ($exception instanceof $class) {
+                return is_string($mapper)
+                    ? new $mapper($exception->getMessage(), 0, $exception)
+                    : $mapper($exception);
+            }
+        }
+
+        return $exception;
+    }
+
+    /**
+     * Give a domain exception its HTTP identity.
+     *
+     * Without this stage every exception that isn't already an HttpException
+     * renders as 500 — a record that doesn't exist, a rejected CSRF token and a
+     * genuine crash all look the same to the client. Each arm converts a
+     * framework exception into the status it actually means.
+     */
+    public function prepareException(Throwable $exception): Throwable
+    {
+        return match (true) {
+            $exception instanceof HttpException => $exception,
+
+            // A findOrFail()/firstOrFail() miss is a missing page, not a crash.
+            $exception instanceof \Nitro\Database\Model\ModelNotFoundException
+                => new HttpException(404, $exception->getMessage(), $exception),
+
+            // A named query that isn't registered is a 404 in the same sense.
+            $exception instanceof \Nitro\Database\Query\Exceptions\QueryNotFoundException
+                => new HttpException(404, $exception->getMessage(), $exception),
+
+            // Validation keeps its own 422 status (the provider usually converts
+            // it to a redirect long before this, but a JSON client lands here).
+            $exception instanceof \Nitro\Validation\ValidationException
+                => new HttpException($exception->status ?: 422, $exception->getMessage(), $exception),
+
+            default => $exception,
+        };
     }
 
     // ─── Reporting ────────────────────────────────────────
 
-    private function report(Throwable $e): void
+    /**
+     * Record an exception: run it past every suppression rule, then hand it to
+     * the exception's own report(), a registered reporter, or the log.
+     *
+     * Public because the Kernel reports once at the top of its catch, before
+     * choosing how to render — so an exception that converts to a redirect
+     * (a validation failure) still goes through the same reporting rules as one
+     * that renders a page.
+     */
+    public function report(Throwable $exception): void
     {
-        // Check if this exception type should be silenced
-        foreach ($this->dontReport as $class) {
-            if ($e instanceof $class) {
-                return;
-            }
+        $exception = $this->mapException($exception);
+
+        if ($this->shouldntReport($exception)) {
+            return;
         }
 
-        // Try custom reporter (exact match, then inheritance)
-        $reported = false;
-        $exceptionClass = get_class($e);
-
-        if (isset($this->reportHandlers[$exceptionClass])) {
-            $this->reportHandlers[$exceptionClass]($e, $this->container);
-            $reported = true;
-        } else {
-            foreach ($this->reportHandlers as $handlerClass => $reporter) {
-                if ($e instanceof $handlerClass) {
-                    $reporter($e, $this->container);
-                    $reported = true;
-                    break;
-                }
-            }
+        if ($this->withoutDuplicates) {
+            $this->reportedExceptions ??= new WeakMap();
+            $this->reportedExceptions[$exception] = true;
         }
 
-        // Always do default logging
-        $this->logException($e);
+        // An exception may report itself. Returning false means "not handled,
+        // carry on"; anything else (including null) stops here.
+        if (method_exists($exception, 'report') && $exception->report($this->container) !== false) {
+            return;
+        }
+
+        // A registered reporter may likewise claim the exception by not
+        // returning false — that is what makes "ship it to Sentry and don't
+        // also write it to the log" expressible.
+        if ($this->runReportHandler($exception) === true) {
+            return;
+        }
+
+        $this->logException($exception);
     }
 
-    private function logException(Throwable $e): void
+    /** Whether any suppression rule silences this exception. */
+    public function shouldntReport(Throwable $exception): bool
     {
-        error_log(sprintf(
-            "[%s] %s in %s:%d",
-            get_class($e),
-            $e->getMessage(),
-            $e->getFile(),
-            $e->getLine()
+        if ($this->withoutDuplicates
+            && $this->reportedExceptions !== null
+            && ($this->reportedExceptions[$exception] ?? false)) {
+            return true;
+        }
+
+        foreach ($this->ignoredClasses() as $class) {
+            if ($exception instanceof $class) {
+                return true;
+            }
+        }
+
+        foreach ($this->dontReportCallbacks as $callback) {
+            if ($callback($exception) === true) {
+                return true;
+            }
+        }
+
+        return $this->isThrottled($exception);
+    }
+
+    /**
+     * Whether this occurrence exceeds the configured report rate.
+     *
+     * Fails OPEN: if the rate limiter or cache is unavailable the exception is
+     * reported. Losing a log line because the cache is down is the wrong
+     * trade — the exception is why you are looking.
+     */
+    private function isThrottled(Throwable $exception): bool
+    {
+        if ($this->throttleCallbacks === []) {
+            return false;
+        }
+
+        $rate = null;
+        foreach ($this->throttleCallbacks as $callback) {
+            if (($rate = $callback($exception)) instanceof ReportRate) {
+                break;
+            }
+            $rate = null;
+        }
+
+        if ($rate === null || $rate->isUnlimited()) {
+            return false;
+        }
+
+        if ($rate->mode === 'sample') {
+            return $rate->chance <= 0.0
+                || ($rate->chance < 1.0 && random_int(1, 1000) > (int) round($rate->chance * 1000));
+        }
+
+        try {
+            $limiter = new \Nitro\Cache\RateLimiter($this->container->createOrResolve('cache'));
+
+            // attempt() runs the callback and returns false once the budget for
+            // this window is spent — so "not allowed through" means throttled.
+            return $limiter->attempt(
+                'nitro:exceptions:' . hash('xxh128', $rate->key ?: get_class($exception)),
+                $rate->maxAttempts,
+                static fn(): bool => true,
+                $rate->decaySeconds
+            ) === false;
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
+    /** The inverse of shouldntReport(), for callers that read better this way. */
+    public function shouldReport(Throwable $exception): bool
+    {
+        return ! $this->shouldntReport($exception);
+    }
+
+    /** Every class currently silenced — framework defaults plus app additions, minus stopIgnoring(). */
+    private function ignoredClasses(): array
+    {
+        $ignored = array_merge($this->internalDontReport, $this->dontReport);
+
+        if ($this->stopIgnoring === []) {
+            return $ignored;
+        }
+
+        return array_values(array_filter(
+            $ignored,
+            fn(string $class): bool => ! in_array($class, $this->stopIgnoring, true)
         ));
+    }
+
+    /**
+     * Run the first matching registered reporter. Returns true when the reporter
+     * claimed the exception (did not return false), meaning the default log is
+     * skipped.
+     */
+    private function runReportHandler(Throwable $exception): bool
+    {
+        $exceptionClass = get_class($exception);
+
+        if (isset($this->reportHandlers[$exceptionClass])) {
+            return $this->reportHandlers[$exceptionClass]($exception, $this->container) !== false;
+        }
+
+        foreach ($this->reportHandlers as $handlerClass => $reporter) {
+            if ($exception instanceof $handlerClass) {
+                return $reporter($exception, $this->container) !== false;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Write the exception to the application log through Nitro's own logger —
+     * at the level its class maps to, with a context payload, so a 429 and a
+     * database outage are distinguishable in the log.
+     */
+    private function logException(Throwable $exception): void
+    {
+        Logger::log($this->levelFor($exception), get_class($exception) . ': ' . $exception->getMessage(), $this->contextFor($exception));
+    }
+
+    /** The log level registered for this exception's class, else 'error'. */
+    public function levelFor(Throwable $exception): string
+    {
+        foreach ($this->levels as $class => $level) {
+            if ($exception instanceof $class) {
+                return $level;
+            }
+        }
+
+        return self::DEFAULT_LEVEL;
+    }
+
+    /**
+     * The context recorded alongside a logged exception: where it came from,
+     * whatever the exception itself chooses to attach via a context() method,
+     * and anything buildContextUsing() callbacks add.
+     */
+    public function contextFor(Throwable $exception): array
+    {
+        $context = [
+            'exception' => get_class($exception),
+            'file'      => $exception->getFile(),
+            'line'      => $exception->getLine(),
+        ];
+
+        if (($previous = $exception->getPrevious()) !== null) {
+            $context['previous'] = get_class($previous) . ': ' . $previous->getMessage();
+        }
+
+        if (method_exists($exception, 'context')) {
+            $context = array_merge($context, (array) $exception->context());
+        }
+
+        foreach ($this->contextCallbacks as $callback) {
+            $context = array_merge($context, (array) $callback($exception, $context));
+        }
+
+        if ($this->isDebug()) {
+            $context['trace'] = $this->getSimpleTrace($exception);
+        }
+
+        return $context;
     }
 
     // ─── Custom Handler Resolution ────────────────────────
 
-    private function tryCustomHandler(Throwable $e): ?string
+    /**
+     * Let the exception render itself. A `render()` method on the exception is
+     * the most direct place for a one-off presentation, and it is where an
+     * application coming from Laravel will look first.
+     */
+    private function renderUsingException(Throwable $exception): ?string
     {
-        $exceptionClass = get_class($e);
+        if (! method_exists($exception, 'render')) {
+            return null;
+        }
+
+        $result = $exception->render($this->request());
+
+        return $result === null || $result === false ? null : (string) $result;
+    }
+
+    private function tryCustomHandler(Throwable $exception): ?string
+    {
+        $exceptionClass = get_class($exception);
 
         // Exact match
         if (isset($this->customHandlers[$exceptionClass])) {
-            $result = $this->customHandlers[$exceptionClass]($e, $this->container);
+            $result = $this->customHandlers[$exceptionClass]($exception, $this->container);
             return is_string($result) ? $result : (string) $result;
         }
 
         // Inheritance match
         foreach ($this->customHandlers as $handlerClass => $handler) {
-            if ($e instanceof $handlerClass) {
-                $result = $handler($e, $this->container);
+            if ($exception instanceof $handlerClass) {
+                $result = $handler($exception, $this->container);
                 return is_string($result) ? $result : (string) $result;
             }
         }
@@ -263,12 +809,15 @@ class ExceptionHandler
     // ─── Buffer Cleaning ──────────────────────────────────
 
     /**
-     * Discard ALL buffered output (partial layout HTML, etc.)
-     * This is why errors no longer hide inside navbars.
+     * The fatal path: discard everything this process buffered, down to the
+     * depth the host had open when we were installed. Used by handleAndExit(),
+     * where we are about to echo and exit — so unlike the request-scoped
+     * unwind above, there is nothing left to preserve except the host's own
+     * buffer (a worker's, which outlives this request).
      */
     private function cleanOutputBuffers(): void
     {
-        while (ob_get_level() > 0) {
+        while (ob_get_level() > self::$initialObLevel) {
             ob_end_clean();
         }
 
@@ -282,13 +831,38 @@ class ExceptionHandler
     private function isHtmxRequest(): bool
     {
         return $this->container->has('request')
-            && $this->container->make('request')->isHtmx();
+            && $this->container->createOrResolve('request')->isHtmx();
     }
 
-    private function isAjaxRequest(): bool
+    /**
+     * Whether this client wants JSON back.
+     *
+     * Sourced from the Request seam — never $_SERVER — so it is worker-safe and
+     * honours the Accept header, not just X-Requested-With. An API client sends
+     * `Accept: application/json` and no XHR header at all; keying off the
+     * superglobal handed those clients a full HTML error page.
+     */
+    private function wantsJson(Throwable $exception): bool
     {
-        return !empty($_SERVER['HTTP_X_REQUESTED_WITH'])
-            && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest';
+        $request = $this->request();
+
+        if ($this->shouldRenderJsonCallback !== null) {
+            return (bool) ($this->shouldRenderJsonCallback)($request, $exception);
+        }
+
+        return $request !== null && $request->expectsJson();
+    }
+
+    /** The current request from the container, or null outside a request. */
+    private function request(): ?\Nitro\Http\Request
+    {
+        if (! $this->container->has('request')) {
+            return null;
+        }
+
+        $request = $this->container->createOrResolve('request');
+
+        return $request instanceof \Nitro\Http\Request ? $request : null;
     }
 
     private function isDebug(): bool
@@ -305,7 +879,7 @@ class ExceptionHandler
 
     // ─── HTMX Rendering ──────────────────────────────────
 
-    private function renderForHtmx(Throwable $e): string
+    private function renderForHtmx(Throwable $exception): string
     {
         if (!headers_sent()) {
             header('HX-Retarget: body');
@@ -313,13 +887,13 @@ class ExceptionHandler
         }
 
         return $this->isDebug()
-            ? $this->renderDevelopment($e)
-            : $this->renderProduction($e);
+            ? $this->renderDevelopment($exception)
+            : $this->renderProduction($exception);
     }
 
     // ─── JSON Rendering ──────────────────────────────────
 
-    private function renderJson(Throwable $e): string
+    private function renderJson(Throwable $exception): string
     {
         if (!headers_sent()) {
             header('Content-Type: application/json; charset=UTF-8');
@@ -333,16 +907,16 @@ class ExceptionHandler
         // Laravel's Handler::convertExceptionToArray.
         $data = [
             'error'   => true,
-            'message' => $debug || $e instanceof HttpException
-                ? $e->getMessage()
+            'message' => $debug || $exception instanceof HttpException
+                ? $exception->getMessage()
                 : 'Server Error',
         ];
 
         if ($debug) {
-            $data['type']  = get_class($e);
-            $data['file']  = $e->getFile();
-            $data['line']  = $e->getLine();
-            $data['trace'] = $this->getSimpleTrace($e);
+            $data['type']  = get_class($exception);
+            $data['file']  = $exception->getFile();
+            $data['line']  = $exception->getLine();
+            $data['trace'] = $this->getSimpleTrace($exception);
         }
 
         return json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
@@ -350,9 +924,89 @@ class ExceptionHandler
 
     // ─── Production Rendering ─────────────────────────────
 
-    private function renderProduction(Throwable $e): string
+    private function renderProduction(Throwable $exception): string
     {
-        $code = $this->getStatusCode($e);
+        $code = $this->getStatusCode($exception);
+
+        // An error VIEW wins over the built-in page, so an application controls
+        // what its users see. Resolution walks from most to least specific and
+        // checks the app's own views before the framework's, which means
+        // creating resources/views/errors/404.blade.php is the whole override
+        // story — nothing to publish, nothing to register.
+        if (($view = $this->errorView($code)) !== null) {
+            return $view;
+        }
+
+        return $this->renderFallbackPage($code, $exception);
+    }
+
+    /**
+     * Render errors.{code} → errors.{n}xx → nitro-errors::{code} → nitro-errors::{n}xx,
+     * or null when none exists (or the view itself blows up — an error page that
+     * throws must not replace the error).
+     */
+    private function errorView(int $code): ?string
+    {
+        try {
+            if (! $this->container->has(\Nitro\View\Contracts\ViewEngine::class)) {
+                return null;
+            }
+
+            $engine = $this->container->createOrResolve(\Nitro\View\Contracts\ViewEngine::class);
+
+            $candidates = [
+                "errors.{$code}",
+                'errors.' . substr((string) $code, 0, 1) . 'xx',
+                "nitro-errors::{$code}",
+                'nitro-errors::' . substr((string) $code, 0, 1) . 'xx',
+            ];
+
+            foreach ($candidates as $view) {
+                if ($engine->viewExists($view)) {
+                    return $engine->render($view, [
+                        'code'      => $code,
+                        'message'   => $this->statusText($code),
+                        'exception' => $this->isDebug() ? $this->safeMessage() : '',
+                    ]);
+                }
+            }
+        } catch (Throwable) {
+            // Fall through to the built-in page.
+        }
+
+        return null;
+    }
+
+    /** Reason phrase for a status code, used as the error views' headline. */
+    public function statusText(int $code): string
+    {
+        return [
+            400 => 'Bad Request',
+            401 => 'Unauthorized',
+            402 => 'Payment Required',
+            403 => 'Forbidden',
+            404 => 'Page Not Found',
+            405 => 'Method Not Allowed',
+            419 => 'Page Expired',
+            422 => 'Unprocessable Entity',
+            429 => 'Too Many Requests',
+            500 => 'Server Error',
+            502 => 'Bad Gateway',
+            503 => 'Service Unavailable',
+        ][$code] ?? 'Error';
+    }
+
+    /** Placeholder for the detail an error view may show while debugging. */
+    private function safeMessage(): string
+    {
+        return '';
+    }
+
+    /** The built-in page, used when the application supplies no error view. */
+    private function renderFallbackPage(int $code, Throwable $exception): string
+    {
+        $title = htmlspecialchars($this->statusText($code));
+        $blurb = htmlspecialchars($this->statusBlurb($code));
 
         return <<<HTML
 <!DOCTYPE html>
@@ -360,7 +1014,7 @@ class ExceptionHandler
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{$code} — Server Error</title>
+    <title>{$code} — {$title}</title>
     <style>
         *{margin:0;padding:0;box-sizing:border-box}
         body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;background:#0f1117;color:#e2e4eb;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
@@ -375,8 +1029,8 @@ class ExceptionHandler
 <body>
     <div class="c">
         <div class="code">{$code}</div>
-        <h1 class="t">Something went wrong</h1>
-        <p class="d">We're experiencing technical difficulties. Please try again later.</p>
+        <h1 class="t">{$title}</h1>
+        <p class="d">{$blurb}</p>
         <a href="javascript:history.back()" class="b">Go Back</a>
     </div>
 </body>
@@ -384,21 +1038,41 @@ class ExceptionHandler
 HTML;
     }
 
+    /**
+     * The sentence under the headline. A 404 telling the user we're
+     * "experiencing technical difficulties" is both wrong and unhelpful — the
+     * page is simply not there, and that is worth saying accurately.
+     */
+    private function statusBlurb(int $code): string
+    {
+        return [
+            400 => "That request couldn't be understood. Check the address and try again.",
+            401 => 'You need to sign in to view this page.',
+            403 => "You don't have permission to view this page.",
+            404 => "We couldn't find that page. It may have moved or been removed.",
+            405 => "That action isn't allowed on this address.",
+            419 => 'This page expired. Refresh and try again.',
+            422 => "That submission couldn't be processed. Check the form and try again.",
+            429 => "You've made too many requests. Wait a moment and try again.",
+            503 => "We're down for maintenance. Please try again shortly.",
+        ][$code] ?? "We're experiencing technical difficulties. Please try again later.";
+    }
+
     // ─── Development Rendering ────────────────────────────
 
-    private function renderDevelopment(Throwable $e): string
+    private function renderDevelopment(Throwable $exception): string
     {
-        $type = htmlspecialchars(get_class($e));
-        $message = htmlspecialchars($e->getMessage());
-        $file = htmlspecialchars($e->getFile());
-        $line = $e->getLine();
+        $type = htmlspecialchars(get_class($exception));
+        $message = htmlspecialchars($exception->getMessage());
+        $file = htmlspecialchars($exception->getFile());
+        $line = $exception->getLine();
 
-        $trace = $this->getFormattedTrace($e);
+        $trace = $this->getFormattedTrace($exception);
         $traceCount = count($trace);
-        $sourceHtml = $this->buildSourceHtml($this->getSourceContext($e->getFile(), $e->getLine()));
+        $sourceHtml = $this->buildSourceHtml($this->getSourceContext($exception->getFile(), $exception->getLine()));
         $traceHtml = $this->buildTraceHtml($trace);
         $envHtml = $this->buildEnvironmentHtml();
-        $chainHtml = $this->buildExceptionChainHtml($e);
+        $chainHtml = $this->buildExceptionChainHtml($exception);
         $phpVersion = PHP_VERSION;
         $nitroVersion = Application::VERSION;
         $errorTime = date('Y-m-d H:i:s');
@@ -571,7 +1245,7 @@ HTML;
     {
         $html = '';
         foreach ($trace as $item) {
-            $fn = $item['class']
+            $signature = $item['class']
                 ? "<span class=\"cls\">{$item['class']}</span><span class=\"sep\">::</span><span class=\"fn\">{$item['function']}</span>()"
                 : "<span class=\"fn\">{$item['function']}</span>()";
 
@@ -588,7 +1262,7 @@ HTML;
 <div class="trace-item">
     <div class="trace-idx">#{$item['index']}</div>
     <div class="trace-det">
-        <div class="trace-fn">{$fn}</div>
+        <div class="trace-fn">{$signature}</div>
         <div class="trace-file" title="{$fullPath}">{$file} : <span class="tln">{$item['line']}</span></div>
         {$args}{$srcHtml}
     </div>
@@ -598,16 +1272,16 @@ TRACE;
         return $html;
     }
 
-    private function buildExceptionChainHtml(Throwable $e): string
+    private function buildExceptionChainHtml(Throwable $exception): string
     {
         $html = '';
-        $prev = $e->getPrevious();
+        $prev = $exception->getPrevious();
         while ($prev) {
-            $t = htmlspecialchars(get_class($prev));
-            $m = htmlspecialchars($prev->getMessage());
-            $f = htmlspecialchars($prev->getFile());
-            $l = $prev->getLine();
-            $html .= "<div class=\"prev\"><div class=\"prev-label\">Caused by</div><div class=\"prev-type\">{$t}</div><div class=\"prev-msg\">{$m}</div><div class=\"prev-loc\">{$f}:{$l}</div></div>";
+            $type = htmlspecialchars(get_class($prev));
+            $message = htmlspecialchars($prev->getMessage());
+            $file = htmlspecialchars($prev->getFile());
+            $line = $prev->getLine();
+            $html .= "<div class=\"prev\"><div class=\"prev-label\">Caused by</div><div class=\"prev-type\">{$type}</div><div class=\"prev-msg\">{$message}</div><div class=\"prev-loc\">{$file}:{$line}</div></div>";
             $prev = $prev->getPrevious();
         }
         return $html;
@@ -641,10 +1315,10 @@ TRACE;
 
     // ─── Data Helpers ─────────────────────────────────────
 
-    private function getFormattedTrace(Throwable $e): array
+    private function getFormattedTrace(Throwable $exception): array
     {
         $trace = [];
-        foreach ($e->getTrace() as $i => $frame) {
+        foreach ($exception->getTrace() as $i => $frame) {
             $trace[] = [
                 'index' => $i,
                 'file' => $frame['file'] ?? 'internal',
@@ -660,10 +1334,10 @@ TRACE;
         return $trace;
     }
 
-    private function getSimpleTrace(Throwable $e): array
+    private function getSimpleTrace(Throwable $exception): array
     {
         $trace = [];
-        foreach ($e->getTrace() as $frame) {
+        foreach ($exception->getTrace() as $frame) {
             $trace[] = sprintf(
                 '%s%s%s() in %s:%d',
                 $frame['class'] ?? '',
@@ -712,8 +1386,17 @@ TRACE;
         return $formatted;
     }
 
+    /**
+     * Request headers for the debug page. Sourced from the Request seam when
+     * one is bound (worker-safe, and the same view of the request the rest of
+     * the framework has), falling back to $_SERVER only outside a request.
+     */
     private function getRequestHeaders(): array
     {
+        if (($request = $this->request()) !== null && method_exists($request, 'headers')) {
+            return $request->headers();
+        }
+
         $headers = [];
         foreach ($_SERVER as $key => $value) {
             if (str_starts_with($key, 'HTTP_')) {
@@ -738,10 +1421,16 @@ TRACE;
             'HTTPS',
         ];
 
+        // Same seam rule as getRequestHeaders(): read through the Request when
+        // one is bound so this works identically under a persistent worker.
+        $request = $this->request();
+
         $filtered = [];
         foreach ($keys as $key) {
-            if (isset($_SERVER[$key])) {
-                $filtered[$key] = $_SERVER[$key];
+            $value = $request !== null ? $request->server($key) : ($_SERVER[$key] ?? null);
+
+            if ($value !== null) {
+                $filtered[$key] = $value;
             }
         }
         return $filtered;

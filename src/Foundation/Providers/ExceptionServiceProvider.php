@@ -6,6 +6,7 @@ use Nitro\Exceptions\ExceptionHandler;
 use Nitro\Http\Request;
 use Nitro\Http\Response;
 use Nitro\Validation\ValidationException;
+use Nitro\View\Contracts\ViewEngine;
 
 /**
  * Registers the centralized ExceptionHandler.
@@ -22,16 +23,31 @@ class ExceptionServiceProvider extends ServiceProvider
     }
 
     /**
+     * Register the nitro-errors:: view namespace holding the framework's default
+     * error pages. An application overrides any of them with its own
+     * resources/views/errors/{code}.blade.php — the handler looks there first.
+     */
+    protected function registerErrorViews(): void
+    {
+        if (! $this->container->has(ViewEngine::class)) {
+            return;
+        }
+
+        $this->container->createOrResolve(ViewEngine::class)
+            ->addNamespace('nitro-errors', __DIR__ . '/../../Exceptions/views');
+    }
+
+    /**
      * Register custom exception handlers here.
      * 
      * Examples:
      * 
-     *   $handler->register(ValidationException::class, function ($e, $container) {
-     *       return Response::json(['errors' => $e->errors()], 422);
+     *   $handler->register(ValidationException::class, function ($exception, $container) {
+     *       return Response::json(['errors' => $exception->errors()], 422);
      *   });
      * 
-     *   $handler->reportUsing(PaymentException::class, function ($e, $container) {
-     *       $container->get(SlackNotifier::class)->alert($e->getMessage());
+     *   $handler->reportUsing(PaymentException::class, function ($exception, $container) {
+     *       $container->createOrResolve(SlackNotifier::class)->alert($exception->getMessage());
      *   });
      * 
      *   $handler->dontReport([
@@ -41,32 +57,35 @@ class ExceptionServiceProvider extends ServiceProvider
      */
     public function boot(ExceptionHandler $handler): void
     {
-        // Validation failures convert to a redirect-back (web) or 422 JSON (AJAX).
+        $this->registerErrorViews();
+
+        // Validation failures convert to a redirect-back (web) or 422 JSON (API).
         // This conversion lives in the Foundation exception layer — like Laravel's
         // Handler::invalid()/invalidJson() — so the Validation layer stays free of
         // any Http dependency (no Http↔Validation cycle).
-        $handler->respondUsing(
+        $handler->renderableResponse(
             ValidationException::class,
-            function (ValidationException $e, Request $request): Response {
-                $wantsJson = $request->ajax()
-                    || str_contains(strtolower((string) $request->header('accept', '')), 'application/json');
-
-                return $wantsJson
+            function (ValidationException $exception, Request $request): Response {
+                // expectsJson() covers both the XHR header and Accept, so a REST
+                // client gets 422 JSON rather than being redirected to a form.
+                return $request->expectsJson()
                     ? Response::json([
                         'message' => 'The given data was invalid.',
-                        'errors'  => $e->errors()->all(),
-                    ], $e->status)
-                    : back()->withInput()->withErrors($e->errors());
+                        'errors'  => $exception->errors()->all(),
+                    ], $exception->status)
+                    : back()->withInput()->withErrors($exception->errors());
             }
         );
 
-        // Expected control-flow exceptions are not errors to log. Without this
-        // every 404/403/419 (any HttpException) hits the error log, so scanner
-        // and bot traffic floods it. Mirrors Laravel's internal don't-report list.
+        // A record that doesn't exist is an ordinary 404, not something to log.
+        // (The framework already ignores HttpException; this covers the domain
+        // exception before prepareException() turns it into one.)
         $handler->dontReport([
-            ValidationException::class,
-            \Nitro\Exceptions\HttpException::class,
-            \Nitro\Http\Exceptions\HttpResponseException::class,
+            \Nitro\Database\Model\ModelNotFoundException::class,
         ]);
+
+        // Report an exception instance once, however many times it is caught
+        // and rethrown on its way up.
+        $handler->dontReportDuplicates();
     }
 }
