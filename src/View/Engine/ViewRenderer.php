@@ -187,7 +187,7 @@ class ViewRenderer implements ViewEngine
         // for the rare view that actually declares @stream.
         $container = app();
         if ($container->has('request')) {
-            $request = $container->make('request');
+            $request = $container->createOrResolve('request');
             if ($request->isHtmx() || !empty($request->query('_fragment'))) {
                 return false;
             }
@@ -231,7 +231,7 @@ class ViewRenderer implements ViewEngine
 
         try {
             include $compiledFile;
-        } catch (\Throwable $e) {
+        } catch (\Throwable $templateError) {
             // Clean up any dangling fill buffer
             if ($this->context->currentFill !== null) {
                 if (ob_get_level() > 0) {
@@ -242,9 +242,9 @@ class ViewRenderer implements ViewEngine
             $this->endStream();
 
             throw new \RuntimeException(
-                "Stream template error: " . $e->getMessage(),
+                "Stream template error: " . $templateError->getMessage(),
                 0,
-                $e
+                $templateError
             );
         }
     }
@@ -384,13 +384,13 @@ class ViewRenderer implements ViewEngine
 
         try {
             include $compiledFile;
-        } catch (\Throwable $e) {
+        } catch (\Throwable $templateError) {
             ob_end_clean();
             throw new RuntimeException(
-                "Error executing template: " . $e->getMessage() .
+                "Error executing template: " . $templateError->getMessage() .
                     "\nFile: " . $compiledFile,
                 0,
-                $e
+                $templateError
             );
         }
 
@@ -858,13 +858,13 @@ class ViewRenderer implements ViewEngine
                 ob_start();
                 try {
                     include $__compiledFile;
-                } catch (\Throwable $e) {
+                } catch (\Throwable $templateError) {
                     ob_end_clean();
                     throw new \RuntimeException(
-                        "Error executing template: " . $e->getMessage() .
+                        "Error executing template: " . $templateError->getMessage() .
                             "\nFile: " . $__compiledFile,
                         0,
-                        $e
+                        $templateError
                     );
                 }
                 return (string) ob_get_clean();

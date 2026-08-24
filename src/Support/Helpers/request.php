@@ -31,7 +31,7 @@ if (!function_exists('nitro_current_request')) {
             return null;
         }
 
-        $request = $container->make('request');
+        $request = $container->createOrResolve('request');
 
         return $request instanceof Request ? $request : null;
     }

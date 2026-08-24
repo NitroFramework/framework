@@ -61,7 +61,7 @@ class ContainerCompilerTest extends TestCase
         $c->singleton(CcConn::class); // Conn is now a shared singleton
 
         $php = (new ContainerCompiler())->compile($c, [CcRepoA::class]);
-        $this->assertStringContainsString('$c->make(\'' . addslashes(CcConn::class) . '\')', $php);
+        $this->assertStringContainsString('$c->createOrResolve(\'' . addslashes(CcConn::class) . '\')', $php);
         $this->assertStringNotContainsString('new \\' . CcConn::class, $php);
 
         $c->setCompiledFactories($this->load($c, [CcRepoA::class]));
@@ -77,7 +77,7 @@ class ContainerCompilerTest extends TestCase
         $c->alias(CcLogger::class, 'lg');
 
         $php = (new ContainerCompiler())->compile($c, [CcNeedsLogger::class]);
-        $this->assertStringContainsString('$c->make(\'' . addslashes(CcLogger::class) . '\')', $php);
+        $this->assertStringContainsString('$c->createOrResolve(\'' . addslashes(CcLogger::class) . '\')', $php);
 
         $c->setCompiledFactories($this->load($c, [CcNeedsLogger::class]));
         $this->assertInstanceOf(CcFileLogger::class, $c->make(CcNeedsLogger::class)->l);

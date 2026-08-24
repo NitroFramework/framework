@@ -54,7 +54,7 @@ class Runner
         $this->app->bootstrap();
         $container = $this->app->getContainer();
         // Kernel isn't pre-bound by any provider; make() auto-wires it.
-        $kernel = $container->make(Kernel::class);
+        $kernel = $container->createOrResolve(Kernel::class);
 
         // Pre-warm services the request path always needs so even the first
         // request after worker boot is hot.
@@ -72,7 +72,7 @@ class Runner
         // event() short-circuits when nothing is listening, so this is free on
         // the hot path unless a listener is actually registered.
         if ($container->has('events')) {
-            $this->setDispatcher($container->get('events'));
+            $this->setDispatcher($container->createOrResolve('events'));
         }
         $this->event(ThrustEvents::WORKER_STARTING, ['pid' => getmypid()]);
 
@@ -124,8 +124,8 @@ class Runner
             $kernel->terminate($request, $response);
 
             $this->event(ThrustEvents::REQUEST_HANDLED, ['request' => $request, 'response' => $response]);
-        } catch (Throwable $e) {
-            $this->emitFatalResponse($e);
+        } catch (Throwable $exception) {
+            $this->emitFatalResponse($exception);
         }
     }
 
@@ -133,7 +133,7 @@ class Runner
      * Last-resort error renderer when the request handler itself throws
      * before Kernel's ExceptionHandler can pick it up.
      */
-    private function emitFatalResponse(Throwable $e): void
+    private function emitFatalResponse(Throwable $exception): void
     {
         if (!headers_sent()) {
             http_response_code(500);
@@ -144,8 +144,8 @@ class Runner
             FILTER_VALIDATE_BOOLEAN
         );
         $detail = $debug
-            ? htmlspecialchars($e->getMessage(), ENT_QUOTES) . "\n"
-              . htmlspecialchars($e->getFile() . ':' . $e->getLine(), ENT_QUOTES)
+            ? htmlspecialchars($exception->getMessage(), ENT_QUOTES) . "\n"
+              . htmlspecialchars($exception->getFile() . ':' . $exception->getLine(), ENT_QUOTES)
             : 'Internal Server Error';
         echo "<pre>{$detail}</pre>";
     }

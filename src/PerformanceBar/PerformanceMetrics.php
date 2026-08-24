@@ -468,7 +468,7 @@ HTML;
     private static function isHtmxRequest(): bool
     {
         $container = app();
-        return $container->has('request') && $container->make('request')->isHtmx();
+        return $container->has('request') && $container->createOrResolve('request')->isHtmx();
     }
 
     /**

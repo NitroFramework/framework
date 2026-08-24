@@ -22,7 +22,7 @@ class AuthServiceProvider extends ServiceProvider
     {
         // The user provider is stateless — a single shared instance is fine.
         // It reads the model class from config('auth.model').
-        $this->container->singleton(UserProvider::class, function ($c) {
+        $this->container->singleton(UserProvider::class, function ($container) {
             return new EloquentUserProvider(
                 (string) config('auth.model', 'App\\Models\\User'),
             );
@@ -31,10 +31,10 @@ class AuthServiceProvider extends ServiceProvider
         // Scoped (not singleton): the manager holds the request's session and a
         // per-request user cache, so it must be rebuilt each worker request — it
         // declares that lifecycle here rather than via a central reset list.
-        $this->container->scoped('auth', function ($c) {
+        $this->container->scoped('auth', function ($container) {
             return new SessionGuard(
-                $c->make(UserProvider::class),
-                $c->make('session'),
+                $container->createOrResolve(UserProvider::class),
+                $container->createOrResolve('session'),
             );
         });
 
@@ -43,17 +43,17 @@ class AuthServiceProvider extends ServiceProvider
 
         // Password-reset stack. Both are stateless given their config, so shared
         // singletons are fine. The broker reuses the same UserProvider as auth.
-        $this->container->singleton(TokenRepository::class, function ($c) {
+        $this->container->singleton(TokenRepository::class, function ($container) {
             return new TokenRepository(
                 (string) config('auth.passwords.table', 'password_reset_tokens'),
                 (int) config('auth.passwords.expire', 3600),
             );
         });
 
-        $this->container->singleton(PasswordBroker::class, function ($c) {
+        $this->container->singleton(PasswordBroker::class, function ($container) {
             return new PasswordBroker(
-                $c->make(UserProvider::class),
-                $c->make(TokenRepository::class),
+                $container->createOrResolve(UserProvider::class),
+                $container->createOrResolve(TokenRepository::class),
             );
         });
     }
@@ -65,7 +65,7 @@ class AuthServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        $router = $this->container->make(Router::class);
+        $router = $this->container->createOrResolve(Router::class);
 
         $router->aliasMiddleware('auth', Authenticate::class);
         $router->aliasMiddleware('guest', RedirectIfAuthenticated::class);

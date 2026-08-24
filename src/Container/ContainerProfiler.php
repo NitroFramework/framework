@@ -153,9 +153,9 @@ class ContainerProfiler implements ProfilerInterface
     public function getSummary(): array
     {
         $total = count($this->resolutions);
-        $resolved = array_filter($this->resolutions, fn($r) => $r['resolved']);
-        $cached = array_filter($this->resolutions, fn($r) => $r['cached']);
-        $durations = array_column(array_filter($this->resolutions, fn($r) => $r['duration_ms'] !== null), 'duration_ms');
+        $resolved = array_filter($this->resolutions, fn($resolution) => $resolution['resolved']);
+        $cached = array_filter($this->resolutions, fn($resolution) => $resolution['cached']);
+        $durations = array_column(array_filter($this->resolutions, fn($resolution) => $resolution['duration_ms'] !== null), 'duration_ms');
 
         return [
             'total_events'      => $total,

@@ -55,6 +55,6 @@ abstract class Controller
      */
     public function __call(string $name, array $arguments)
     {
-        return app($name);
+        return $this->container->createOrResolve($name);
     }
 }

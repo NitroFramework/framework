@@ -15,7 +15,30 @@ interface ContainerInterface
     // CORE RESOLUTION
     // ============================================
 
-    /** Get a registered service by name */
+    /**
+     * Resolve the registered binding for $abstract, or CREATE it by auto-wiring
+     * its constructor when nothing is bound. The framework's standard way to ask
+     * the container for an instance.
+     *
+     * Respects $parameters as constructor overrides.
+     */
+    public function createOrResolve(string $abstract, array $parameters = []): mixed;
+
+    /**
+     * Alias of {@see createOrResolve()} under its conventional name. Identical
+     * behaviour; both are supported.
+     */
+    public function make(string $abstract, array $parameters = []): mixed;
+
+    /**
+     * STRICT registry lookup: resolve a registered binding, throwing
+     * NotFoundException when there is none.
+     *
+     * The difference from createOrResolve() is what happens for an unregistered
+     * name — get() fails, createOrResolve() auto-wires. Reach for get() only
+     * where an unknown name is a bug worth hearing about (a service name read
+     * from config, for instance).
+     */
     public function get(string $name): mixed;
 
     /** Check if a service is registered */
@@ -23,9 +46,6 @@ interface ContainerInterface
 
     /** Get a service or return default if not found */
     public function getOrDefault(string $name, $default = null): mixed;
-
-    /** Make a class instance, auto-wiring dependencies. Respects $parameters. */
-    public function make(string $abstract, array $parameters = []): mixed;
 
     /** Invoke a callable with auto-wired dependencies */
     public function call(callable $callable, array $parameters = []): mixed;

@@ -127,7 +127,7 @@ class Event
         return match ($this->type) {
             'callback' => ($this->task)(),
             'command'  => $this->runCommand($container),
-            'job'      => $container->make('queue')->push($this->task),
+            'job'      => $container->createOrResolve('queue')->push($this->task),
             'exec'     => $this->runExec(),
             default    => null,
         };
@@ -138,7 +138,7 @@ class Event
         $parts = preg_split('/\s+/', trim((string) $this->task));
         $name = array_shift($parts);
 
-        return $container->make(CommandManager::class)->resolve($name, $parts);
+        return $container->createOrResolve(CommandManager::class)->resolve($name, $parts);
     }
 
     protected function runExec(): mixed

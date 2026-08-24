@@ -28,7 +28,7 @@ class SessionServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        $this->container->singleton(SessionManager::class, function ($c) {
+        $this->container->singleton(SessionManager::class, function ($container) {
             $config = (array) config('session');
             $config['driver']   ??= 'native';
 
@@ -38,19 +38,19 @@ class SessionServiceProvider extends ServiceProvider
             // Thrust/worker mode, transparently use the worker-safe file store,
             // which mints a fresh Store per request and never touches
             // session_start(). Non-worker (FPM/serve) keeps native as-is.
-            if ($config['driver'] === 'native' && $c->has(WorkerMode::class)) {
+            if ($config['driver'] === 'native' && $container->has(WorkerMode::class)) {
                 $config['driver'] = 'file';
             }
 
             $config['cookie']   ??= 'nitro_session';
             $config['lifetime'] ??= 120;
-            $config['files']    ??= $c->get('paths')->storage('framework/sessions');
+            $config['files']    ??= $container->get('paths')->storage('framework/sessions');
             return new SessionManager($config);
         });
 
         // Scoped: one Store per worker request; the binding declares its own
         // lifecycle rather than relying on a central reset list.
-        $this->container->scoped('session', fn($c) => $c->make(SessionManager::class)->driver());
+        $this->container->scoped('session', fn($container) => $container->createOrResolve(SessionManager::class)->driver());
         $this->container->alias(SessionInterface::class, 'session');
         $this->container->alias(Store::class, 'session');
 
@@ -75,7 +75,7 @@ class SessionServiceProvider extends ServiceProvider
             return;
         }
 
-        $path = (string) ($config['files'] ?? $this->container->get('paths')->storage('framework/sessions'));
+        $path = (string) ($config['files'] ?? $this->container->createOrResolve('paths')->storage('framework/sessions'));
 
         if (! is_dir($path)) {
             @mkdir($path, 0755, true);
@@ -93,13 +93,13 @@ class SessionServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        $kernel = $this->container->make(Kernel::class);
+        $kernel = $this->container->createOrResolve(Kernel::class);
 
         // Seed the session id from the request cookie (non-native drivers), then
         // start. The native driver reads PHP's own session cookie, so we leave
         // its cookie handling to PHP and only touch file/array here.
         $kernel->requestReceived(function (Request $request): void {
-            $session = $this->container->make('session');
+            $session = $this->container->createOrResolve('session');
 
             if (! $session instanceof NativeSession) {
                 $id = $request->cookie($session->getName());
@@ -116,7 +116,7 @@ class SessionServiceProvider extends ServiceProvider
         // a fresh id every request and never persisted. responseReady runs
         // pre-send (and on the error path too).
         $kernel->responseReady(function (Request $request, Response $response): void {
-            $session = $this->container->make('session');
+            $session = $this->container->createOrResolve('session');
 
             if (! $session instanceof NativeSession) {
                 $response->header(
@@ -130,7 +130,7 @@ class SessionServiceProvider extends ServiceProvider
             // The request-received hook started the session, so it's already
             // resolved; save() flushes and releases the native lock. A no-op
             // when no session ended up active.
-            $this->container->make('session')->save();
+            $this->container->createOrResolve('session')->save();
         });
     }
 

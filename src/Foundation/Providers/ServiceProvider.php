@@ -69,7 +69,7 @@ class ServiceProvider
      */
     protected function loadRoutesFrom(string $path, string $prefix = ''): void
     {
-        $this->container->get(RouteLoader::class)->addRouteFile($path, $prefix);
+        $this->container->createOrResolve(RouteLoader::class)->addRouteFile($path, $prefix);
     }
 
     /**
@@ -80,7 +80,7 @@ class ServiceProvider
      */
     protected function loadViewsFrom(string $path, string $namespace): void
     {
-        $this->container->get(ViewEngine::class)->addNamespace($namespace, $path);
+        $this->container->createOrResolve(ViewEngine::class)->addNamespace($namespace, $path);
     }
 
     /**
@@ -90,7 +90,7 @@ class ServiceProvider
      */
     protected function loadMigrationsFrom(string $path): void
     {
-        $this->container->get(MigrationPathRegistry::class)->add($path);
+        $this->container->createOrResolve(MigrationPathRegistry::class)->add($path);
     }
 
     /**
@@ -111,7 +111,7 @@ class ServiceProvider
             return;
         }
 
-        $config   = $this->container->get('config');
+        $config   = $this->container->createOrResolve('config');
         $existing = $config->get($key, []);
 
         $config->set($key, array_replace_recursive(

@@ -180,7 +180,7 @@ class HtmxDispatcher
 
         $instance->props = array_filter(
             $query,
-            fn($k) => !in_array($k, ['_t', $fragsParam], true),
+            fn($key) => !in_array($key, ['_t', $fragsParam], true),
             ARRAY_FILTER_USE_KEY
         );
 
@@ -263,7 +263,7 @@ class HtmxDispatcher
             }
 
             // Render the view
-            $blade = $this->container->make('view');
+            $blade = $this->container->createOrResolve('view');
             $html = $blade->render($ctx->view, $ctx->data);
 
             $this->warnIfUnboundModels($instance, $html);
@@ -325,7 +325,7 @@ class HtmxDispatcher
      */
     private function renderFragments(HtmxComponent $instance, RenderContext $ctx, array $fragments): Response
     {
-        $blade = $this->container->make('view');
+        $blade = $this->container->createOrResolve('view');
 
         if (count($fragments) === 1) {
             $html = $blade->renderFragment($ctx->view, $fragments[0], $ctx->data);

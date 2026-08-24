@@ -59,7 +59,7 @@ class QueueCommands implements CommandInterface
     private function work(array $arguments): void
     {
         $options = $this->parseWorkOptions($arguments);
-        $worker  = $this->container->get(Worker::class);
+        $worker  = $this->container->createOrResolve(Worker::class);
 
         $this->output->info(sprintf(
             "Worker started — connection=%s queue=%s sleep=%ds",
@@ -114,7 +114,7 @@ class QueueCommands implements CommandInterface
 
     private function listFailed(): void
     {
-        $store = $this->container->get(FailedJobStore::class);
+        $store = $this->container->createOrResolve(FailedJobStore::class);
         $rows  = $store->all(50);
 
         if (empty($rows)) {
@@ -147,8 +147,8 @@ class QueueCommands implements CommandInterface
             return;
         }
 
-        $store   = $this->container->get(FailedJobStore::class);
-        $queues  = $this->container->get(QueueManager::class);
+        $store   = $this->container->createOrResolve(FailedJobStore::class);
+        $queues  = $this->container->createOrResolve(QueueManager::class);
 
         $targets = $id === 'all' ? $store->all(1000) : array_filter([$store->find($id)]);
         if (empty($targets)) {
@@ -188,7 +188,7 @@ class QueueCommands implements CommandInterface
             return;
         }
 
-        $store = $this->container->get(FailedJobStore::class);
+        $store = $this->container->createOrResolve(FailedJobStore::class);
         $store->forget($id)
             ? $this->output->success("Forgot failed job {$id}.")
             : $this->output->error("No failed job with id [{$id}].");
@@ -198,9 +198,9 @@ class QueueCommands implements CommandInterface
 
     private function flush(): void
     {
-        $store = $this->container->get(FailedJobStore::class);
-        $n = $store->clear();
-        $this->output->success("Cleared {$n} failed job(s).");
+        $store = $this->container->createOrResolve(FailedJobStore::class);
+        $cleared = $store->clear();
+        $this->output->success("Cleared {$cleared} failed job(s).");
     }
 
     // ── queue:restart ─────────────────────────────────────────────────
@@ -213,7 +213,7 @@ class QueueCommands implements CommandInterface
             );
             return;
         }
-        $cache = $this->container->get(CacheManager::class);
+        $cache = $this->container->createOrResolve(CacheManager::class);
         // Workers compare this value to what they read at boot; any
         // change means "exit gracefully so the supervisor restarts me."
         $cache->put('queue:restart', time(), 3600);

@@ -37,27 +37,27 @@ class QueueServiceProvider extends ServiceProvider
         $this->container->singleton(QueueManager::class, function ($container) {
             return new QueueManager(
                 $container,
-                $container->get(ConfigRepository::class),
+                $container->createOrResolve(ConfigRepository::class),
             );
         });
 
         $this->container->alias('queue', QueueManager::class);
 
         $this->container->singleton(FailedJobStore::class, function ($container) {
-            $config = $container->get(ConfigRepository::class);
+            $config = $container->createOrResolve(ConfigRepository::class);
             $table = $config->get('queue.failed.table');
             return new DatabaseFailedJobStore($table);
         });
 
         $this->container->singleton(Worker::class, function ($container) {
             return new Worker(
-                $container->get(QueueManager::class),
-                $container->get(FailedJobStore::class),
+                $container->createOrResolve(QueueManager::class),
+                $container->createOrResolve(FailedJobStore::class),
                 $container,
                 // Cache is optional — present in most apps, but the
                 // worker degrades gracefully if it isn't.
                 $container->has(CacheManager::class)
-                    ? $container->get(CacheManager::class)
+                    ? $container->createOrResolve(CacheManager::class)
                     : null,
             );
         });

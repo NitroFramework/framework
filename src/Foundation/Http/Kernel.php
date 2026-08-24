@@ -106,19 +106,24 @@ class Kernel
     /** Handle an incoming HTTP request. */
     public function handle(Request $request): Response
     {
+        // Mark where this request's output buffering starts. If it fails, the
+        // handler discards buffers opened above this line — a half-written
+        // layout — without touching any the host (a Thrust worker) owns below it.
+        ExceptionHandler::$requestObLevel = ob_get_level();
+
         try {
             $this->runHooks($this->requestReceivedHooks, $request);
             $response = $this->sendRequestThroughRouter($request);
             $this->runHooks($this->responseReadyHooks, $request, $response);
             return $response;
-        } catch (HttpResponseException $e) {
+        } catch (HttpResponseException $exception) {
             // A helper (e.g. request()->validate()) short-circuited with a
             // ready response — send it as-is, then run response-ready hooks.
-            $response = $e->getResponse();
+            $response = $exception->getResponse();
             $this->runHooks($this->responseReadyHooks, $request, $response);
             return $response;
-        } catch (Throwable $e) {
-            return $this->handleException($request, $e);
+        } catch (Throwable $exception) {
+            return $this->handleException($request, $exception);
         }
     }
 
@@ -203,7 +208,7 @@ class Kernel
         if ($class === null) {
             return null;
         }
-        return $this->container->make($class);
+        return $this->container->createOrResolve($class);
     }
 
     /** Dispatch the resolved route to its handler. */
@@ -214,7 +219,7 @@ class Kernel
 
         // 2. Handle the "Decoupled View" (The DTO)
         if ($result instanceof ViewResponse) {
-            $renderer = $this->container->make(ViewEngine::class);
+            $renderer = $this->container->createOrResolve(ViewEngine::class);
             return Response::html($renderer->render($result->template, $result->data));
         }
 
@@ -242,21 +247,27 @@ class Kernel
     }
 
     /** Handle an exception that occurred during the request. */
-    protected function handleException(Request $request, Throwable $e): Response
+    protected function handleException(Request $request, Throwable $exception): Response
     {
-        $handler = $this->container->make(ExceptionHandler::class);
+        $handler = $this->container->createOrResolve(ExceptionHandler::class);
+
+        // Report ONCE, here, before deciding how to render. Doing it at the top
+        // of the catch means an exception that converts to a redirect (a
+        // validation failure) passes the same reporting rules as one that
+        // renders a page — reporting inside render() silently skipped the first.
+        $handler->report($exception);
 
         // Exceptions that convert to a full Response (e.g. a validation failure →
         // redirect-back / 422 JSON) are handled here, before the HTML renderer.
         // These fire responseReady hooks just like a normal response would.
-        $converted = $handler->renderResponse($e, $request);
+        $converted = $handler->renderResponse($exception, $request);
         if ($converted instanceof Response) {
             $this->runHooks($this->responseReadyHooks, $request, $converted);
             return $converted;
         }
 
-        $content = $handler->render($e);
-        $statusCode = $handler->getStatusCode($e);
+        $content = $handler->render($exception);
+        $statusCode = $handler->getStatusCode($exception);
 
         if ($request->isHtmx()) {
             return new Response('', 200, [
@@ -264,7 +275,9 @@ class Kernel
             ]);
         }
 
-        return new Response($content, $statusCode, ['Content-Type' => 'text/html']);
+        $response = new Response($content, $statusCode, ['Content-Type' => 'text/html']);
+
+        return $handler->finalize($response, $exception, $request) ?? $response;
     }
 
     /** Create a 404 Not Found response. */

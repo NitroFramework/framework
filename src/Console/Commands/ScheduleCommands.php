@@ -48,8 +48,8 @@ class ScheduleCommands implements CommandInterface
             try {
                 $event->run($this->container);
                 $this->output->success('Done: ' . $event->getDescription());
-            } catch (Throwable $e) {
-                $this->output->error('Failed: ' . $event->getDescription() . ' — ' . $e->getMessage());
+            } catch (Throwable $exception) {
+                $this->output->error('Failed: ' . $event->getDescription() . ' — ' . $exception->getMessage());
             }
         }
     }
@@ -70,6 +70,6 @@ class ScheduleCommands implements CommandInterface
 
     protected function schedule(): Schedule
     {
-        return $this->container->make(Schedule::class);
+        return $this->container->createOrResolve(Schedule::class);
     }
 }

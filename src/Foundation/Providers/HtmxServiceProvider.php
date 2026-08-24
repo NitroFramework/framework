@@ -39,7 +39,7 @@ class HtmxServiceProvider extends ServiceProvider
     {
         return match (config('htmx.state.store', 'session')) {
             'cache'   => new CacheStateStore(
-                $container->make(CacheManager::class),
+                $container->createOrResolve(CacheManager::class),
                 config('htmx.state.cache_driver'),
                 config('htmx.state.ttl'),
             ),
@@ -50,14 +50,14 @@ class HtmxServiceProvider extends ServiceProvider
 
     public function register(): void
     {
-        $this->container->singleton(StateStore::class, fn($c) => self::makeStateStore($c));
+        $this->container->singleton(StateStore::class, fn($container) => self::makeStateStore($container));
 
         $this->container->singleton(HxObfuscator::class, function ($container) {
             // PSR-4 convention: App\Htmx\Components\ → app/Htmx/Components.
             // Override via config('htmx.components_path') if your structure
             // doesn't follow the standard mapping.
             $ns = rtrim((string) config('htmx.component_namespace'), '\\');
-            $defaultDir = $container->get('paths')->base(
+            $defaultDir = $container->createOrResolve('paths')->base(
                 str_replace('\\', DIRECTORY_SEPARATOR, lcfirst($ns)),
             );
 
@@ -79,8 +79,8 @@ class HtmxServiceProvider extends ServiceProvider
 
         $this->container->singleton(HxHelper::class, function ($container) {
             return new HxHelper(
-                $container->make(HxObfuscator::class),
-                $container->make(HxEncryptor::class),
+                $container->createOrResolve(HxObfuscator::class),
+                $container->createOrResolve(HxEncryptor::class),
                 config('htmx.route_prefix', '/hx'),
             );
         });
@@ -107,9 +107,9 @@ class HtmxServiceProvider extends ServiceProvider
         $this->container->singleton(HtmxDispatcher::class, function ($container) {
             return new HtmxDispatcher(
                 $container,
-                $container->make(RequestGuard::class),
-                $container->make(ComponentResolver::class),
-                $container->make(ArgumentResolver::class),
+                $container->createOrResolve(RequestGuard::class),
+                $container->createOrResolve(ComponentResolver::class),
+                $container->createOrResolve(ArgumentResolver::class),
             );
         });
 
@@ -147,7 +147,7 @@ class HtmxServiceProvider extends ServiceProvider
      */
     protected function registerAssetRoute(): void
     {
-        $router = $this->container->make('router');
+        $router = $this->container->createOrResolve('router');
 
         $router->get('/nitro/hx-component.js', static function (): Response {
             return (new HtmxAssets())->scriptResponse();
@@ -180,7 +180,7 @@ class HtmxServiceProvider extends ServiceProvider
             // $this is bound to the Router instance, so the protected addRoute()
             // is reachable. The HTMX kernel is resolved lazily at request time.
             return $this->addRoute('GET', $path, function (Request $request) use ($container, $component, $action) {
-                return $container->make(HtmxDispatcher::class)->handle($request, $component, $action, true);
+                return $container->createOrResolve(HtmxDispatcher::class)->handle($request, $component, $action, true);
             });
         });
     }
@@ -193,24 +193,24 @@ class HtmxServiceProvider extends ServiceProvider
     {
         $navigation = new NitroNavigation();
 
-        $this->container->make(Kernel::class)->responseReady(
+        $this->container->createOrResolve(Kernel::class)->responseReady(
             static fn(Request $request, $response) => $navigation->prepare($request, $response)
         );
     }
 
     protected function registerActionRoute(): void
     {
-        $router = $this->container->make('router');
+        $router = $this->container->createOrResolve('router');
         $prefix = config('htmx.route_prefix', '/hx');
         $methods = config('htmx.route_methods', ['POST', 'GET']);
 
         $router->match($methods, $prefix . '/{component}/{action}', function ($hashedComp, $hashedAction) {
-            $obfuscator = $this->container->make(HxObfuscator::class);
+            $obfuscator = $this->container->createOrResolve(HxObfuscator::class);
             $realComponent = $obfuscator->reverseLookup($hashedComp);
             $realAction = $obfuscator->reverseActionLookup($realComponent, $hashedAction);
 
-            return $this->container->make(HtmxDispatcher::class)
-                ->handle($this->container->make('request'), $realComponent, $realAction);
+            return $this->container->createOrResolve(HtmxDispatcher::class)
+                ->handle($this->container->createOrResolve('request'), $realComponent, $realAction);
         });
     }
 

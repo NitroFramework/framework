@@ -9,12 +9,12 @@ class NotificationServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        $this->container->singleton(ChannelManager::class, function ($c) {
-            return new ChannelManager($c);
+        $this->container->singleton(ChannelManager::class, function ($container) {
+            return new ChannelManager($container);
         });
 
-        $this->container->singleton('notification', function ($c) {
-            return new NotificationSender($c->make(ChannelManager::class));
+        $this->container->singleton('notification', function ($container) {
+            return new NotificationSender($container->createOrResolve(ChannelManager::class));
         });
 
         $this->container->alias(NotificationSender::class, 'notification');

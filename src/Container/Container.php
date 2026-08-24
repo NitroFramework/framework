@@ -357,21 +357,29 @@ class Container implements ContainerInterface
     private array $resolving = [];
 
     /**
-     * Make a class instance, auto-wiring all constructor dependencies.
-     * If registered in the container, returns that. Otherwise reflects and builds.
+     * Get an instance of $abstract: RESOLVE the registered binding if there is
+     * one, otherwise CREATE it by reflecting its constructor and auto-wiring the
+     * dependencies. The name says exactly that, which is why it is the method to
+     * reach for — {@see make()} is the same thing under the older name.
+     *
+     * This is the everyday way to ask the container for something. Contrast
+     * {@see get()}, which is a strict registry lookup: it resolves a binding and
+     * throws NotFoundException when none exists, never auto-wiring. Use get()
+     * only when an unregistered name is a bug you want to hear about (a service
+     * name coming from config, say); use createOrResolve() for everything else.
      *
      * Only delegates to get() when no $parameters are passed, so explicit
      * overrides are never silently dropped.
      */
-    public function make(string $abstract, array $parameters = []): mixed
+    public function createOrResolve(string $abstract, array $parameters = []): mixed
     {
         if (empty($parameters)) {
             if ($this->has($abstract)) {
                 return $this->get($abstract);
             }
             // AOT fast path: a compiled factory inlines the whole autowire graph,
-            // so we skip reflection entirely. Only used for a plain make() (no
-            // overrides); overrides fall through to the reflective builder.
+            // so we skip reflection entirely. Only used for a plain resolution
+            // (no overrides); overrides fall through to the reflective builder.
             if (isset($this->compiledFactories[$abstract])) {
                 return ($this->compiledFactories[$abstract])($this);
             }
@@ -383,6 +391,17 @@ class Container implements ContainerInterface
         }
 
         return $this->build($abstract, $parameters);
+    }
+
+    /**
+     * Alias of {@see createOrResolve()}, kept because it is the name the wider
+     * PHP world (and a lot of existing application code) reaches for first.
+     * Identical behaviour — pick whichever reads better in context; the
+     * framework's own code standardises on createOrResolve().
+     */
+    public function make(string $abstract, array $parameters = []): mixed
+    {
+        return $this->createOrResolve($abstract, $parameters);
     }
 
     /** Build a class via reflection, resolving all constructor dependencies recursively */
@@ -442,7 +461,7 @@ class Container implements ContainerInterface
         try {
             $normalized = ltrim($abstract, '\\');
             $reflector = new ReflectionClass($normalized);
-        } catch (\ReflectionException $e) {
+        } catch (\ReflectionException $exception) {
             throw new RuntimeException("Class [{$abstract}] does not exist. (Tried resolving as [{$normalized}])");
         }
 
@@ -681,8 +700,8 @@ class Container implements ContainerInterface
             }
 
             return $info;
-        } catch (\Exception $e) {
-            return ['error' => $e->getMessage()];
+        } catch (\Exception $exception) {
+            return ['error' => $exception->getMessage()];
         }
     }
 
@@ -749,8 +768,8 @@ class Container implements ContainerInterface
             $key = (is_object($object) ? $object::class : $object) . '::' . $method;
             $meta = $this->callableCache[$key]
                 ??= (static function () use ($object, $method): array {
-                    $r = new \ReflectionMethod($object, $method);
-                    return ['reflector' => $r, 'params' => $r->getParameters()];
+                    $reflector = new \ReflectionMethod($object, $method);
+                    return ['reflector' => $reflector, 'params' => $reflector->getParameters()];
                 })();
 
             $dependencies = $this->resolveDependencies(null, $meta['params'], $parameters);
@@ -769,7 +788,7 @@ class Container implements ContainerInterface
     {
         $this->aliasTargets[$alias] = $abstract;
         $this->services[$alias] = [
-            'value'     => fn($c) => $c->get($abstract),
+            'value'     => fn($container) => $container->get($abstract),
             'singleton' => true,
         ];
     }

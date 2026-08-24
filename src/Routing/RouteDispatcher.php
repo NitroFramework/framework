@@ -79,7 +79,7 @@ class RouteDispatcher
         // doesn't exist; Container::call throws if the method doesn't exist.
         // Pre-validating with class_exists / method_exists duplicates that work
         // on the hot path for every dispatch.
-        $controller = $this->container->make($controllerClass);
+        $controller = $this->container->createOrResolve($controllerClass);
 
         // Single-action classes run through their own pipeline (authorize →
         // validate → body → response negotiation) instead of a plain call.

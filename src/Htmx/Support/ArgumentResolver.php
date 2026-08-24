@@ -71,7 +71,7 @@ class ArgumentResolver
             // Skip built-in types ('int', 'string', etc.) — those are
             // request-driven, handled below.
             if ($this->isInjectableClass($param)) {
-                $args[] = $this->container?->make($type) ?? null;
+                $args[] = $this->container?->createOrResolve($type) ?? null;
                 continue;
             }
 

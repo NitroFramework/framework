@@ -143,7 +143,7 @@ class Application
 
     public function handle(string $kernelClass): void
     {
-        $kernel = $this->container->make($kernelClass);
+        $kernel = $this->container->createOrResolve($kernelClass);
         $kernel->run();
     }
 
@@ -155,13 +155,13 @@ class Application
      */
     protected function registerFatalHandler(): void
     {
-        set_exception_handler(static function (\Throwable $e): void {
+        set_exception_handler(static function (\Throwable $exception): void {
             while (ob_get_level() > 0) {
                 ob_end_clean();
             }
 
-            $detail = $e->getMessage() . "\n" . $e->getFile() . ':' . $e->getLine()
-                . "\n\n" . $e->getTraceAsString();
+            $detail = $exception->getMessage() . "\n" . $exception->getFile() . ':' . $exception->getLine()
+                . "\n\n" . $exception->getTraceAsString();
 
             // CLI (including FrankenPHP workers): log to stderr, never emit HTML.
             if (PHP_SAPI === 'cli') {
@@ -295,7 +295,7 @@ class Application
     protected function runBootstrappers(): void
     {
         foreach ($this->bootstrappers as $bootstrapper) {
-            $instance = $this->container->make($bootstrapper);
+            $instance = $this->container->createOrResolve($bootstrapper);
 
             if ($instance instanceof BootstrapperInterface) {
                 $instance->bootstrap($this);

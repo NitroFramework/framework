@@ -126,8 +126,8 @@ class OptimizeCommand implements CommandInterface
                     'yellow'
                 ));
             }
-        } catch (\Exception $e) {
-            $this->output->writeln($this->output->color("  ✖ Config cache failed: " . $e->getMessage(), 'red'));
+        } catch (\Exception $exception) {
+            $this->output->writeln($this->output->color("  ✖ Config cache failed: " . $exception->getMessage(), 'red'));
         }
     }
 
@@ -152,8 +152,8 @@ class OptimizeCommand implements CommandInterface
     protected function cacheRoutes(): void
     {
         try {
-            $routeLoader = $this->container->get(RouteLoader::class);
-            $router       = $this->container->get(RouterInterface::class);
+            $routeLoader = $this->container->createOrResolve(RouteLoader::class);
+            $router       = $this->container->createOrResolve(RouterInterface::class);
             $router->clearRoutes();
             $routeLoader->loadFromFile($router);
 
@@ -169,8 +169,8 @@ class OptimizeCommand implements CommandInterface
 
             $routeCount = count($router->getRoutes(), COUNT_RECURSIVE);
             $this->output->writeln($this->output->color("  ✓ Cached {$routeCount} routes", 'green'));
-        } catch (\Exception $e) {
-            $this->output->writeln($this->output->color("  ✖ Route cache failed: " . $e->getMessage(), 'red'));
+        } catch (\Exception $exception) {
+            $this->output->writeln($this->output->color("  ✖ Route cache failed: " . $exception->getMessage(), 'red'));
         }
     }
 
@@ -195,11 +195,11 @@ class OptimizeCommand implements CommandInterface
             $loaderFile = __DIR__ . '/../../Support/helpers.php';
             $files = [];
             if (is_file($loaderFile)
-                && preg_match_all('#/Helpers/([A-Za-z0-9_]+\.php)#', (string) file_get_contents($loaderFile), $m)
+                && preg_match_all('#/Helpers/([A-Za-z0-9_]+\.php)#', (string) file_get_contents($loaderFile), $matches)
             ) {
-                foreach ($m[1] as $f) {
-                    if ($f !== 'bundle.php' && !in_array($f, $files, true)) {
-                        $files[] = $f;
+                foreach ($matches[1] as $file) {
+                    if ($file !== 'bundle.php' && !in_array($file, $files, true)) {
+                        $files[] = $file;
                     }
                 }
             }
@@ -225,8 +225,8 @@ class OptimizeCommand implements CommandInterface
                 // them de-duped. Keyed by statement => emitted once.
                 $contents = preg_replace_callback(
                     '/^use\s+[^;]+;[ \t]*\r?\n/m',
-                    function (array $m) use (&$useStatements): string {
-                        $useStatements[trim($m[0])] = true;
+                    function (array $matches) use (&$useStatements): string {
+                        $useStatements[trim($matches[0])] = true;
                         return '';
                     },
                     $contents,
@@ -243,8 +243,8 @@ class OptimizeCommand implements CommandInterface
 
             file_put_contents($helpersDir . '/bundle.php', $bundled);
             $this->output->writeln($this->output->color("  ✓ Bundled " . count($files) . " helper files", 'green'));
-        } catch (\Throwable $e) {
-            $this->output->writeln($this->output->color("  ✖ Helper bundling failed: " . $e->getMessage(), 'red'));
+        } catch (\Throwable $exception) {
+            $this->output->writeln($this->output->color("  ✖ Helper bundling failed: " . $exception->getMessage(), 'red'));
         }
     }
 
@@ -262,7 +262,7 @@ class OptimizeCommand implements CommandInterface
     {
         try {
             $container = $this->app->getContainer();
-            $router = $container->make('router');
+            $router = $container->createOrResolve('router');
 
             $entries = [];
             foreach ($router->getRoutes() as $methodRoutes) {
@@ -281,8 +281,8 @@ class OptimizeCommand implements CommandInterface
                 "  ✓ Compiled " . substr_count($php, '=> static fn') . " container factories",
                 'green'
             ));
-        } catch (\Throwable $e) {
-            $this->output->writeln($this->output->color("  ✖ Container compile failed: " . $e->getMessage(), 'red'));
+        } catch (\Throwable $exception) {
+            $this->output->writeln($this->output->color("  ✖ Container compile failed: " . $exception->getMessage(), 'red'));
         }
     }
 
@@ -335,8 +335,8 @@ class OptimizeCommand implements CommandInterface
                 "  ✓ Cached " . count($allProviders) . " providers",
                 'green'
             ));
-        } catch (\Throwable $e) {
-            $this->output->writeln($this->output->color("  ✖ Bootstrap cache failed: " . $e->getMessage(), 'red'));
+        } catch (\Throwable $exception) {
+            $this->output->writeln($this->output->color("  ✖ Bootstrap cache failed: " . $exception->getMessage(), 'red'));
         }
     }
 
@@ -363,13 +363,13 @@ class OptimizeCommand implements CommandInterface
             // table listings. Normalize to plain arrays first, then pull
             // a usable name out — reset() on an object is deprecated in 8.3.
             $tableNames = [];
-            foreach ($tables as $t) {
-                if (is_string($t)) {
-                    $row = ['name' => $t];
-                } elseif (is_object($t)) {
-                    $row = get_object_vars($t);
+            foreach ($tables as $table) {
+                if (is_string($table)) {
+                    $row = ['name' => $table];
+                } elseif (is_object($table)) {
+                    $row = get_object_vars($table);
                 } else {
-                    $row = (array) $t;
+                    $row = (array) $table;
                 }
                 $name = $row['table_name'] ?? $row['name'] ?? $row['Name'] ?? (reset($row) ?: null);
                 if (is_string($name) && $name !== '') {
@@ -414,13 +414,13 @@ class OptimizeCommand implements CommandInterface
                 "  ✓ Cached schema for " . count($tableNames) . " tables",
                 'green'
             ));
-        } catch (\Throwable $e) {
+        } catch (\Throwable $exception) {
             // No DB / bad credentials / table-less install — don't fail
             // the optimize. The schema cache simply stays absent and
             // SchemaBuilder falls through to live queries.
             SchemaCache::bypass(false);
             $this->output->writeln($this->output->color(
-                "  ⚠ Schema cache skipped: " . $e->getMessage(),
+                "  ⚠ Schema cache skipped: " . $exception->getMessage(),
                 'yellow'
             ));
         }
@@ -465,8 +465,8 @@ class OptimizeCommand implements CommandInterface
 
             $this->output->writeln($this->output->color("  ✓ Preload script generated (" . count($files) . " files)", 'green'));
             $this->output->writeln($this->output->color("    Enable it: set  opcache.preload={$preloadPath}  in php.ini", 'cyan'));
-        } catch (\Throwable $e) {
-            $this->output->writeln($this->output->color("  ✖ Preload generation failed: " . $e->getMessage(), 'red'));
+        } catch (\Throwable $exception) {
+            $this->output->writeln($this->output->color("  ✖ Preload generation failed: " . $exception->getMessage(), 'red'));
         }
     }
 
@@ -534,7 +534,7 @@ class OptimizeCommand implements CommandInterface
     private function objectsToArrays(array $rows): array
     {
         return array_map(
-            static fn($r) => is_object($r) ? get_object_vars($r) : (array) $r,
+            static fn($row) => is_object($row) ? get_object_vars($row) : (array) $row,
             $rows,
         );
     }
@@ -574,11 +574,11 @@ class OptimizeCommand implements CommandInterface
         // owned by RouteLoader — clear it through the loader so we target the
         // real path instead of a nonexistent cache/routes.php.
         try {
-            if ($this->container->get(RouteLoader::class)->clearCache()) {
+            if ($this->container->createOrResolve(RouteLoader::class)->clearCache()) {
                 $this->output->writeln($this->output->color("  ✓ Cleared Routes cache", 'green'));
                 $cleared++;
             }
-        } catch (\Throwable $e) {
+        } catch (\Throwable $exception) {
             // No loader/router resolvable — nothing to clear.
         }
 
@@ -597,7 +597,7 @@ class OptimizeCommand implements CommandInterface
                 $this->output->writeln($this->output->color("  ✓ Cleared {$stats['files']} view files", 'green'));
                 $cleared++;
             }
-        } catch (\Exception $e) {
+        } catch (\Exception $exception) {
             // silent fail
         }
 
@@ -607,14 +607,14 @@ class OptimizeCommand implements CommandInterface
         // would be exactly the kind of bug operators hit and then can't
         // explain ("I cleared the cache, why is the page still wrong?").
         try {
-            $cache = $this->container->get(CacheManager::class);
+            $cache = $this->container->createOrResolve(CacheManager::class);
             if ($cache->store()->flush()) {
                 $this->output->writeln($this->output->color("  ✓ Flushed runtime data cache", 'green'));
                 $cleared++;
             }
-        } catch (\Throwable $e) {
+        } catch (\Throwable $exception) {
             $this->output->writeln($this->output->color(
-                "  ⚠ Data cache flush skipped: " . $e->getMessage(),
+                "  ⚠ Data cache flush skipped: " . $exception->getMessage(),
                 'yellow'
             ));
         }

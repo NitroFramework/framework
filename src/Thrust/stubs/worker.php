@@ -28,13 +28,13 @@ use Nitro\Thrust\Runner;
 
 // Top-level safety net for truly catastrophic bootstrap failures. Per-request
 // exceptions are caught inside Runner::handleRequest.
-set_exception_handler(static function (\Throwable $e): void {
+set_exception_handler(static function (\Throwable $exception): void {
     while (ob_get_level() > 0) ob_end_clean();
     if (!headers_sent()) {
         http_response_code(500);
         header('Content-Type: text/plain; charset=utf-8');
     }
-    $message = "FATAL: {$e->getMessage()}\n{$e->getFile()}:{$e->getLine()}\n{$e->getTraceAsString()}\n";
+    $message = "FATAL: {$exception->getMessage()}\n{$exception->getFile()}:{$exception->getLine()}\n{$exception->getTraceAsString()}\n";
 
     if (defined('STDERR')) {
         fwrite(STDERR, $message);
@@ -58,5 +58,5 @@ $container = $app->getContainer();
 $container->instance(WorkerMode::class, new WorkerMode());
 $container->instance(FrankenPhpAdapter::class, new FrankenPhpAdapter());
 
-$runner = $container->make(Runner::class);
+$runner = $container->createOrResolve(Runner::class);
 $runner->run();

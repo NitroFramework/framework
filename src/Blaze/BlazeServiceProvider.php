@@ -24,15 +24,15 @@ class BlazeServiceProvider extends ServiceProvider
             );
         });
 
-        $this->container->singleton(BlazeRuntime::class, static fn($c) => new BlazeRuntime($c->make(BlazeManager::class)));
+        $this->container->singleton(BlazeRuntime::class, static fn($container) => new BlazeRuntime($container->createOrResolve(BlazeManager::class)));
 
         // Available to service providers immediately (before any boot()).
-        Blaze::setManager($this->container->make(BlazeManager::class));
+        Blaze::setManager($this->container->createOrResolve(BlazeManager::class));
     }
 
     public function boot(): void
     {
-        $manager = $this->container->make(BlazeManager::class);
+        $manager = $this->container->createOrResolve(BlazeManager::class);
 
         // Rewrite eligible <x-*> tags into $__blaze->render() before core compiles.
         Blade::precompiler([new BlazeCompiler($manager), 'compile']);

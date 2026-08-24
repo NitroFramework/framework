@@ -48,13 +48,13 @@ trait ResetsForWorkerMode
         // safe even when no config repository is bound, defaulting to the
         // production behaviour of not clearing.
         $debug = $this->container->has('config')
-            && (bool) $this->container->get('config')->get('app.debug', false);
+            && (bool) $this->container->createOrResolve('config')->get('app.debug', false);
 
         if ($debug
             && class_exists(CompiledTemplateCache::class)
             && $this->container->has(CompiledTemplateCache::class)) {
             try {
-                $this->container->get(CompiledTemplateCache::class)
+                $this->container->createOrResolve(CompiledTemplateCache::class)
                     ->clearFreshnessCache();
             } catch (\Throwable) {
                 // Non-fatal — keep serving.
@@ -74,7 +74,7 @@ trait ResetsForWorkerMode
         if (class_exists(ViewRenderer::class)
             && $this->container->has(ViewRenderer::class)) {
             try {
-                $this->container->get(ViewRenderer::class)->flushState();
+                $this->container->createOrResolve(ViewRenderer::class)->flushState();
             } catch (\Throwable) {
                 // Non-fatal — keep serving.
             }

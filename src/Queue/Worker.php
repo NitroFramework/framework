@@ -134,8 +134,8 @@ class Worker
 
             $this->invoke($job);
             $queue->delete($envelope);
-        } catch (Throwable $e) {
-            $this->handleFailure($queue, $envelope, $job, $e, $defaultTries);
+        } catch (Throwable $exception) {
+            $this->handleFailure($queue, $envelope, $job, $exception, $defaultTries);
         }
     }
 
@@ -146,7 +146,7 @@ class Worker
         foreach ($reflector->getParameters() as $param) {
             $type = $param->getType();
             if ($type instanceof \ReflectionNamedType && !$type->isBuiltin()) {
-                $args[] = $this->container->make($type->getName());
+                $args[] = $this->container->createOrResolve($type->getName());
             } elseif ($param->isDefaultValueAvailable()) {
                 $args[] = $param->getDefaultValue();
             } else {
@@ -160,7 +160,7 @@ class Worker
         Queue $queue,
         QueuedJob $envelope,
         ?Job $job,
-        Throwable $e,
+        Throwable $exception,
         ?int $defaultTries,
     ): void {
         $tries = $defaultTries ?? ($job?->tries() ?? 1);
@@ -169,18 +169,18 @@ class Worker
         // never succeed on a retry — fail it immediately regardless of the
         // retry budget, rather than releasing it to loop forever.
         $cannotDecode = $job === null;
-        $isPoisonPill = $e instanceof Exceptions\MaxAttemptsExceededException;
+        $isPoisonPill = $exception instanceof Exceptions\MaxAttemptsExceededException;
 
         // Permanent failure: log to failed store, drop from live queue,
         // and let the job's failed() hook run for notifications/audit. The
         // attempts cap is only enforced when tries > 0 (0 = unlimited).
         if ($cannotDecode || $isPoisonPill || ($tries > 0 && $envelope->attempts >= $tries)) {
-            $this->failedStore->log($envelope, $e);
+            $this->failedStore->log($envelope, $exception);
             $queue->delete($envelope);
 
             if ($job !== null) {
                 try {
-                    $job->failed($e);
+                    $job->failed($exception);
                 } catch (Throwable $hookError) {
                     error_log('[queue] failed() hook threw: ' . $hookError->getMessage());
                 }
@@ -191,7 +191,7 @@ class Worker
         // Retryable: record why (a flapping job was previously invisible until
         // its final failure), then release with backoff. attempts was already
         // incremented during pop(), so the next worker sees one more.
-        error_log("[queue] job {$envelope->id} failed (attempt {$envelope->attempts}/{$tries}), retrying: " . $e->getMessage());
+        error_log("[queue] job {$envelope->id} failed (attempt {$envelope->attempts}/{$tries}), retrying: " . $exception->getMessage());
         $backoff = $job?->backoff() ?? 5;
         $queue->release($envelope, $backoff);
     }
@@ -241,8 +241,8 @@ class Worker
     {
         if (!$this->cache) return null;
         try {
-            $v = $this->cache->get('queue:restart');
-            return is_numeric($v) ? (int) $v : null;
+            $value = $this->cache->get('queue:restart');
+            return is_numeric($value) ? (int) $value : null;
         } catch (Throwable) {
             return null;
         }

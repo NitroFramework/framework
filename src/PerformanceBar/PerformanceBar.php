@@ -92,7 +92,7 @@ class PerformanceBar
         if (empty($this->panels)) return '';
 
         $container = app();
-        $isHtmx = $container->has('request') && $container->make('request')->isHtmx();
+        $isHtmx = $container->has('request') && $container->createOrResolve('request')->isHtmx();
         $oob = $isHtmx ? ' hx-swap-oob="true"' : '';
 
         return $this->renderStyles()

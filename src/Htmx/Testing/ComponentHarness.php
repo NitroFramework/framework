@@ -164,11 +164,11 @@ class ComponentHarness
      * was there before. Each harness instance keeps the same store
      * across all dispatches so state behaves persistent-within-test.
      */
-    private function withBindings(callable $fn): void
+    private function withBindings(callable $callback): void
     {
         $container = app();
-        $previousRequest = $container->has('request') ? $container->make('request') : null;
-        $previousStore   = $container->has(StateStore::class) ? $container->make(StateStore::class) : null;
+        $previousRequest = $container->has('request') ? $container->createOrResolve('request') : null;
+        $previousStore   = $container->has(StateStore::class) ? $container->createOrResolve(StateStore::class) : null;
 
         $request = new Request(
             method: 'POST',
@@ -183,7 +183,7 @@ class ComponentHarness
         $container->singleton(StateStore::class, fn() => $this->store);
 
         try {
-            $fn();
+            $callback();
         } finally {
             if ($previousRequest !== null) {
                 $container->singleton('request', fn() => $previousRequest);

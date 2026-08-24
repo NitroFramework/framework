@@ -84,7 +84,7 @@ class SyncQueue implements Queue
         foreach ($reflector->getParameters() as $param) {
             $type = $param->getType();
             if ($type instanceof \ReflectionNamedType && !$type->isBuiltin()) {
-                $args[] = $this->container->make($type->getName());
+                $args[] = $this->container->createOrResolve($type->getName());
             } elseif ($param->isDefaultValueAvailable()) {
                 $args[] = $param->getDefaultValue();
             } else {

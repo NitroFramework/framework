@@ -48,16 +48,16 @@ class ViewServiceProvider extends ServiceProvider
         // ── Component renderer (lazy to avoid circular resolution) ──
         $this->container->singleton(ComponentRenderer::class, function ($container) {
             return new ComponentRenderer(
-                fn() => $container->get(ViewEngine::class),
+                fn() => $container->createOrResolve(ViewEngine::class),
             );
         });
 
         // ── Factory ──
         $this->container->singleton(ViewFactory::class, function ($container) {
             return new ViewFactory(
-                $container->get(ViewEngine::class),
+                $container->createOrResolve(ViewEngine::class),
                 $container,
-                $container->get(ViewComposerResolver::class),
+                $container->createOrResolve(ViewComposerResolver::class),
             );
         });
 
@@ -75,7 +75,7 @@ class ViewServiceProvider extends ServiceProvider
         // expression-aware callbacks. (Directives are intentionally not cached:
         // a callback's output depends on the invocation's $expression, so a
         // cached snapshot for one expression can't stand in for all calls.)
-        $paths = $this->container->get(PathRegistry::class);
+        $paths = $this->container->createOrResolve(PathRegistry::class);
         $this->loadCustomDirectives($paths);
     }
 

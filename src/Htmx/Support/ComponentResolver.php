@@ -44,7 +44,7 @@ class ComponentResolver
             throw new HttpException(404, "HTMX Component [{$component}] not found.");
         }
 
-        return $this->container->make($class);
+        return $this->container->createOrResolve($class);
     }
 
     /**

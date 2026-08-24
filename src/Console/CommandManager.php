@@ -43,7 +43,7 @@ class CommandManager
      */
     private function discoverPackageCommands(): void
     {
-        $paths = $this->container->get('paths');
+        $paths = $this->container->createOrResolve('paths');
 
         $manifest = new \Nitro\Foundation\PackageManifest(
             $paths->base('vendor'),
@@ -79,13 +79,14 @@ class CommandManager
             Commands\FactoryCommands::class,
             Commands\DatabaseCommands::class,
             Commands\CacheCommands::class,
+            Commands\VariableAuditCommand::class,
             ConcurrencyInvokeCommand::class,
         ];
 
         foreach ($builtIns as $class) {
             // We temporarily use the container to get the signatures without
             // "running" the command logic yet.
-            $instance = $this->container->make($class);
+            $instance = $this->container->createOrResolve($class);
             foreach ($instance->getCommands() as $signature => $description) {
                 $this->commands[$signature] = $class;
                 $this->descriptions[$signature] = $description;
@@ -115,7 +116,7 @@ class CommandManager
 
         // Class strings are built now (lazy) so a command's dependencies (and
         // HelpCommand's back-reference to this manager) resolve only on demand.
-        $command = is_string($entry) ? $this->container->make($entry) : $entry;
+        $command = is_string($entry) ? $this->container->createOrResolve($entry) : $entry;
 
         // Two shapes are supported: a Laravel-style single Command (its own
         // signature + handle()), or a grouped CommandInterface (handle(sig, args)).
@@ -138,7 +139,7 @@ class CommandManager
      */
     private function discoverUserCommands(): void
     {
-        $paths = $this->container->get('paths');
+        $paths = $this->container->createOrResolve('paths');
         $base = $paths->base();
         $root = $base . '/app/Console/Commands';
 
@@ -177,7 +178,7 @@ class CommandManager
         }
 
         if (is_subclass_of($className, Contracts\CommandInterface::class)) {
-            $instance = $this->container->make($className);
+            $instance = $this->container->createOrResolve($className);
             foreach ($instance->getCommands() as $signature => $description) {
                 $this->commands[$signature] = $className;
                 $this->descriptions[$signature] = $description;

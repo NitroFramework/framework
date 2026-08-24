@@ -24,7 +24,7 @@ class ChannelManager
     protected function resolve(string $name): Channel
     {
         return match ($name) {
-            'mail' => new MailChannel($this->container->make('mailer')),
+            'mail' => new MailChannel($this->container->createOrResolve('mailer')),
             'database' => new DatabaseChannel(),
             default => throw new InvalidArgumentException("Notification channel [{$name}] is not supported."),
         };

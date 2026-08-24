@@ -130,13 +130,13 @@ class RequestGuard
 
         if ($token) {
             try {
-                $encryptor = $this->container->make(HxEncryptor::class);
+                $encryptor = $this->container->createOrResolve(HxEncryptor::class);
                 $decryptedData = $encryptor->decrypt($token);
 
                 if (!empty($decryptedData)) {
                     $request->merge($decryptedData);
                 }
-            } catch (\Exception $e) {
+            } catch (\Exception $exception) {
                 abort(400, 'Invalid security token.');
             }
         }

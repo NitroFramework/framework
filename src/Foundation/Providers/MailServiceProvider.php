@@ -20,8 +20,8 @@ class MailServiceProvider extends ServiceProvider
         });
         $this->container->alias(MailManager::class, 'mail');
 
-        $this->container->singleton('mailer', function ($c) {
-            return $c->make('mail')->mailer();
+        $this->container->singleton('mailer', function ($container) {
+            return $container->createOrResolve('mail')->mailer();
         });
         $this->container->alias(Mailer::class, 'mailer');
         $this->container->alias(MailerContract::class, 'mailer');

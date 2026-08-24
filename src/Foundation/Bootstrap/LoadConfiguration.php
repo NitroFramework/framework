@@ -32,7 +32,7 @@ class LoadConfiguration implements BootstrapperInterface
         ) {
             $config = Config::fromArray(require $cachedConfigPath);
         } else {
-            $config = $container->make(Config::class);
+            $config = $container->createOrResolve(Config::class);
         }
 
         // The 'config' alias, the concrete class, and the contract all resolve to

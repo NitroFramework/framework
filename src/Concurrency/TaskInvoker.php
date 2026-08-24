@@ -31,12 +31,12 @@ class TaskInvoker
 
         // Invokable class-string: 'App\Tasks\Foo' -> (new Foo)()
         if (is_string($task) && class_exists($task)) {
-            return $container->call([$container->make($task), '__invoke']);
+            return $container->call([$container->createOrResolve($task), '__invoke']);
         }
 
         // [class-or-object, method, ...args]
         if (is_array($task) && isset($task[0], $task[1])) {
-            $target = is_string($task[0]) ? $container->make($task[0]) : $task[0];
+            $target = is_string($task[0]) ? $container->createOrResolve($task[0]) : $task[0];
             $method = $task[1];
             $args   = $task[2] ?? [];
 

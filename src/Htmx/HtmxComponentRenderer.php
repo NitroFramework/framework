@@ -193,7 +193,7 @@ class HtmxComponentRenderer
         // emits _hxfrags — every subsequent interaction stays scoped.
         $component->renderFragments = $activeFragments;
 
-        $blade = app('view');
+        $blade = $this->container->createOrResolve('view');
 
         if (count($activeFragments) === 1) {
             $html = $blade->renderFragment(
@@ -277,7 +277,7 @@ class HtmxComponentRenderer
             throw new \RuntimeException("HTMX Component [{$name}] not found.");
         }
 
-        $component = $this->container->make($class);
+        $component = $this->container->createOrResolve($class);
         $component->props = $props;
 
         // Stamp embed-site render overrides BEFORE onBoot so resolveRenderOverrides()
@@ -330,7 +330,7 @@ class HtmxComponentRenderer
             throw new \RuntimeException("HTMX Component [{$name}] not found.");
         }
 
-        $obfuscator = $this->container->make(HxObfuscator::class);
+        $obfuscator = $this->container->createOrResolve(HxObfuscator::class);
         $normalized  = lcfirst($name);
 
         $hashedComp   = $obfuscator->obfuscate($normalized);
@@ -405,7 +405,7 @@ class HtmxComponentRenderer
             $viewName = (new \ReflectionClass($class))->getDefaultProperties()['lazyPlaceholder'] ?? null;
             if ($viewName) {
                 try {
-                    return app('view')->render($viewName);
+                    return $this->container->createOrResolve('view')->render($viewName);
                 } catch (\Throwable) {
                     return $default;
                 }
@@ -416,7 +416,7 @@ class HtmxComponentRenderer
         $globalPlaceholder = config('htmx.lazy_placeholder');
         if ($globalPlaceholder) {
             try {
-                return app('view')->render($globalPlaceholder);
+                return $this->container->createOrResolve('view')->render($globalPlaceholder);
             } catch (\Throwable) {
                 return $default;
             }

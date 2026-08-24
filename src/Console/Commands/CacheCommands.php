@@ -51,7 +51,7 @@ class CacheCommands implements CommandInterface
     private function clear(array $arguments): void
     {
         $store = $this->flagValue($arguments, '--store');
-        $repo  = $this->container->get(CacheManager::class)->store($store);
+        $repo  = $this->container->createOrResolve(CacheManager::class)->store($store);
 
         $label = $store ?? 'default';
         $ok = $repo->flush();
@@ -67,8 +67,8 @@ class CacheCommands implements CommandInterface
     {
         // First non-flag arg is the key. Multiple words allowed if quoted.
         $key = null;
-        foreach ($arguments as $a) {
-            if (!str_starts_with($a, '--')) { $key = $a; break; }
+        foreach ($arguments as $argument) {
+            if (!str_starts_with($argument, '--')) { $key = $argument; break; }
         }
         if (!$key) {
             $this->output->error("Usage: cache:forget <key> [--store=name]");
@@ -76,7 +76,7 @@ class CacheCommands implements CommandInterface
             return;
         }
         $store = $this->flagValue($arguments, '--store');
-        $repo  = $this->container->get(CacheManager::class)->store($store);
+        $repo  = $this->container->createOrResolve(CacheManager::class)->store($store);
 
         $repo->forget($key)
             ? $this->output->success("Forgot key [{$key}].")
@@ -104,9 +104,9 @@ class CacheCommands implements CommandInterface
 
     private function flagValue(array $args, string $flag): ?string
     {
-        foreach ($args as $a) {
-            if (str_starts_with($a, $flag . '=')) {
-                return substr($a, strlen($flag) + 1);
+        foreach ($args as $argument) {
+            if (str_starts_with($argument, $flag . '=')) {
+                return substr($argument, strlen($flag) + 1);
             }
         }
         return null;

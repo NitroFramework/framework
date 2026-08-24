@@ -16,7 +16,7 @@ class PerformanceBarServiceProvider extends ServiceProvider
 {
     public function boot(): void
     {
-        $this->container->make(Kernel::class)->responseReady(
+        $this->container->createOrResolve(Kernel::class)->responseReady(
             static function (Request $request, $response): void {
                 if (!PerformanceBar::isAvailable()) {
                     return;
@@ -24,13 +24,13 @@ class PerformanceBarServiceProvider extends ServiceProvider
 
                 try {
                     PerformanceBar::getInstance()->inject($response);
-                } catch (Throwable $e) {
+                } catch (Throwable $exception) {
                     // Don't let the perf bar kill the response, but surface the
                     // failure in logs so silent breakage doesn't fester.
                     error_log(
                         '[PerformanceBar] inject() failed: '
-                        . $e::class . ': ' . $e->getMessage()
-                        . ' at ' . $e->getFile() . ':' . $e->getLine()
+                        . $exception::class . ': ' . $exception->getMessage()
+                        . ' at ' . $exception->getFile() . ':' . $exception->getLine()
                     );
                 }
             }

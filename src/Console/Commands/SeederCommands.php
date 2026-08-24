@@ -113,7 +113,7 @@ class SeederCommands implements CommandInterface
         }
 
         $this->output->info("Seeding: {$fqcn}");
-        $seeder = $this->container->make($fqcn);
+        $seeder = $this->container->createOrResolve($fqcn);
         $seeder->run();
         $this->output->success("Database seeding completed.");
     }
@@ -144,9 +144,9 @@ class SeederCommands implements CommandInterface
 
     private function flagValue(array $args, string $flag): ?string
     {
-        foreach ($args as $a) {
-            if (str_starts_with($a, $flag . '=')) {
-                return substr($a, strlen($flag) + 1);
+        foreach ($args as $argument) {
+            if (str_starts_with($argument, $flag . '=')) {
+                return substr($argument, strlen($flag) + 1);
             }
         }
         return null;

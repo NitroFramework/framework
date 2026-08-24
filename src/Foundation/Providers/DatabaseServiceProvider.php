@@ -18,7 +18,7 @@ class DatabaseServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        $config = $this->container->get(ConfigRepository::class);
+        $config = $this->container->createOrResolve(ConfigRepository::class);
         $dbConfig = $config->get('database');
         $default = $dbConfig['default'] ?? 'mysql';
         DB::configure($dbConfig['connections'][$default]);
@@ -29,7 +29,7 @@ class DatabaseServiceProvider extends ServiceProvider
         // Route model lifecycle events through the app event bus. Set in register()
         // (before any provider boot()) so model-event listeners registered in a
         // provider's boot() land on the dispatcher.
-        Model::setEventDispatcher($this->container->get('events'));
+        Model::setEventDispatcher($this->container->createOrResolve('events'));
 
         // Named-query registry (query('name')). Definitions auto-load from
         // app/Queries/ in boot(); apps needn't have that directory.
@@ -43,7 +43,7 @@ class DatabaseServiceProvider extends ServiceProvider
         // commands read all() to discover migrations across the app and modules.
         $this->container->singleton(MigrationPathRegistry::class, function ($container) {
             $registry = new MigrationPathRegistry();
-            $registry->add($container->get('paths')->migrations());
+            $registry->add($container->createOrResolve('paths')->migrations());
             return $registry;
         });
     }
@@ -60,11 +60,11 @@ class DatabaseServiceProvider extends ServiceProvider
 
         Paginator::currentPageResolverUsing(static function (string $pageName) use ($container) {
             return $container->has('request')
-                ? $container->make('request')->query($pageName)
+                ? $container->createOrResolve('request')->query($pageName)
                 : null;
         });
 
         // Auto-load named-query definitions from app/Queries/*.php (no-op if absent).
-        $container->get(QueryRegistry::class)->loadFrom($container->get('paths')->base('app/Queries'));
+        $container->createOrResolve(QueryRegistry::class)->loadFrom($container->createOrResolve('paths')->base('app/Queries'));
     }
 }
