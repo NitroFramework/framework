@@ -58,16 +58,16 @@ class BelongsToMany extends Relation
 
         $parentKey = $this->parentKey;
         $idSet = [];
-        foreach ($parents as $p) {
-            $v = $p->{$parentKey};
-            if ($v !== null && $v !== '') {
-                $idSet[$v] = true;
+        foreach ($parents as $parent) {
+            $value = $parent->{$parentKey};
+            if ($value !== null && $value !== '') {
+                $idSet[$value] = true;
             }
         }
         if (empty($idSet)) {
             $empty = new Collection();
-            foreach ($parents as $p) {
-                $p->setRelation($relationName, $empty);
+            foreach ($parents as $parent) {
+                $parent->setRelation($relationName, $empty);
             }
             return;
         }
@@ -88,9 +88,9 @@ class BelongsToMany extends Relation
             $grouped[$row->nitro_pivot_parent_id][] = $row;
         }
 
-        foreach ($parents as $p) {
-            $key = $p->{$parentKey};
-            $p->setRelation($relationName, new Collection($grouped[$key] ?? []));
+        foreach ($parents as $parent) {
+            $key = $parent->{$parentKey};
+            $parent->setRelation($relationName, new Collection($grouped[$key] ?? []));
         }
 
         if ($nested && !empty($hydrated)) {

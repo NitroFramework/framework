@@ -40,6 +40,6 @@ class Schedule
     /** @return array<int, Event> Events due at the given moment. */
     public function dueEvents(DateTimeInterface $now): array
     {
-        return array_values(array_filter($this->events, static fn (Event $e): bool => $e->isDue($now)));
+        return array_values(array_filter($this->events, static fn (Event $exception): bool => $exception->isDue($now)));
     }
 }

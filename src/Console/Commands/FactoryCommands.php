@@ -181,8 +181,8 @@ class FactoryCommands implements CommandInterface
         // Build the factory chain: ::factory()->count(N)->state(...)->...
         try {
             $factory = $modelClass::factory($count);
-        } catch (\Throwable $e) {
-            $this->output->error("Failed to construct factory: " . $e->getMessage());
+        } catch (\Throwable $exception) {
+            $this->output->error("Failed to construct factory: " . $exception->getMessage());
             return;
         }
 
@@ -206,8 +206,8 @@ class FactoryCommands implements CommandInterface
 
         try {
             $created = $factory->create($overrideMap);
-        } catch (\Throwable $e) {
-            $this->output->error("Factory ->create() failed: " . $e->getMessage());
+        } catch (\Throwable $exception) {
+            $this->output->error("Factory ->create() failed: " . $exception->getMessage());
             $this->output->writeln("(Check that the table exists, columns match, and constraints aren't violated.)");
             return;
         }
@@ -276,10 +276,10 @@ class FactoryCommands implements CommandInterface
     {
         $kept = array_slice($attrs, 0, $maxKeys, true);
         $parts = [];
-        foreach ($kept as $k => $v) {
-            $s = is_scalar($v) ? (string) $v : json_encode($v);
-            if (strlen($s) > 40) $s = substr($s, 0, 37) . '…';
-            $parts[] = "{$k}={$s}";
+        foreach ($kept as $attribute => $value) {
+            $formatted = is_scalar($value) ? (string) $value : json_encode($value);
+            if (strlen($formatted) > 40) $formatted = substr($formatted, 0, 37) . '…';
+            $parts[] = "{$attribute}={$formatted}";
         }
         return implode(' ', $parts);
     }

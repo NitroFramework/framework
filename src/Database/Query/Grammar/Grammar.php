@@ -277,11 +277,11 @@ class Grammar
         $orders = $query->getOrders();
         if (empty($orders)) return '';
 
-        $compiled = array_map(function ($o) {
-            if ($o instanceof RawExpression) {
-                return (string) $o;
+        $compiled = array_map(function ($order) {
+            if ($order instanceof RawExpression) {
+                return (string) $order;
             }
-            return $this->wrap($o['column']) . ' ' . $this->validateDirection($o['direction']);
+            return $this->wrap($order['column']) . ' ' . $this->validateDirection($order['direction']);
         }, $orders);
 
         return 'ORDER BY ' . implode(', ', $compiled);
@@ -341,8 +341,8 @@ class Grammar
 
         if (str_contains($value, '.')) {
             $segments = explode('.', $value);
-            $result = implode('.', array_map(function ($s) {
-                return $s === '*' ? '*' : $this->wrapSegment($s);
+            $result = implode('.', array_map(function ($segment) {
+                return $segment === '*' ? '*' : $this->wrapSegment($segment);
             }, $segments));
             return $this->wrapCache[$value] = $result;
         }

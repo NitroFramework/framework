@@ -131,8 +131,8 @@ class Store implements SessionInterface
     public function put(string|array $key, mixed $value = null): void
     {
         $pairs = is_array($key) ? $key : [$key => $value];
-        foreach ($pairs as $k => $v) {
-            $this->dotSet($this->attributes, $k, $v);
+        foreach ($pairs as $attributeKey => $attributeValue) {
+            $this->dotSet($this->attributes, $attributeKey, $attributeValue);
         }
     }
 

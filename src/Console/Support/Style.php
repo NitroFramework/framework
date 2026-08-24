@@ -12,12 +12,12 @@ class Style
 {
     protected bool $decorated;
 
-    protected static array $fg = [
+    protected static array $foreground = [
         'black' => 30, 'red' => 31, 'green' => 32, 'yellow' => 33, 'blue' => 34,
         'magenta' => 35, 'cyan' => 36, 'white' => 37, 'gray' => 90, 'default' => 39,
     ];
 
-    protected static array $bg = [
+    protected static array $background = [
         'black' => 40, 'red' => 41, 'green' => 42, 'yellow' => 43, 'blue' => 44,
         'magenta' => 45, 'cyan' => 46, 'white' => 47, 'gray' => 100, 'default' => 49,
     ];
@@ -44,26 +44,26 @@ class Style
     /** Turn tag markup into ANSI (or plain text when not decorated). */
     public function format(string $text): string
     {
-        return preg_replace_callback('~<(/?)([a-z0-9=;,#_-]*)>~i', function (array $m): string {
-            if ($m[1] === '/') {
+        return preg_replace_callback('~<(/?)([a-z0-9=;,#_-]*)>~i', function (array $matches): string {
+            if ($matches[1] === '/') {
                 return $this->decorated ? "\e[0m" : '';
             }
-            if ($m[2] === '') {
-                return $m[0];
+            if ($matches[2] === '') {
+                return $matches[0];
             }
 
-            return $this->decorated ? $this->ansiFor($m[2]) : '';
+            return $this->decorated ? $this->ansiFor($matches[2]) : '';
         }, $text) ?? $text;
     }
 
     /** Wrap text in explicit fg/bg/bold ANSI (no tags). */
-    public function apply(string $text, ?string $fg = null, ?string $bg = null, bool $bold = false): string
+    public function apply(string $text, ?string $foreground = null, ?string $background = null, bool $bold = false): string
     {
         if (! $this->decorated) {
             return $text;
         }
 
-        $codes = $this->codes($fg, $bg, $bold);
+        $codes = $this->codes($foreground, $background, $bold);
 
         return $codes === '' ? $text : $codes . $text . "\e[0m";
     }
@@ -80,37 +80,37 @@ class Style
     protected function ansiFor(string $tag): string
     {
         if (isset(self::$named[$tag])) {
-            $s = self::$named[$tag];
-            return $this->codes($s['fg'] ?? null, $s['bg'] ?? null, false);
+            $style = self::$named[$tag];
+            return $this->codes($style['fg'] ?? null, $style['bg'] ?? null, false);
         }
 
-        $fg = $bg = null;
+        $foreground = $background = null;
         $bold = false;
 
         foreach (explode(';', $tag) as $part) {
             if (str_starts_with($part, 'fg=')) {
-                $fg = substr($part, 3);
+                $foreground = substr($part, 3);
             } elseif (str_starts_with($part, 'bg=')) {
-                $bg = substr($part, 3);
+                $background = substr($part, 3);
             } elseif (str_starts_with($part, 'options=')) {
                 $bold = str_contains($part, 'bold');
             }
         }
 
-        return $this->codes($fg, $bg, $bold);
+        return $this->codes($foreground, $background, $bold);
     }
 
-    protected function codes(?string $fg, ?string $bg, bool $bold): string
+    protected function codes(?string $foreground, ?string $background, bool $bold): string
     {
         $codes = [];
         if ($bold) {
             $codes[] = 1;
         }
-        if ($fg !== null && isset(self::$fg[$fg])) {
-            $codes[] = self::$fg[$fg];
+        if ($foreground !== null && isset(self::$foreground[$foreground])) {
+            $codes[] = self::$foreground[$foreground];
         }
-        if ($bg !== null && isset(self::$bg[$bg])) {
-            $codes[] = self::$bg[$bg];
+        if ($background !== null && isset(self::$background[$background])) {
+            $codes[] = self::$background[$background];
         }
 
         return $codes === [] ? '' : "\e[" . implode(';', $codes) . 'm';

@@ -80,9 +80,9 @@ class CookieJar
     public function unqueue(string $name, ?string $path = null): void
     {
         if ($path === null) {
-            foreach (array_keys($this->queued) as $k) {
-                if (str_starts_with($k, $name . ';')) {
-                    unset($this->queued[$k]);
+            foreach (array_keys($this->queued) as $key) {
+                if (str_starts_with($key, $name . ';')) {
+                    unset($this->queued[$key]);
                 }
             }
 
@@ -99,8 +99,8 @@ class CookieJar
 
     public function queued(string $name, mixed $default = null, ?string $path = null): ?Cookie
     {
-        foreach ($this->queued as $k => $cookie) {
-            if ($path !== null ? $k === $this->key($name, $path) : str_starts_with($k, $name . ';')) {
+        foreach ($this->queued as $key => $cookie) {
+            if ($path !== null ? $key === $this->key($name, $path) : str_starts_with($key, $name . ';')) {
                 return $cookie;
             }
         }

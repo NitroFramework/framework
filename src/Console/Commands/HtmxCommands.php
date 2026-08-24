@@ -115,7 +115,7 @@ class HtmxCommands implements CommandInterface
         $separated = preg_replace('/(?<=[a-z0-9])(?=[A-Z])/', '_', $input);
         $words     = array_filter(preg_split('/[^A-Za-z0-9]+/', $separated));
         return implode('', array_map(
-            static fn(string $w) => ucfirst(strtolower($w)),
+            static fn(string $word) => ucfirst(strtolower($word)),
             $words,
         ));
     }

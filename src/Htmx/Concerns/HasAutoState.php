@@ -204,10 +204,10 @@ trait HasAutoState
 
     private function isVerified(string $id): bool
     {
-        if (preg_match('/^([A-Za-z0-9_-]{1,64})\.([a-f0-9]{16})$/', $id, $m) !== 1) {
+        if (preg_match('/^([A-Za-z0-9_-]{1,64})\.([a-f0-9]{16})$/', $id, $matches) !== 1) {
             return false;
         }
-        return hash_equals($this->signature($m[1]), $m[2]);
+        return hash_equals($this->signature($matches[1]), $matches[2]);
     }
 
     private function signature(string $raw): string

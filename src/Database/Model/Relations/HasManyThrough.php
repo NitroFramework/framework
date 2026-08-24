@@ -59,16 +59,16 @@ class HasManyThrough extends Relation
 
         $local = $this->localKey;
         $idSet = [];
-        foreach ($parents as $p) {
-            $v = $p->{$local};
-            if ($v !== null && $v !== '') {
-                $idSet[$v] = true;
+        foreach ($parents as $parent) {
+            $value = $parent->{$local};
+            if ($value !== null && $value !== '') {
+                $idSet[$value] = true;
             }
         }
         if (empty($idSet)) {
             $empty = new Collection();
-            foreach ($parents as $p) {
-                $p->setRelation($relationName, $empty);
+            foreach ($parents as $parent) {
+                $parent->setRelation($relationName, $empty);
             }
             return;
         }
@@ -85,8 +85,8 @@ class HasManyThrough extends Relation
             $grouped[$row->nitro_through_parent_id][] = $row;
         }
 
-        foreach ($parents as $p) {
-            $p->setRelation($relationName, new Collection($grouped[$p->{$local}] ?? []));
+        foreach ($parents as $parent) {
+            $parent->setRelation($relationName, new Collection($grouped[$parent->{$local}] ?? []));
         }
 
         if ($nested && !empty($hydrated)) {

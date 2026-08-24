@@ -52,16 +52,16 @@ trait HasEvents
         static::$dispatcher = null;
     }
 
-    public static function creating(callable $cb): void { static::registerModelEvent('creating', $cb); }
-    public static function created(callable $cb): void { static::registerModelEvent('created', $cb); }
-    public static function updating(callable $cb): void { static::registerModelEvent('updating', $cb); }
-    public static function updated(callable $cb): void { static::registerModelEvent('updated', $cb); }
-    public static function saving(callable $cb): void { static::registerModelEvent('saving', $cb); }
-    public static function saved(callable $cb): void { static::registerModelEvent('saved', $cb); }
-    public static function deleting(callable $cb): void { static::registerModelEvent('deleting', $cb); }
-    public static function deleted(callable $cb): void { static::registerModelEvent('deleted', $cb); }
-    public static function restoring(callable $cb): void { static::registerModelEvent('restoring', $cb); }
-    public static function restored(callable $cb): void { static::registerModelEvent('restored', $cb); }
+    public static function creating(callable $callback): void { static::registerModelEvent('creating', $callback); }
+    public static function created(callable $callback): void { static::registerModelEvent('created', $callback); }
+    public static function updating(callable $callback): void { static::registerModelEvent('updating', $callback); }
+    public static function updated(callable $callback): void { static::registerModelEvent('updated', $callback); }
+    public static function saving(callable $callback): void { static::registerModelEvent('saving', $callback); }
+    public static function saved(callable $callback): void { static::registerModelEvent('saved', $callback); }
+    public static function deleting(callable $callback): void { static::registerModelEvent('deleting', $callback); }
+    public static function deleted(callable $callback): void { static::registerModelEvent('deleted', $callback); }
+    public static function restoring(callable $callback): void { static::registerModelEvent('restoring', $callback); }
+    public static function restored(callable $callback): void { static::registerModelEvent('restored', $callback); }
 
     /**
      * Register an observer object: each method named after an event becomes a

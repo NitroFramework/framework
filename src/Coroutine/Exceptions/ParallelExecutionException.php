@@ -20,8 +20,8 @@ class ParallelExecutionException extends RuntimeException
         private readonly array $throwables,
     ) {
         $lines = '';
-        foreach ($throwables as $key => $e) {
-            $lines .= sprintf("  (%s) %s: %s%s", $key, $e::class, $e->getMessage(), PHP_EOL);
+        foreach ($throwables as $key => $exception) {
+            $lines .= sprintf("  (%s) %s: %s%s", $key, $exception::class, $exception->getMessage(), PHP_EOL);
         }
 
         parent::__construct(

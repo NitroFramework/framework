@@ -206,13 +206,13 @@ class HxValidator
     private function parseSize(string $spec): int
     {
         $spec = strtolower(trim($spec));
-        if (preg_match('/^(\d+)\s*(kb|mb|gb|b)?$/', $spec, $m)) {
-            $n = (int) $m[1];
-            return match ($m[2] ?? 'b') {
-                'kb'    => $n * 1024,
-                'mb'    => $n * 1024 * 1024,
-                'gb'    => $n * 1024 * 1024 * 1024,
-                default => $n,
+        if (preg_match('/^(\d+)\s*(kb|mb|gb|b)?$/', $spec, $matches)) {
+            $size = (int) $matches[1];
+            return match ($matches[2] ?? 'b') {
+                'kb'    => $size * 1024,
+                'mb'    => $size * 1024 * 1024,
+                'gb'    => $size * 1024 * 1024 * 1024,
+                default => $size,
             };
         }
         return 0;

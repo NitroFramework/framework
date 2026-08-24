@@ -385,8 +385,8 @@ class Request
     /** Full URL including query string. */
     public function fullUrl(): string
     {
-        $qs = $this->queryString();
-        return $qs === '' ? $this->url() : $this->url() . '?' . $qs;
+        $queryString = $this->queryString();
+        return $queryString === '' ? $this->url() : $this->url() . '?' . $queryString;
     }
 
     public function queryString(): string

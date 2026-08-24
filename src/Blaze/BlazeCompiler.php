@@ -45,10 +45,10 @@ class BlazeCompiler
     {
         return preg_replace_callback(
             '/<x-([\w.\-]+)((?:\s+[^>]*?)?)\s*\/>/s',
-            function (array $m): string {
-                [$ok, $name, $params] = $this->prepare($m[1], $m[2]);
+            function (array $matches): string {
+                [$ok, $name, $params] = $this->prepare($matches[1], $matches[2]);
                 if (! $ok) {
-                    return $m[0];
+                    return $matches[0];
                 }
 
                 $this->rewrote = true;
@@ -64,18 +64,18 @@ class BlazeCompiler
     {
         return preg_replace_callback(
             '/<x-([\w.\-]+)((?:\s+[^>]*?)?)>(.*?)<\/x-\1>/s',
-            function (array $m): string {
-                [$ok, $name, $params] = $this->prepare($m[1], $m[2]);
+            function (array $matches): string {
+                [$ok, $name, $params] = $this->prepare($matches[1], $matches[2]);
                 if (! $ok) {
-                    return $m[0];
+                    return $matches[0];
                 }
 
-                [$named, $default] = $this->extractSlots($m[3]);
+                [$named, $default] = $this->extractSlots($matches[3]);
 
                 // Any nested <x-…> in the slots that Blaze can't handle must stay
                 // for the core compiler, so bail unless the content is clean.
                 if (str_contains($default, '<x-') && ! $this->allNestedEligible($default)) {
-                    return $m[0];
+                    return $matches[0];
                 }
 
                 $this->rewrote = true;
@@ -121,11 +121,11 @@ class BlazeCompiler
     /** Whether every nested <x-…> in some content is itself Blaze-eligible. */
     protected function allNestedEligible(string $content): bool
     {
-        if (! preg_match_all('/<x-([\w.\-]+)[\s\/>]/', $content, $m)) {
+        if (! preg_match_all('/<x-([\w.\-]+)[\s\/>]/', $content, $matches)) {
             return true;
         }
 
-        foreach ($m[1] as $name) {
+        foreach ($matches[1] as $name) {
             if ($name !== 'slot' && ! $this->manager->isEnabled($name)) {
                 return false;
             }
@@ -145,12 +145,12 @@ class BlazeCompiler
         $named = [];
         $pattern = '/<x-slot:([\w\-]+)\s*>(.*?)<\/x-slot:\1>|<x-slot\s+name=(?:"([^"]+)"|\'([^\']+)\')\s*>(.*?)<\/x-slot>/s';
 
-        $default = preg_replace_callback($pattern, function (array $m) use (&$named): string {
-            if (($m[1] ?? '') !== '') {
-                $named[$m[1]] = $m[2];
+        $default = preg_replace_callback($pattern, function (array $matches) use (&$named): string {
+            if (($matches[1] ?? '') !== '') {
+                $named[$matches[1]] = $matches[2];
             } else {
-                $slotName = ($m[3] ?? '') !== '' ? $m[3] : ($m[4] ?? '');
-                $named[$slotName] = $m[5] ?? '';
+                $slotName = ($matches[3] ?? '') !== '' ? $matches[3] : ($matches[4] ?? '');
+                $named[$slotName] = $matches[5] ?? '';
             }
 
             return '';

@@ -67,17 +67,17 @@ class Dumper
         $items = '';
         $i = 0;
 
-        foreach ($value as $k => $v) {
+        foreach ($value as $entryKey => $entryValue) {
             if ($i++ >= $this->maxItems) {
                 $remaining = $count - $this->maxItems;
                 $items .= '<div class="nd-indent"><span class="nd-muted">… and ' . $remaining . ' more</span></div>';
                 break;
             }
 
-            $key = is_string($k) ? '"' . $this->esc($k) . '"' : $k;
+            $renderedKey = is_string($entryKey) ? '"' . $this->esc($entryKey) . '"' : $entryKey;
             $items .= '<div class="nd-indent">'
-                     . '<span class="nd-key">' . $key . '</span> => '
-                     . $this->render($v, $depth + 1)
+                     . '<span class="nd-key">' . $renderedKey . '</span> => '
+                     . $this->render($entryValue, $depth + 1)
                      . '</div>';
         }
 
@@ -103,12 +103,12 @@ class Dumper
         $count = count($data);
         $items = '';
 
-        foreach ($data as $k => $v) {
+        foreach ($data as $propertyName => $propertyValue) {
             // Clean protected/private key prefixes e.g. \0Class\0prop
-            $k = preg_replace('/\x00.*?\x00/', '', $k);
+            $propertyName = preg_replace('/\x00.*?\x00/', '', $propertyName);
             $items .= '<div class="nd-indent">'
-                     . '<span class="nd-key">' . $this->esc($k) . '</span>: '
-                     . $this->render($v, $depth + 1)
+                     . '<span class="nd-key">' . $this->esc($propertyName) . '</span>: '
+                     . $this->render($propertyValue, $depth + 1)
                      . '</div>';
         }
 

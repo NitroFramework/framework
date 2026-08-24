@@ -57,11 +57,11 @@ class Repository
     {
         // Normalize: if numeric keys, use null as default
         $defaults = [];
-        foreach ($keys as $k => $v) {
-            if (is_int($k)) {
-                $defaults[$v] = null;
+        foreach ($keys as $keyOrIndex => $keyOrDefault) {
+            if (is_int($keyOrIndex)) {
+                $defaults[$keyOrDefault] = null;
             } else {
-                $defaults[$k] = $v;
+                $defaults[$keyOrIndex] = $keyOrDefault;
             }
         }
 

@@ -140,21 +140,21 @@ abstract class Command
     protected function table(array $headers, array $rows): void
     {
         $widths = [];
-        foreach (array_values($headers) as $i => $h) {
-            $widths[$i] = Style::width((string) $h);
+        foreach (array_values($headers) as $i => $header) {
+            $widths[$i] = Style::width((string) $header);
         }
         foreach ($rows as $row) {
-            foreach (array_values($row) as $i => $c) {
-                $widths[$i] = max($widths[$i] ?? 0, Style::width((string) $c));
+            foreach (array_values($row) as $i => $cell) {
+                $widths[$i] = max($widths[$i] ?? 0, Style::width((string) $cell));
             }
         }
 
-        $separator = '+' . implode('+', array_map(fn($w) => str_repeat('-', $w + 2), $widths)) . '+';
+        $separator = '+' . implode('+', array_map(fn($width) => str_repeat('-', $width + 2), $widths)) . '+';
         $renderRow = function (array $cells) use ($widths): string {
             $line = '|';
-            foreach (array_values($cells) as $i => $c) {
-                $c = (string) $c;
-                $line .= ' ' . $c . str_repeat(' ', max(($widths[$i] ?? 0) - Style::width($c), 0)) . ' |';
+            foreach (array_values($cells) as $i => $cell) {
+                $cell = (string) $cell;
+                $line .= ' ' . $cell . str_repeat(' ', max(($widths[$i] ?? 0) - Style::width($cell), 0)) . ' |';
             }
             return $line;
         };
@@ -209,20 +209,20 @@ abstract class Command
     {
         $definition = $this->definition();
 
-        foreach ($definition['arguments'] as $a) {
-            $this->arguments[$a['name']] = $a['default'];
+        foreach ($definition['arguments'] as $argument) {
+            $this->arguments[$argument['name']] = $argument['default'];
         }
-        foreach ($definition['options'] as $o) {
-            $this->options[$o['name']] = $o['default'];
+        foreach ($definition['options'] as $option) {
+            $this->options[$option['name']] = $option['default'];
         }
 
         $positional = [];
         foreach ($argv as $token) {
             if (str_starts_with($token, '--')) {
                 $body = substr($token, 2);
-                $eq = strpos($body, '=');
-                $key = $eq === false ? $body : substr($body, 0, $eq);
-                $value = $eq === false ? null : substr($body, $eq + 1);
+                $operator = strpos($body, '=');
+                $key = $operator === false ? $body : substr($body, 0, $operator);
+                $value = $operator === false ? null : substr($body, $operator + 1);
 
                 $option = $this->findOption($key);
                 if ($option === null) {
@@ -242,9 +242,9 @@ abstract class Command
                 // is_numeric guard so a negative-number argument like -5 falls
                 // through to positional instead of being swallowed.
                 $body  = substr($token, 1);
-                $eq    = strpos($body, '=');
-                $short = $eq === false ? $body : substr($body, 0, $eq);
-                $value = $eq === false ? null : substr($body, $eq + 1);
+                $operator    = strpos($body, '=');
+                $short = $operator === false ? $body : substr($body, 0, $operator);
+                $value = $operator === false ? null : substr($body, $operator + 1);
 
                 $option = $this->findOptionByShortcut($short);
                 if ($option !== null) {
@@ -262,19 +262,19 @@ abstract class Command
         }
 
         $i = 0;
-        foreach ($definition['arguments'] as $a) {
-            if (in_array($a['mode'], ['array', 'array_required'], true)) {
-                $this->arguments[$a['name']] = array_slice($positional, $i);
+        foreach ($definition['arguments'] as $argument) {
+            if (in_array($argument['mode'], ['array', 'array_required'], true)) {
+                $this->arguments[$argument['name']] = array_slice($positional, $i);
                 $i = count($positional);
             } elseif ($i < count($positional)) {
-                $this->arguments[$a['name']] = $positional[$i++];
+                $this->arguments[$argument['name']] = $positional[$i++];
             }
         }
 
-        foreach ($definition['arguments'] as $a) {
-            $missing = $this->arguments[$a['name']] === null || $this->arguments[$a['name']] === [];
-            if (in_array($a['mode'], ['required', 'array_required'], true) && $missing) {
-                throw new RuntimeException("Not enough arguments (missing: {$a['name']}).");
+        foreach ($definition['arguments'] as $argument) {
+            $missing = $this->arguments[$argument['name']] === null || $this->arguments[$argument['name']] === [];
+            if (in_array($argument['mode'], ['required', 'array_required'], true) && $missing) {
+                throw new RuntimeException("Not enough arguments (missing: {$argument['name']}).");
             }
         }
     }

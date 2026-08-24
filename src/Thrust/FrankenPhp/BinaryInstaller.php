@@ -49,9 +49,9 @@ class BinaryInstaller
         $release = $this->fetchJson(self::RELEASES_API);
 
         $url = null;
-        foreach ($release['assets'] ?? [] as $a) {
-            if (($a['name'] ?? null) === $asset) {
-                $url = $a['browser_download_url'] ?? null;
+        foreach ($release['assets'] ?? [] as $releaseAsset) {
+            if (($releaseAsset['name'] ?? null) === $asset) {
+                $url = $releaseAsset['browser_download_url'] ?? null;
                 break;
             }
         }
@@ -72,8 +72,8 @@ class BinaryInstaller
     {
         $out = [];
         @exec(escapeshellarg($binary) . ' version 2>&1', $out);
-        if (preg_match('/v?(\d+\.\d+\.\d+)/', implode("\n", $out), $m)) {
-            return version_compare($m[1], self::REQUIRED_VERSION, '>=');
+        if (preg_match('/v?(\d+\.\d+\.\d+)/', implode("\n", $out), $matches)) {
+            return version_compare($matches[1], self::REQUIRED_VERSION, '>=');
         }
 
         return true; // Version undetectable — don't block the user.
@@ -143,8 +143,8 @@ class BinaryInstaller
             'header' => "User-Agent: NitroThrust\r\n",
         ]]);
 
-        $in = @fopen($url, 'rb', false, $context);
-        if ($in === false) {
+        $inputStream = @fopen($url, 'rb', false, $context);
+        if ($inputStream === false) {
             throw new RuntimeException("Failed to download {$url}.");
         }
 
@@ -157,13 +157,13 @@ class BinaryInstaller
 
         $out = fopen($path, 'wb');
         if ($out === false) {
-            fclose($in);
+            fclose($inputStream);
             throw new RuntimeException("Failed to open {$path} for writing.");
         }
 
         $downloaded = 0;
-        while (! feof($in)) {
-            $chunk = fread($in, 1 << 16);
+        while (! feof($inputStream)) {
+            $chunk = fread($inputStream, 1 << 16);
             if ($chunk === false) {
                 break;
             }
@@ -174,7 +174,7 @@ class BinaryInstaller
             }
         }
 
-        fclose($in);
+        fclose($inputStream);
         fclose($out);
     }
 }

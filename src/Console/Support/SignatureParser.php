@@ -27,8 +27,8 @@ class SignatureParser
 
         if (preg_match_all('/\{\s*(.*?)\s*\}/', $signature, $matches)) {
             foreach ($matches[1] as $token) {
-                if (preg_match('/^-{2,}(.*)/', $token, $m)) {
-                    $options[] = self::parseOption($m[1]);
+                if (preg_match('/^-{2,}(.*)/', $token, $optionMatch)) {
+                    $options[] = self::parseOption($optionMatch[1]);
                 } else {
                     $arguments[] = self::parseArgument($token);
                 }
@@ -41,11 +41,11 @@ class SignatureParser
     /** The command name is the first non-space token. */
     protected static function name(string $signature): string
     {
-        if (! preg_match('/[^\s]+/', $signature, $m)) {
+        if (! preg_match('/[^\s]+/', $signature, $matches)) {
             throw new InvalidArgumentException('Unable to determine command name from signature.');
         }
 
-        return $m[0];
+        return $matches[0];
     }
 
     /** @return array{name: string, mode: string, default: mixed, description: string} */
@@ -57,7 +57,7 @@ class SignatureParser
             str_ends_with($token, '?*') => ['name' => trim($token, '?*'), 'mode' => 'array',          'default' => [],   'description' => $description],
             str_ends_with($token, '*')  => ['name' => trim($token, '*'),  'mode' => 'array_required', 'default' => [],   'description' => $description],
             str_ends_with($token, '?')  => ['name' => trim($token, '?'),  'mode' => 'optional',       'default' => null, 'description' => $description],
-            (bool) preg_match('/(.+)=(.+)/', $token, $m) => ['name' => $m[1], 'mode' => 'optional', 'default' => $m[2], 'description' => $description],
+            (bool) preg_match('/(.+)=(.+)/', $token, $matches) => ['name' => $matches[1], 'mode' => 'optional', 'default' => $matches[2], 'description' => $description],
             default => ['name' => $token, 'mode' => 'required', 'default' => null, 'description' => $description],
         };
     }
@@ -77,7 +77,7 @@ class SignatureParser
         return match (true) {
             str_ends_with($token, '=*') => ['name' => trim($token, '=*'), 'shortcut' => $shortcut, 'mode' => 'array', 'default' => [],   'description' => $description],
             str_ends_with($token, '=')  => ['name' => trim($token, '='),  'shortcut' => $shortcut, 'mode' => 'value', 'default' => null, 'description' => $description],
-            (bool) preg_match('/(.+)=(.+)/', $token, $m) => ['name' => $m[1], 'shortcut' => $shortcut, 'mode' => 'value', 'default' => $m[2], 'description' => $description],
+            (bool) preg_match('/(.+)=(.+)/', $token, $matches) => ['name' => $matches[1], 'shortcut' => $shortcut, 'mode' => 'value', 'default' => $matches[2], 'description' => $description],
             default => ['name' => $token, 'shortcut' => $shortcut, 'mode' => 'none', 'default' => false, 'description' => $description],
         };
     }

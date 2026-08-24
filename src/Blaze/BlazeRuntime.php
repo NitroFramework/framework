@@ -53,13 +53,13 @@ class BlazeRuntime
             'attributes'      => new ComponentAttributeBag($this->stripReserved($componentData, $slots)),
         ];
 
-        $fn = $this->manager->functionFor($name, $this);
+        $callback = $this->manager->functionFor($name, $this);
 
-        if ($fn === null) {
+        if ($callback === null) {
             return $this->engine()->renderPartial('components.' . str_replace(':', '.', $name), $data);
         }
 
-        return $fn($data);
+        return $callback($data);
     }
 
     /** Wrap raw slot HTML so it renders untouched in {{ }} echoes. */

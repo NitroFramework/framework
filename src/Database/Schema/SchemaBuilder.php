@@ -108,8 +108,8 @@ class SchemaBuilder
         // MySQL 8 returns information_schema columns uppercase by default;
         // older versions and other engines return them lowercase. Accept
         // either rather than picking a side.
-        return array_map(static function ($r): string {
-            $row = (array) $r;
+        return array_map(static function ($record): string {
+            $row = (array) $record;
             return (string) ($row['column_name'] ?? $row['COLUMN_NAME'] ?? '');
         }, $results);
     }

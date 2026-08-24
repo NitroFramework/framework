@@ -39,17 +39,17 @@ class BelongsTo extends Relation
     {
         if (empty($parents)) return;
 
-        $fk = $this->foreignKey;
+        $foreignKey = $this->foreignKey;
         $idSet = [];
-        foreach ($parents as $p) {
-            $v = $p->{$fk};
-            if ($v !== null && $v !== '') {
-                $idSet[$v] = true;
+        foreach ($parents as $parent) {
+            $value = $parent->{$foreignKey};
+            if ($value !== null && $value !== '') {
+                $idSet[$value] = true;
             }
         }
         if (empty($idSet)) {
-            foreach ($parents as $p) {
-                $p->setRelation($relationName, null);
+            foreach ($parents as $parent) {
+                $parent->setRelation($relationName, null);
             }
             return;
         }
@@ -69,8 +69,8 @@ class BelongsTo extends Relation
             $indexed[$row->{$ownerShort}] = $row;
         }
 
-        foreach ($parents as $p) {
-            $p->setRelation($relationName, $indexed[$p->{$fk}] ?? null);
+        foreach ($parents as $parent) {
+            $parent->setRelation($relationName, $indexed[$parent->{$foreignKey}] ?? null);
         }
 
         if ($nested && !empty($hydrated)) {

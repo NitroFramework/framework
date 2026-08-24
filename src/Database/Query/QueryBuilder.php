@@ -79,8 +79,8 @@ class QueryBuilder
         $this->bindings['select'] = [];
         foreach ($columns as $col) {
             if (is_array($col)) {
-                foreach ($col as $c) {
-                    $this->addColumn($c);
+                foreach ($col as $column) {
+                    $this->addColumn($column);
                 }
             } else {
                 $this->addColumn($col);
@@ -93,8 +93,8 @@ class QueryBuilder
     {
         $this->columns[] = new RawExpression($expression, $bindings);
         if (!empty($bindings)) {
-            foreach ($bindings as $b) {
-                $this->bindings['select'][] = $b;
+            foreach ($bindings as $binding) {
+                $this->bindings['select'][] = $binding;
             }
         }
         return $this;
@@ -104,8 +104,8 @@ class QueryBuilder
     {
         $this->orders[] = new RawExpression($expression, $bindings);
         if (!empty($bindings)) {
-            foreach ($bindings as $b) {
-                $this->bindings['order'][] = $b;
+            foreach ($bindings as $binding) {
+                $this->bindings['order'][] = $binding;
             }
         }
         return $this;
@@ -115,8 +115,8 @@ class QueryBuilder
     {
         foreach ($columns as $col) {
             if (is_array($col)) {
-                foreach ($col as $c) {
-                    $this->addColumn($c);
+                foreach ($col as $column) {
+                    $this->addColumn($column);
                 }
             } else {
                 $this->addColumn($col);
@@ -134,8 +134,8 @@ class QueryBuilder
     {
         $this->columns[] = $column;
         if ($column instanceof RawExpression && !empty($column->bindings)) {
-            foreach ($column->bindings as $b) {
-                $this->bindings['select'][] = $b;
+            foreach ($column->bindings as $binding) {
+                $this->bindings['select'][] = $binding;
             }
         }
     }

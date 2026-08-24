@@ -116,7 +116,7 @@ class Message
     public function recipients(): array
     {
         return array_map(
-            static fn (array $r): string => $r['address'],
+            static fn (array $recipient): string => $recipient['address'],
             array_merge($this->to, $this->cc, $this->bcc),
         );
     }

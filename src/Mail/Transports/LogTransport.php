@@ -17,7 +17,7 @@ class LogTransport implements Transport
             @mkdir($dir, 0775, true);
         }
 
-        $to = implode(', ', array_map(static fn ($r) => $r['address'], $message->to));
+        $to = implode(', ', array_map(static fn ($recipient) => $recipient['address'], $message->to));
         $body = $message->html ?? $message->text ?? '';
 
         $entry = sprintf(

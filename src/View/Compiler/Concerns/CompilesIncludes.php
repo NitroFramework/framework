@@ -87,25 +87,25 @@ trait CompilesIncludes
         $len = strlen($expression);
 
         for ($i = 0; $i < $len; $i++) {
-            $c = $expression[$i];
+            $character = $expression[$i];
 
             if ($inSingle) {
-                if ($c === '\\' && $i + 1 < $len) { $i++; continue; }
-                if ($c === "'") $inSingle = false;
+                if ($character === '\\' && $i + 1 < $len) { $i++; continue; }
+                if ($character === "'") $inSingle = false;
                 continue;
             }
             if ($inDouble) {
-                if ($c === '\\' && $i + 1 < $len) { $i++; continue; }
-                if ($c === '"') $inDouble = false;
+                if ($character === '\\' && $i + 1 < $len) { $i++; continue; }
+                if ($character === '"') $inDouble = false;
                 continue;
             }
 
-            if ($c === "'") { $inSingle = true; continue; }
-            if ($c === '"') { $inDouble = true; continue; }
-            if ($c === '(' || $c === '[' || $c === '{') { $depth++; continue; }
-            if ($c === ')' || $c === ']' || $c === '}') { $depth--; continue; }
+            if ($character === "'") { $inSingle = true; continue; }
+            if ($character === '"') { $inDouble = true; continue; }
+            if ($character === '(' || $character === '[' || $character === '{') { $depth++; continue; }
+            if ($character === ')' || $character === ']' || $character === '}') { $depth--; continue; }
 
-            if ($c === ',' && $depth === 0) {
+            if ($character === ',' && $depth === 0) {
                 return true;
             }
         }
@@ -125,25 +125,25 @@ trait CompilesIncludes
         $len = strlen($expression);
 
         for ($i = 0; $i < $len; $i++) {
-            $c = $expression[$i];
+            $character = $expression[$i];
 
             if ($inSingle) {
-                if ($c === '\\' && $i + 1 < $len) { $i++; continue; }
-                if ($c === "'") $inSingle = false;
+                if ($character === '\\' && $i + 1 < $len) { $i++; continue; }
+                if ($character === "'") $inSingle = false;
                 continue;
             }
             if ($inDouble) {
-                if ($c === '\\' && $i + 1 < $len) { $i++; continue; }
-                if ($c === '"') $inDouble = false;
+                if ($character === '\\' && $i + 1 < $len) { $i++; continue; }
+                if ($character === '"') $inDouble = false;
                 continue;
             }
 
-            if ($c === "'") { $inSingle = true; continue; }
-            if ($c === '"') { $inDouble = true; continue; }
-            if ($c === '(' || $c === '[' || $c === '{') { $depth++; continue; }
-            if ($c === ')' || $c === ']' || $c === '}') { $depth--; continue; }
+            if ($character === "'") { $inSingle = true; continue; }
+            if ($character === '"') { $inDouble = true; continue; }
+            if ($character === '(' || $character === '[' || $character === '{') { $depth++; continue; }
+            if ($character === ')' || $character === ']' || $character === '}') { $depth--; continue; }
 
-            if ($c === ',' && $depth === 0) {
+            if ($character === ',' && $depth === 0) {
                 return trim(substr($expression, 0, $i));
             }
         }

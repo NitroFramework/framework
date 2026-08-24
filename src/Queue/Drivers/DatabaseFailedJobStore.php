@@ -17,7 +17,7 @@ class DatabaseFailedJobStore implements FailedJobStore
 {
     public function __construct(private string $table = 'failed_jobs') {}
 
-    public function log(QueuedJob $job, Throwable $e): string
+    public function log(QueuedJob $job, Throwable $exception): string
     {
         // Pull the class name out of the payload without running unserialize
         // — keeps the failed store usable even when the class no longer exists
@@ -31,7 +31,7 @@ class DatabaseFailedJobStore implements FailedJobStore
             'class'     => $class,
             'attempts'  => $job->attempts,
             'payload'   => $job->payload,
-            'exception' => $this->formatException($e),
+            'exception' => $this->formatException($exception),
             'failed_at' => time(),
         ]);
         return $id;
@@ -70,9 +70,9 @@ class DatabaseFailedJobStore implements FailedJobStore
         return is_array($decoded) ? ($decoded['class'] ?? 'unknown') : 'unknown';
     }
 
-    private function formatException(Throwable $e): string
+    private function formatException(Throwable $exception): string
     {
-        return $e::class . ': ' . $e->getMessage() . "\n" . $e->getTraceAsString();
+        return $exception::class . ': ' . $exception->getMessage() . "\n" . $exception->getTraceAsString();
     }
 
     /**

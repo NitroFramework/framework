@@ -82,11 +82,11 @@ class Blade
     {
         try {
             return $this->factory->make($view, $data)->render();
-        } catch (\Throwable $e) {
+        } catch (\Throwable $exception) {
             throw new RuntimeException(
-                "Failed to render view '{$view}': " . $e->getMessage(),
+                "Failed to render view '{$view}': " . $exception->getMessage(),
                 0,
-                $e
+                $exception
             );
         }
     }

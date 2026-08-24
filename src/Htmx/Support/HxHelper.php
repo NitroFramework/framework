@@ -47,8 +47,8 @@ class HxHelper
         }
 
         $attrString = '';
-        foreach ($attrs as $k => $v) {
-            $attrString .= sprintf(' %s="%s"', $k, htmlspecialchars($v, ENT_QUOTES, 'UTF-8'));
+        foreach ($attrs as $key => $value) {
+            $attrString .= sprintf(' %s="%s"', $key, htmlspecialchars($value, ENT_QUOTES, 'UTF-8'));
         }
 
         if ($extra) {

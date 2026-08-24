@@ -45,8 +45,8 @@ class Coroutine
         $this->fiber = new Fiber(function () use ($callable) {
             try {
                 $this->result = $callable();
-            } catch (Throwable $e) {
-                $this->error = $e;
+            } catch (Throwable $exception) {
+                $this->error = $exception;
             }
         });
     }

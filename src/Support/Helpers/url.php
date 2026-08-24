@@ -68,10 +68,10 @@ if (!function_exists('route')) {
 
         try {
             return $router->route($name, $parameters);
-        } catch (\Exception $e) {
+        } catch (\Exception $exception) {
             // In debug mode, show the error
             if (config('app.debug')) {
-                return "Route[$name] not found: " . $e->getMessage();
+                return "Route[$name] not found: " . $exception->getMessage();
             }
 
             // In production, just return home

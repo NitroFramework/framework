@@ -60,8 +60,8 @@ class ConfigCacheCommand implements CommandInterface
             $this->output->writeln($this->output->color("========================================", 'green'));
             $this->output->writeln($this->output->color("Configuration cached successfully!", 'green', true));
             $this->output->writeln($this->output->color("========================================", 'green'));
-        } catch (\Throwable $e) {
-            $this->output->error("Error caching configuration: " . $e->getMessage());
+        } catch (\Throwable $exception) {
+            $this->output->error("Error caching configuration: " . $exception->getMessage());
         }
     }
 
@@ -96,8 +96,8 @@ class ConfigCacheCommand implements CommandInterface
             $this->output->writeln($this->output->color("========================================", 'green'));
             $this->output->writeln($this->output->color("Configuration cache cleared!", 'green', true));
             $this->output->writeln($this->output->color("========================================", 'green'));
-        } catch (\Exception $e) {
-            $this->output->error("Error clearing configuration cache: " . $e->getMessage());
+        } catch (\Exception $exception) {
+            $this->output->error("Error clearing configuration cache: " . $exception->getMessage());
         }
     }
 }

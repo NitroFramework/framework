@@ -27,14 +27,14 @@ trait CompilesEchos
     {
         return preg_replace_callback(
             '/(@)?(\{!!|\{\{)\s*(.+?)\s*(!!\}|\}\})/s',
-            static function (array $m): string {
-                if (($m[1] ?? '') === '@') {
+            static function (array $matches): string {
+                if (($matches[1] ?? '') === '@') {
                     // @{{ … }} → literal {{ … }} in HTML.
-                    return substr($m[0], 1);
+                    return substr($matches[0], 1);
                 }
-                return $m[2] === '{!!'
-                    ? "<?php echo {$m[3]}; ?>"
-                    : "<?php echo \\nitro_e({$m[3]}); ?>";
+                return $matches[2] === '{!!'
+                    ? "<?php echo {$matches[3]}; ?>"
+                    : "<?php echo \\nitro_e({$matches[3]}); ?>";
             },
             $content
         );

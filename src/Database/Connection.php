@@ -238,13 +238,13 @@ class Connection
             $stmt = $this->prepareCached($sql);
             $stmt->execute($bindings);
             $result = $callback($stmt);
-        } catch (PDOException $e) {
+        } catch (PDOException $exception) {
             // Drop the cached statement — it may be in an unusable state.
             unset($this->statementCache[$sql]);
             throw new PDOException(
-                $e->getMessage() . " (SQL: {$sql}) (Bindings: " . self::formatBindings($bindings) . ")",
-                (int) $e->getCode(),
-                $e
+                $exception->getMessage() . " (SQL: {$sql}) (Bindings: " . self::formatBindings($bindings) . ")",
+                (int) $exception->getCode(),
+                $exception
             );
         }
 
@@ -301,17 +301,17 @@ class Connection
             return '[]';
         }
         $parts = [];
-        foreach ($bindings as $b) {
-            if (is_string($b) && strlen($b) > 64) {
-                $parts[] = '"' . substr($b, 0, 64) . '…"';
-            } elseif (is_string($b)) {
-                $parts[] = '"' . $b . '"';
-            } elseif ($b === null) {
+        foreach ($bindings as $binding) {
+            if (is_string($binding) && strlen($binding) > 64) {
+                $parts[] = '"' . substr($binding, 0, 64) . '…"';
+            } elseif (is_string($binding)) {
+                $parts[] = '"' . $binding . '"';
+            } elseif ($binding === null) {
                 $parts[] = 'null';
-            } elseif (is_bool($b)) {
-                $parts[] = $b ? 'true' : 'false';
+            } elseif (is_bool($binding)) {
+                $parts[] = $binding ? 'true' : 'false';
             } else {
-                $parts[] = (string) $b;
+                $parts[] = (string) $binding;
             }
         }
         return '[' . implode(', ', $parts) . ']';

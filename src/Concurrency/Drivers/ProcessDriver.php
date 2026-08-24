@@ -64,13 +64,13 @@ class ProcessDriver implements Driver
         $this->drain($procs, $timeout);
 
         $results = [];
-        foreach ($procs as $key => $p) {
-            $decoded = $this->extractResult($p['stdout']);
+        foreach ($procs as $key => $process) {
+            $decoded = $this->extractResult($process['stdout']);
 
             if (! is_array($decoded) || ! array_key_exists('ok', $decoded)) {
                 throw new \RuntimeException(
-                    "Concurrency task [{$key}] returned no valid result. stderr: " . trim($p['stderr'])
-                    . ' stdout: ' . trim($p['stdout'])
+                    "Concurrency task [{$key}] returned no valid result. stderr: " . trim($process['stderr'])
+                    . ' stdout: ' . trim($process['stdout'])
                 );
             }
             if ($decoded['ok'] !== true) {
@@ -121,29 +121,29 @@ class ProcessDriver implements Driver
         do {
             $running = 0;
 
-            foreach ($procs as &$p) {
-                if ($p['out'] === null) {
+            foreach ($procs as &$process) {
+                if ($process['out'] === null) {
                     continue; // already finished
                 }
 
-                $p['stdout'] .= (string) fread($p['out'], 8192);
-                $p['stderr'] .= (string) fread($p['err'], 8192);
+                $process['stdout'] .= (string) fread($process['out'], 8192);
+                $process['stderr'] .= (string) fread($process['err'], 8192);
 
-                $status = proc_get_status($p['proc']);
+                $status = proc_get_status($process['proc']);
                 if ($status['running']) {
                     $running++;
                     continue;
                 }
 
                 // Finished — drain any tail, then close.
-                $p['stdout'] .= (string) stream_get_contents($p['out']);
-                $p['stderr'] .= (string) stream_get_contents($p['err']);
-                fclose($p['out']);
-                fclose($p['err']);
-                proc_close($p['proc']);
-                $p['out'] = null;
+                $process['stdout'] .= (string) stream_get_contents($process['out']);
+                $process['stderr'] .= (string) stream_get_contents($process['err']);
+                fclose($process['out']);
+                fclose($process['err']);
+                proc_close($process['proc']);
+                $process['out'] = null;
             }
-            unset($p);
+            unset($process);
 
             if ($running > 0) {
                 if ($deadline !== null && microtime(true) > $deadline) {
@@ -157,15 +157,15 @@ class ProcessDriver implements Driver
 
     private function terminateAll(array &$procs): void
     {
-        foreach ($procs as &$p) {
-            if ($p['out'] !== null) {
-                @proc_terminate($p['proc']);
-                @fclose($p['out']);
-                @fclose($p['err']);
-                @proc_close($p['proc']);
-                $p['out'] = null;
+        foreach ($procs as &$process) {
+            if ($process['out'] !== null) {
+                @proc_terminate($process['proc']);
+                @fclose($process['out']);
+                @fclose($process['err']);
+                @proc_close($process['proc']);
+                $process['out'] = null;
             }
         }
-        unset($p);
+        unset($process);
     }
 }

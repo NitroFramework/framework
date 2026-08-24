@@ -62,7 +62,7 @@ class View implements Renderable
     {
         try {
             return $this->render();
-        } catch (\Exception $e) {
+        } catch (\Exception $exception) {
             return '';
         }
     }

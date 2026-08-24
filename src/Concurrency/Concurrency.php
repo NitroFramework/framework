@@ -107,9 +107,9 @@ class Concurrency
 
         foreach ($requests as $key => $request) {
             $spec = $this->normalizeHttp($request, $defaults);
-            $ch = curl_init();
+            $curlHandle = curl_init();
 
-            curl_setopt_array($ch, [
+            curl_setopt_array($curlHandle, [
                 CURLOPT_URL            => $spec['url'],
                 CURLOPT_CUSTOMREQUEST  => $spec['method'],
                 CURLOPT_RETURNTRANSFER => true,
@@ -120,11 +120,11 @@ class Concurrency
             ]);
 
             if ($spec['body'] !== null) {
-                curl_setopt($ch, CURLOPT_POSTFIELDS, $spec['body']);
+                curl_setopt($curlHandle, CURLOPT_POSTFIELDS, $spec['body']);
             }
 
-            curl_multi_add_handle($multi, $ch);
-            $handles[$key] = $ch;
+            curl_multi_add_handle($multi, $curlHandle);
+            $handles[$key] = $curlHandle;
         }
 
         // Drive all transfers until they complete.
@@ -145,11 +145,11 @@ class Concurrency
         }
 
         $results = [];
-        foreach ($handles as $key => $ch) {
-            $error      = $errno[spl_object_id($ch)] ?? null;
-            $raw        = (string) curl_multi_getcontent($ch);
-            $code       = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-            $headerSize = (int) curl_getinfo($ch, CURLINFO_HEADER_SIZE);
+        foreach ($handles as $key => $curlHandle) {
+            $error      = $errno[spl_object_id($curlHandle)] ?? null;
+            $raw        = (string) curl_multi_getcontent($curlHandle);
+            $code       = (int) curl_getinfo($curlHandle, CURLINFO_RESPONSE_CODE);
+            $headerSize = (int) curl_getinfo($curlHandle, CURLINFO_HEADER_SIZE);
 
             $results[$key] = new HttpResult(
                 $code,
@@ -158,7 +158,7 @@ class Concurrency
                 $error,
             );
 
-            curl_multi_remove_handle($multi, $ch);
+            curl_multi_remove_handle($multi, $curlHandle);
             // No curl_close(): handles free when they drop (deprecated no-op on 8.5+).
         }
         // Likewise no curl_multi_close($multi) — $multi frees when this method returns.

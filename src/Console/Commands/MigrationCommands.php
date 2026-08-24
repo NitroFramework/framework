@@ -160,9 +160,9 @@ class MigrationCommands implements CommandInterface
     /** The table a create-migration targets, or null when the name doesn't imply one. */
     private function guessTableName(string $snake): ?string
     {
-        if (preg_match('/^create_(.+?)_table$/', $snake, $m)) return $m[1];
-        if (preg_match('/^add_.+_to_(.+?)_table$/', $snake, $m)) return $m[1];
-        if (preg_match('/^drop_(.+?)_table$/', $snake, $m)) return $m[1];
+        if (preg_match('/^create_(.+?)_table$/', $snake, $matches)) return $matches[1];
+        if (preg_match('/^add_.+_to_(.+?)_table$/', $snake, $matches)) return $matches[1];
+        if (preg_match('/^drop_(.+?)_table$/', $snake, $matches)) return $matches[1];
         return null;
     }
 
@@ -282,10 +282,10 @@ class MigrationCommands implements CommandInterface
                 $this->recordMigration($file, $batch);
                 $this->output->success(" DONE");
             }
-        } catch (\Throwable $e) {
+        } catch (\Throwable $exception) {
             $this->output->error(" FAILED");
-            $this->output->error("Error: " . $e->getMessage());
-            throw $e;
+            $this->output->error("Error: " . $exception->getMessage());
+            throw $exception;
         }
     }
 
@@ -360,10 +360,10 @@ class MigrationCommands implements CommandInterface
                 $this->removeMigration($file);
                 $this->output->success(" DONE");
             }
-        } catch (\Throwable $e) {
+        } catch (\Throwable $exception) {
             $this->output->error(" FAILED");
-            $this->output->error("Error: " . $e->getMessage());
-            throw $e;
+            $this->output->error("Error: " . $exception->getMessage());
+            throw $exception;
         }
     }
 
@@ -458,9 +458,9 @@ class MigrationCommands implements CommandInterface
         $this->output->info("\nSeeding database...");
         try {
             $this->seeder->handle('db:seed', ['--class=' . $seederClass]);
-        } catch (\Throwable $e) {
-            $this->output->error("Seeding failed: " . $e->getMessage());
-            throw $e;
+        } catch (\Throwable $exception) {
+            $this->output->error("Seeding failed: " . $exception->getMessage());
+            throw $exception;
         }
     }
 
@@ -512,7 +512,7 @@ class MigrationCommands implements CommandInterface
         $all = $this->flag($arguments, '--all');
         $named = array_values(array_filter(
             $arguments,
-            fn($a) => !str_starts_with($a, '--')
+            fn($argument) => !str_starts_with($argument, '--')
         ));
 
         if (!$all && empty($named)) {
@@ -698,9 +698,9 @@ class MigrationCommands implements CommandInterface
     /** True if the flag is present (e.g. --force, --step, --all). */
     private function flag(array $args, string $flag): bool
     {
-        foreach ($args as $a) {
-            if ($a === $flag) return true;
-            if (str_starts_with($a, $flag . '=')) return true;
+        foreach ($args as $argument) {
+            if ($argument === $flag) return true;
+            if (str_starts_with($argument, $flag . '=')) return true;
         }
         return false;
     }
@@ -708,9 +708,9 @@ class MigrationCommands implements CommandInterface
     /** Value after `--flag=value`, or null. */
     private function flagValue(array $args, string $flag): ?string
     {
-        foreach ($args as $a) {
-            if (str_starts_with($a, $flag . '=')) {
-                return substr($a, strlen($flag) + 1);
+        foreach ($args as $argument) {
+            if (str_starts_with($argument, $flag . '=')) {
+                return substr($argument, strlen($flag) + 1);
             }
         }
         return null;

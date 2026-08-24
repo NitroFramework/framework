@@ -83,7 +83,7 @@ abstract class Job
      * permanently failed (attempts >= $tries). Override to send a
      * notification, write an audit row, etc. Default is a no-op.
      */
-    public function failed(\Throwable $e): void
+    public function failed(\Throwable $exception): void
     {
         // intentionally empty
     }

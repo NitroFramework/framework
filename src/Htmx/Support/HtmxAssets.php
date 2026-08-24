@@ -49,9 +49,9 @@ class HtmxAssets
      */
     public function scriptTag(): string
     {
-        $v = @filemtime(self::scriptPath()) ?: '1';
+        $value = @filemtime(self::scriptPath()) ?: '1';
 
-        return '<script src="/nitro/hx-component.js?v=' . $v . '"></script>';
+        return '<script src="/nitro/hx-component.js?v=' . $value . '"></script>';
     }
 
     /** Absolute path to the bundled NProgress integration glue. */
@@ -89,10 +89,10 @@ class HtmxAssets
             return '';
         }
 
-        $v    = @filemtime(self::nprogressScriptPath()) ?: '1';
+        $value    = @filemtime(self::nprogressScriptPath()) ?: '1';
         $json = json_encode($config, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
 
         return '<script>window.NitroNProgress = ' . $json . ';</script>'
-            . '<script defer src="/nitro/nprogress.js?v=' . $v . '"></script>';
+            . '<script defer src="/nitro/nprogress.js?v=' . $value . '"></script>';
     }
 }

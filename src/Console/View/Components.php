@@ -36,9 +36,9 @@ class Components
         $this->badge('ERROR', 'red', 'white', $message);
     }
 
-    protected function badge(string $title, string $bg, string $fg, string $message): void
+    protected function badge(string $title, string $background, string $foreground, string $message): void
     {
-        $label = $this->style->apply(' ' . $title . ' ', $fg, $bg, true);
+        $label = $this->style->apply(' ' . $title . ' ', $foreground, $background, true);
         $this->writeln('');
         $this->writeln('  ' . $label . '  ' . $this->style->format($message));
     }
@@ -82,7 +82,7 @@ class Components
         $ok = true;
         try {
             $ok = ($task ? $task() : true) !== false;
-        } catch (\Throwable $e) {
+        } catch (\Throwable $exception) {
             $ok = false;
         }
 
@@ -184,8 +184,8 @@ class Components
 
         if (DIRECTORY_SEPARATOR !== '\\' && function_exists('shell_exec')) {
             $size = @shell_exec('stty size 2>/dev/null');
-            if ($size && preg_match('/\d+\s+(\d+)/', $size, $m)) {
-                return (int) $m[1];
+            if ($size && preg_match('/\d+\s+(\d+)/', $size, $matches)) {
+                return (int) $matches[1];
             }
         }
 

@@ -88,11 +88,16 @@ class ModelBuilder
         return $model;
     }
 
+    /**
+     * Find by key or throw. The exception is a ModelNotFoundException (still a
+     * RuntimeException, so existing catches keep working) so the exception layer
+     * can render it as a 404 rather than a 500.
+     */
     public function findOrFail(int|string $id, string $column = 'id'): Model
     {
         $result = $this->find($id, $column);
         if (!$result) {
-            throw new \RuntimeException($this->modelClass . " not found with {$column}: {$id}");
+            throw ModelNotFoundException::forModel($this->modelClass, $id);
         }
         return $result;
     }
@@ -101,7 +106,7 @@ class ModelBuilder
     {
         $result = $this->first();
         if (!$result) {
-            throw new \RuntimeException("No {$this->modelClass} matches the query.");
+            throw ModelNotFoundException::forModel($this->modelClass);
         }
         return $result;
     }

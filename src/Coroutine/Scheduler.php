@@ -90,17 +90,17 @@ final class Scheduler
     /** Create a coroutine and queue it to run. Returns the handle for Co::await(). */
     public function spawn(callable $callable): Coroutine
     {
-        $co = new Coroutine($this->nextId++, $callable);
+        $coroutine = new Coroutine($this->nextId++, $callable);
         $this->live++;
-        $this->ready[] = [$co, null];
+        $this->ready[] = [$coroutine, null];
 
-        return $co;
+        return $coroutine;
     }
 
     /** Queue an already-parked coroutine to resume with a value. */
-    public function schedule(Coroutine $co, mixed $value = null): void
+    public function schedule(Coroutine $coroutine, mixed $value = null): void
     {
-        $this->ready[] = [$co, $value];
+        $this->ready[] = [$coroutine, $value];
     }
 
     // --- coroutine-side blocking primitives (these run INSIDE a fiber) --------------
@@ -123,19 +123,19 @@ final class Scheduler
         return Fiber::suspend(['op' => 'park']);
     }
 
-    /** Block the running coroutine until $co finishes, then return/rethrow its outcome. */
-    public function await(Coroutine $co): mixed
+    /** Block the running coroutine until $coroutine finishes, then return/rethrow its outcome. */
+    public function await(Coroutine $coroutine): mixed
     {
-        if (! $co->finished) {
-            $co->joiners[] = $this->currentCoroutine;
+        if (! $coroutine->finished) {
+            $coroutine->joiners[] = $this->currentCoroutine;
             $this->park();
         }
 
-        if ($co->error !== null) {
-            throw $co->error;
+        if ($coroutine->error !== null) {
+            throw $coroutine->error;
         }
 
-        return $co->result;
+        return $coroutine->result;
     }
 
     // --- the loop -------------------------------------------------------------------
@@ -144,16 +144,16 @@ final class Scheduler
     {
         while (true) {
             while ($this->ready !== []) {
-                [$co, $value] = array_shift($this->ready);
+                [$coroutine, $value] = array_shift($this->ready);
 
-                $this->currentCoroutine = $co;
-                $co->tick($value);
+                $this->currentCoroutine = $coroutine;
+                $coroutine->tick($value);
                 $this->currentCoroutine = null;
 
-                if ($co->finished) {
-                    $this->onFinish($co);
+                if ($coroutine->finished) {
+                    $this->onFinish($coroutine);
                 } else {
-                    $this->onSuspend($co);
+                    $this->onSuspend($coroutine);
                 }
             }
 
@@ -171,34 +171,34 @@ final class Scheduler
         }
     }
 
-    private function onFinish(Coroutine $co): void
+    private function onFinish(Coroutine $coroutine): void
     {
         $this->live--;
 
         // Deferred cleanups run LIFO, after the body, before joiners wake.
-        while ($co->deferred !== []) {
-            (array_pop($co->deferred))();
+        while ($coroutine->deferred !== []) {
+            (array_pop($coroutine->deferred))();
         }
 
-        foreach ($co->joiners as $joiner) {
+        foreach ($coroutine->joiners as $joiner) {
             $this->schedule($joiner);
         }
-        $co->joiners = [];
+        $coroutine->joiners = [];
     }
 
-    private function onSuspend(Coroutine $co): void
+    private function onSuspend(Coroutine $coroutine): void
     {
-        $op = $co->lastYield;
+        $operation = $coroutine->lastYield;
 
-        switch ($op['op'] ?? null) {
+        switch ($operation['op'] ?? null) {
             case 'sleep':
-                $this->timers[] = ['until' => $op['until'], 'co' => $co];
+                $this->timers[] = ['until' => $operation['until'], 'co' => $coroutine];
                 break;
 
             case 'curl':
                 $this->multi ??= curl_multi_init();
-                curl_multi_add_handle($this->multi, $op['handle']);
-                $this->curlWaiters[spl_object_id($op['handle'])] = ['co' => $co, 'handle' => $op['handle']];
+                curl_multi_add_handle($this->multi, $operation['handle']);
+                $this->curlWaiters[spl_object_id($operation['handle'])] = ['co' => $coroutine, 'handle' => $operation['handle']];
                 break;
 
             case 'park':

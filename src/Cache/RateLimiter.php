@@ -51,11 +51,11 @@ class RateLimiter
     /** Record one attempt, opening the decay window on the first hit. Returns the new count. */
     public function hit(string $key, int $decaySeconds = 60): int
     {
-        $k = $this->key($key);
+        $cacheKey = $this->key($key);
 
         // Open the window timer once, so it counts down from the first hit.
-        if (! $this->cache->has($k . ':timer')) {
-            $this->cache->put($k . ':timer', time() + $decaySeconds, $decaySeconds);
+        if (! $this->cache->has($cacheKey . ':timer')) {
+            $this->cache->put($cacheKey . ':timer', time() + $decaySeconds, $decaySeconds);
         }
 
         // Seed the counter WITH the decay TTL when the window opens, then use the
@@ -65,11 +65,11 @@ class RateLimiter
         // existing entry's TTL on increment, so seeding first keeps the window
         // finite (rather than the far-future expiry a fresh counter would get).
         // Mirrors Laravel's RateLimiter::increment (add-then-increment).
-        if (! $this->cache->has($k)) {
-            $this->cache->put($k, 0, $decaySeconds);
+        if (! $this->cache->has($cacheKey)) {
+            $this->cache->put($cacheKey, 0, $decaySeconds);
         }
 
-        return (int) $this->cache->increment($k);
+        return (int) $this->cache->increment($cacheKey);
     }
 
     /** How many attempts have been recorded for the key in the current window. */

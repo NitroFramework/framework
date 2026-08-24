@@ -112,7 +112,7 @@ class Validator
 
         // Base rule names (strip 'min:3' → 'min') for presence/implicit checks.
         $baseNames = array_map(
-            static fn($r): string => strtolower(trim(explode(':', trim($r), 2)[0])),
+            static fn($rule): string => strtolower(trim(explode(':', trim($rule), 2)[0])),
             $ruleNames
         );
 

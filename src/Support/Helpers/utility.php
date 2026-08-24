@@ -225,9 +225,9 @@ if (!function_exists('retry')) {
 
         try {
             return $callback($attempts);
-        } catch (Exception $e) {
+        } catch (Exception $exception) {
             if ($attempts >= $times) {
-                throw $e;
+                throw $exception;
             }
 
             if ($sleep > 0) {
@@ -251,8 +251,8 @@ if (!function_exists('rescue')) {
     {
         try {
             return $callback();
-        } catch (Throwable $e) {
-            return is_callable($rescue) ? $rescue($e) : $rescue;
+        } catch (Throwable $exception) {
+            return is_callable($rescue) ? $rescue($exception) : $rescue;
         }
     }
 }

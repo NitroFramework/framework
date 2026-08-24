@@ -74,10 +74,10 @@ class ViewCommands implements CommandInterface
                     $this->view->compileOnly($viewName);
                     $cachedCount++;
                     $this->output->writeln($this->output->color("  ✓ Cached: ", 'green') . $viewName);
-                } catch (\Exception $e) {
+                } catch (\Exception $exception) {
                     $failedCount++;
-                    $failedViews[] = ['view' => $viewName, 'error' => $e->getMessage()];
-                    $this->output->writeln($this->output->color("  ✖ Failed: ", 'red') . $viewName . " - " . $e->getMessage());
+                    $failedViews[] = ['view' => $viewName, 'error' => $exception->getMessage()];
+                    $this->output->writeln($this->output->color("  ✖ Failed: ", 'red') . $viewName . " - " . $exception->getMessage());
                 }
             }
 
@@ -90,8 +90,8 @@ class ViewCommands implements CommandInterface
             $this->output->writeln("  Path: " . $stats['path']);
             $this->output->writeln("  Total files: " . $stats['files']);
             $this->output->writeln("  Total size: " . $stats['total_size_formatted']);
-        } catch (\Exception $e) {
-            $this->output->error("Error caching views: " . $e->getMessage());
+        } catch (\Exception $exception) {
+            $this->output->error("Error caching views: " . $exception->getMessage());
         }
     }
 
@@ -112,8 +112,8 @@ class ViewCommands implements CommandInterface
                 $this->output->warning("No view cache found to clear.");
             }
             // ... Final output formatting ...
-        } catch (\Exception $e) {
-            $this->output->error("Error clearing view cache: " . $e->getMessage());
+        } catch (\Exception $exception) {
+            $this->output->error("Error clearing view cache: " . $exception->getMessage());
         }
     }
 

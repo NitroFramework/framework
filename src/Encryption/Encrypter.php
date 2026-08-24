@@ -43,9 +43,9 @@ class Encrypter implements EncrypterContract
     /** Is this key length valid for the given cipher? */
     public static function supported(string $key, string $cipher): bool
     {
-        $c = self::SUPPORTED_CIPHERS[strtolower($cipher)] ?? null;
+        $cipherConfig = self::SUPPORTED_CIPHERS[strtolower($cipher)] ?? null;
 
-        return $c !== null && mb_strlen($key, '8bit') === $c['size'];
+        return $cipherConfig !== null && mb_strlen($key, '8bit') === $cipherConfig['size'];
     }
 
     /** A fresh random key sized for the given cipher. */

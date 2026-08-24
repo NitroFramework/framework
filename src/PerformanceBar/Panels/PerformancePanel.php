@@ -64,13 +64,13 @@ class PerformancePanel implements PanelInterface
 
         $frameworkClasses = array_filter(
             $newClasses,
-            fn($c) =>
-            str_starts_with($c, 'Nitro\\') || str_starts_with($c, 'App\\')
+            fn($class) =>
+            str_starts_with($class, 'Nitro\\') || str_starts_with($class, 'App\\')
         );
         $frameworkFiles = array_filter(
             $newFiles,
-            fn($f) =>
-            str_contains($f, 'src') || str_contains($f, 'app')
+            fn($file) =>
+            str_contains($file, 'src') || str_contains($file, 'app')
         );
 
         $isWorker = function_exists('frankenphp_handle_request');
@@ -104,10 +104,10 @@ class PerformancePanel implements PanelInterface
 
     private function renderMetricCards(): string
     {
-        $m = $this->metrics;
-        $timeFormatted = $this->formatTime($m['execution_time']);
-        $memFormatted  = $this->formatMemory($m['memory_used']);
-        $peakFormatted = $this->formatMemory($m['peak_memory']);
+        $metrics = $this->metrics;
+        $timeFormatted = $this->formatTime($metrics['execution_time']);
+        $memFormatted  = $this->formatMemory($metrics['memory_used']);
+        $peakFormatted = $this->formatMemory($metrics['peak_memory']);
 
         return <<<HTML
 <div class="ndb-perf-grid">
@@ -124,15 +124,15 @@ class PerformancePanel implements PanelInterface
         <div class="ndb-metric-lbl">Peak Memory</div>
     </div>
     <div class="ndb-metric-card">
-        <div class="ndb-metric-val">{$m['classes_loaded']}</div>
+        <div class="ndb-metric-val">{$metrics['classes_loaded']}</div>
         <div class="ndb-metric-lbl">Classes Loaded</div>
     </div>
     <div class="ndb-metric-card">
-        <div class="ndb-metric-val">{$m['files_loaded']}</div>
+        <div class="ndb-metric-val">{$metrics['files_loaded']}</div>
         <div class="ndb-metric-lbl">Framework Files</div>
     </div>
     <div class="ndb-metric-card">
-        <div class="ndb-metric-val">{$m['mode']}</div>
+        <div class="ndb-metric-val">{$metrics['mode']}</div>
         <div class="ndb-metric-lbl">Mode</div>
     </div>
 </div>
@@ -141,18 +141,18 @@ HTML;
 
     private function renderTimersAndFiles(): string
     {
-        $m       = $this->metrics;
+        $metrics       = $this->metrics;
         $docRoot = $_SERVER['DOCUMENT_ROOT'] ?? '';
 
         $filesHtml = '';
-        foreach ($m['loaded_files'] as $file) {
+        foreach ($metrics['loaded_files'] as $file) {
             $short = str_replace($docRoot, '', $file);
             $filesHtml .= "<div class='ndb-file-row'>{$short}</div>";
         }
 
         $timersHtml = '';
         $prev = null;
-        foreach ($m['timers'] as $name => $time) {
+        foreach ($metrics['timers'] as $name => $time) {
             if ($prev !== null) {
                 $diff = round(($time - $prev) * 1000, 3);
                 $timersHtml .= "<tr><td class='ndb-td'>{$name}</td><td class='ndb-td ndb-num'>{$diff}ms</td></tr>";
@@ -160,7 +160,7 @@ HTML;
             $prev = $time;
         }
 
-        $totalFiles = $m['total_files'];
+        $totalFiles = $metrics['total_files'];
 
         return <<<HTML
 <div class="ndb-two-col">
@@ -178,13 +178,13 @@ HTML;
 </div>
 HTML;
     }
-    private function formatTime(float $ms): string
+    private function formatTime(float $milliseconds): string
     {
-        return $ms < 1 ? round($ms * 1000) . 'μs' : round($ms, 2) . 'ms';
+        return $milliseconds < 1 ? round($milliseconds * 1000) . 'μs' : round($milliseconds, 2) . 'ms';
     }
 
-    private function formatMemory(float $mb): string
+    private function formatMemory(float $megabytes): string
     {
-        return $mb < 1 ? round($mb * 1024, 2) . 'KB' : round($mb, 2) . 'MB';
+        return $megabytes < 1 ? round($megabytes * 1024, 2) . 'KB' : round($megabytes, 2) . 'MB';
     }
 }

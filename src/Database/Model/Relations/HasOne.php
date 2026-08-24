@@ -41,15 +41,15 @@ class HasOne extends Relation
 
         $owner = $this->ownerKey;
         $idSet = [];
-        foreach ($parents as $p) {
-            $v = $p->{$owner};
-            if ($v !== null && $v !== '') {
-                $idSet[$v] = true;
+        foreach ($parents as $parent) {
+            $value = $parent->{$owner};
+            if ($value !== null && $value !== '') {
+                $idSet[$value] = true;
             }
         }
         if (empty($idSet)) {
-            foreach ($parents as $p) {
-                $p->setRelation($relationName, null);
+            foreach ($parents as $parent) {
+                $parent->setRelation($relationName, null);
             }
             return;
         }
@@ -73,8 +73,8 @@ class HasOne extends Relation
             }
         }
 
-        foreach ($parents as $p) {
-            $p->setRelation($relationName, $indexed[$p->{$owner}] ?? null);
+        foreach ($parents as $parent) {
+            $parent->setRelation($relationName, $indexed[$parent->{$owner}] ?? null);
         }
 
         if ($nested && !empty($hydrated)) {

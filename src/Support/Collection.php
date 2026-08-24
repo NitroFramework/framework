@@ -647,7 +647,7 @@ class Collection implements ArrayAccess, Countable, IteratorAggregate, JsonSeria
     {
         // Filter NULLs only — a bare filter() would also drop legitimate 0/0.0/''
         // values and skew the median (Laravel filters `fn($v) => !is_null($v)`).
-        $notNull = static fn($v): bool => $v !== null;
+        $notNull = static fn($value): bool => $value !== null;
 
         $values = $key !== null
             ? $this->pluck($key)->filter($notNull)->sort()->values()->all()
@@ -677,16 +677,16 @@ class Collection implements ArrayAccess, Countable, IteratorAggregate, JsonSeria
         }
 
         $counts = array_count_values(
-            array_map(fn($v) => is_object($v) ? spl_object_hash($v) : (string) $v, $values)
+            array_map(fn($value) => is_object($value) ? spl_object_hash($value) : (string) $value, $values)
         );
 
         $maxCount = max($counts);
 
         // Map back to original values
         $valueMap = [];
-        foreach ($values as $v) {
-            $hash = is_object($v) ? spl_object_hash($v) : (string) $v;
-            $valueMap[$hash] = $v;
+        foreach ($values as $value) {
+            $hash = is_object($value) ? spl_object_hash($value) : (string) $value;
+            $valueMap[$hash] = $value;
         }
 
         $modes = [];
@@ -703,7 +703,7 @@ class Collection implements ArrayAccess, Countable, IteratorAggregate, JsonSeria
     {
         if ($callback === null) {
             return new static(array_count_values(
-                array_map(fn($v) => (string) $v, $this->items)
+                array_map(fn($value) => (string) $value, $this->items)
             ));
         }
 
@@ -774,7 +774,7 @@ class Collection implements ArrayAccess, Countable, IteratorAggregate, JsonSeria
 
     public function zip(...$arrays): static
     {
-        $arrays = array_map(fn($a) => $a instanceof self ? $a->all() : $a, $arrays);
+        $arrays = array_map(fn($array) => $array instanceof self ? $array->all() : $array, $arrays);
 
         return new static(array_map(
             fn(...$items) => new static($items),
@@ -785,7 +785,7 @@ class Collection implements ArrayAccess, Countable, IteratorAggregate, JsonSeria
 
     public function crossJoin(...$arrays): static
     {
-        $arrays = array_map(fn($a) => $a instanceof self ? $a->all() : $a, $arrays);
+        $arrays = array_map(fn($array) => $array instanceof self ? $array->all() : $array, $arrays);
 
         $result = [[]];
 
@@ -1102,8 +1102,8 @@ class Collection implements ArrayAccess, Countable, IteratorAggregate, JsonSeria
     {
         if (func_num_args() === 1) {
             if (is_callable($key)) {
-                foreach ($this->items as $k => $item) {
-                    if ($key($item, $k)) {
+                foreach ($this->items as $itemKey => $item) {
+                    if ($key($item, $itemKey)) {
                         return true;
                     }
                 }
@@ -1134,8 +1134,8 @@ class Collection implements ArrayAccess, Countable, IteratorAggregate, JsonSeria
     {
         $keys = (array) $key;
 
-        foreach ($keys as $k) {
-            if (!array_key_exists($k, $this->items)) {
+        foreach ($keys as $candidateKey) {
+            if (!array_key_exists($candidateKey, $this->items)) {
                 return false;
             }
         }
@@ -1147,8 +1147,8 @@ class Collection implements ArrayAccess, Countable, IteratorAggregate, JsonSeria
     {
         $keys = (array) $key;
 
-        foreach ($keys as $k) {
-            if (array_key_exists($k, $this->items)) {
+        foreach ($keys as $candidateKey) {
+            if (array_key_exists($candidateKey, $this->items)) {
                 return true;
             }
         }

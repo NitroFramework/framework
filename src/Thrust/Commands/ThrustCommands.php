@@ -98,9 +98,9 @@ class ThrustCommands implements CommandInterface
             $this->output->writeln("");
             $this->output->writeln($this->output->color("✔ Installed FrankenPHP to {$path}", 'green'));
             $this->maybeScaffoldPhpIni($path);
-        } catch (\Throwable $e) {
+        } catch (\Throwable $exception) {
             $this->output->writeln("");
-            $this->output->writeln($this->output->color("✖ Download failed: {$e->getMessage()}", 'red'));
+            $this->output->writeln($this->output->color("✖ Download failed: {$exception->getMessage()}", 'red'));
         }
     }
 
@@ -271,11 +271,11 @@ class ThrustCommands implements CommandInterface
                 continue;
             }
             $body = substr($arg, 2);
-            $eq = strpos($body, '=');
-            if ($eq === false) {
+            $operator = strpos($body, '=');
+            if ($operator === false) {
                 $options[$body] = true;
             } else {
-                $options[substr($body, 0, $eq)] = substr($body, $eq + 1);
+                $options[substr($body, 0, $operator)] = substr($body, $operator + 1);
             }
         }
         return $options;

@@ -35,7 +35,7 @@ class Config implements ConfigRepository
                     $this->data = $cached;
                     return;
                 }
-            } catch (\Throwable $e) {
+            } catch (\Throwable $exception) {
                 // corrupt cache - delete it and fall through to load from files
             }
             @unlink($cachePath); // delete corrupt cache

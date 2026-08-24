@@ -51,8 +51,8 @@ class CronExpression
         if ($part === '*') {
             [$rangeMin, $rangeMax] = [$min, $max];
         } elseif (str_contains($part, '-')) {
-            [$a, $b] = explode('-', $part, 2);
-            [$rangeMin, $rangeMax] = [(int) $a, (int) $b];
+            [$start, $end] = explode('-', $part, 2);
+            [$rangeMin, $rangeMax] = [(int) $start, (int) $end];
         } else {
             return $value === (int) $part;
         }

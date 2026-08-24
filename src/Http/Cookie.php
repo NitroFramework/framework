@@ -36,7 +36,7 @@ class Cookie
 
     public function toHeader(): string
     {
-        $encode = $this->raw ? static fn (string $v): string => $v : 'rawurlencode';
+        $encode = $this->raw ? static fn (string $cookieValue): string => $cookieValue : 'rawurlencode';
 
         $parts = [$encode($this->name) . '=' . $encode($this->value)];
         $parts[] = 'Path=' . $this->path;

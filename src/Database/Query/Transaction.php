@@ -69,7 +69,7 @@ class Transaction
             $result = $callback();
             $this->commit();
             return $result;
-        } catch (Throwable $e) {
+        } catch (Throwable $exception) {
             // Try-catch the rollback in case the connection itself died —
             // we re-throw the original exception so the caller sees the
             // real cause, not a "no active transaction" red herring.
@@ -80,7 +80,7 @@ class Transaction
                 // so the next request doesn't think it's mid-transaction.
                 $this->transactionLevel = 0;
             }
-            throw $e;
+            throw $exception;
         }
     }
 

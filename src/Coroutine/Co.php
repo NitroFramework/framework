@@ -53,10 +53,10 @@ final class Co
         return self::scheduler('go')->spawn($callable);
     }
 
-    /** Block the running coroutine until $co finishes; returns/rethrows its outcome. */
-    public static function await(Coroutine $co): mixed
+    /** Block the running coroutine until $coroutine finishes; returns/rethrows its outcome. */
+    public static function await(Coroutine $coroutine): mixed
     {
-        return self::scheduler('await')->await($co);
+        return self::scheduler('await')->await($coroutine);
     }
 
     /**
@@ -70,28 +70,28 @@ final class Co
     public static function parallel(array $callables, int $concurrency = 0): array
     {
         return self::run(function () use ($callables, $concurrency) {
-            $wg      = new WaitGroup();
+            $waitGroup      = new WaitGroup();
             $results = [];
             $errors  = [];
             $limiter = $concurrency > 0 ? new Channel($concurrency) : null;
 
             foreach ($callables as $key => $callable) {
-                $wg->add();
+                $waitGroup->add();
                 $limiter?->push(true);
 
-                self::go(function () use ($callable, $key, $wg, $limiter, &$results, &$errors) {
+                self::go(function () use ($callable, $key, $waitGroup, $limiter, &$results, &$errors) {
                     try {
                         $results[$key] = $callable();
-                    } catch (Throwable $e) {
-                        $errors[$key] = $e;
+                    } catch (Throwable $exception) {
+                        $errors[$key] = $exception;
                     } finally {
                         $limiter?->pop();
-                        $wg->done();
+                        $waitGroup->done();
                     }
                 });
             }
 
-            $wg->wait();
+            $waitGroup->wait();
 
             if ($errors !== []) {
                 throw new ParallelExecutionException($results, $errors);
@@ -123,10 +123,10 @@ final class Co
     /** Register a callback to run when the current coroutine ends (LIFO). */
     public static function defer(callable $callback): void
     {
-        $co = self::scheduler('defer')->currentCoroutine()
+        $coroutine = self::scheduler('defer')->currentCoroutine()
             ?? throw new RuntimeException('Co::defer() must run inside a coroutine.');
 
-        $co->deferred[] = $callback;
+        $coroutine->deferred[] = $callback;
     }
 
     /** A new channel for passing values between coroutines (0 = unbuffered). */

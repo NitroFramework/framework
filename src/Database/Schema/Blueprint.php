@@ -172,7 +172,7 @@ class Blueprint
     {
         // Quote each enum value safely — single-quote escape per MySQL.
         $quoted = implode(', ', array_map(
-            static fn($v) => "'" . str_replace("'", "''", (string) $v) . "'",
+            static fn($enumValue) => "'" . str_replace("'", "''", (string) $enumValue) . "'",
             $values
         ));
         return $this->addColumn($column, "ENUM({$quoted})");

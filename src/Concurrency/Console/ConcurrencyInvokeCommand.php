@@ -38,8 +38,8 @@ class ConcurrencyInvokeCommand implements CommandInterface
             $task   = unserialize(base64_decode($payload));
             $result = TaskInvoker::invoke($task);
             $out    = ['ok' => true, 'result' => base64_encode(serialize($result))];
-        } catch (\Throwable $e) {
-            $out = ['ok' => false, 'error' => $e->getMessage()];
+        } catch (\Throwable $exception) {
+            $out = ['ok' => false, 'error' => $exception->getMessage()];
         }
 
         return self::OPEN . base64_encode(json_encode($out)) . self::CLOSE;

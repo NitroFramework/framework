@@ -112,8 +112,8 @@ trait ExecutesQueries
         $sql = $this->grammar->compileInsert($this, $values);
         $bindings = [];
         foreach ($values as $record) {
-            foreach ($record as $v) {
-                $bindings[] = $v;
+            foreach ($record as $value) {
+                $bindings[] = $value;
             }
         }
         $result = $this->connection->insert($sql, $bindings);
@@ -148,14 +148,14 @@ trait ExecutesQueries
     {
         $sql = $this->grammar->compileUpdate($this, $values);
         $bindings = [];
-        foreach ($values as $v) {
-            if (!$v instanceof RawExpression) {
-                $bindings[] = $v;
+        foreach ($values as $value) {
+            if (!$value instanceof RawExpression) {
+                $bindings[] = $value;
             }
         }
         // WHERE bindings follow SET bindings in the placeholder order.
-        foreach ($this->bindings['where'] as $b) {
-            $bindings[] = $b;
+        foreach ($this->bindings['where'] as $binding) {
+            $bindings[] = $binding;
         }
         $affected = $this->connection->update($sql, $bindings);
         static::bumpCacheVersion((string) $this->from);
@@ -170,17 +170,17 @@ trait ExecutesQueries
 
         $bindings = [];
         foreach ($values as $record) {
-            foreach ($record as $v) {
-                $bindings[] = $v;
+            foreach ($record as $value) {
+                $bindings[] = $value;
             }
         }
         // Assoc-form $update may carry value bindings — Sequential-form
         // (col names referencing new.col) carries none.
         $isAssoc = !empty($update) && array_keys($update) !== range(0, count($update) - 1);
         if ($isAssoc) {
-            foreach ($update as $v) {
-                if (!$v instanceof RawExpression) {
-                    $bindings[] = $v;
+            foreach ($update as $value) {
+                if (!$value instanceof RawExpression) {
+                    $bindings[] = $value;
                 }
             }
         }
@@ -193,13 +193,13 @@ trait ExecutesQueries
         $values = array_merge([$column => new RawExpression("{$wrapped} + {$amount}")], $extra);
         $sql = $this->grammar->compileUpdate($this, $values);
         $bindings = [];
-        foreach ($values as $v) {
-            if (!$v instanceof RawExpression) {
-                $bindings[] = $v;
+        foreach ($values as $value) {
+            if (!$value instanceof RawExpression) {
+                $bindings[] = $value;
             }
         }
-        foreach ($this->bindings['where'] as $b) {
-            $bindings[] = $b;
+        foreach ($this->bindings['where'] as $binding) {
+            $bindings[] = $binding;
         }
         return $this->connection->update($sql, $bindings);
     }

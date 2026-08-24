@@ -20,7 +20,7 @@ interface FailedJobStore
      * Persist a failed job along with the exception that killed it.
      * Returns the new entry's identifier.
      */
-    public function log(QueuedJob $job, Throwable $e): string;
+    public function log(QueuedJob $job, Throwable $exception): string;
 
     /**
      * List failed jobs, newest first. Limit defaults to a sensible

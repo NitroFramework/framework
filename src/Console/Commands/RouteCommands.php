@@ -69,8 +69,8 @@ class RouteCommands implements CommandInterface
             $this->output->writeln($this->output->color("========================================", 'green'));
             $this->output->writeln($this->output->color("Routes cached successfully!", 'green', true));
             $this->output->writeln($this->output->color("========================================", 'green'));
-        } catch (\Exception $e) {
-            $this->output->error("Error caching routes: " . $e->getMessage());
+        } catch (\Exception $exception) {
+            $this->output->error("Error caching routes: " . $exception->getMessage());
         }
     }
 
@@ -92,8 +92,8 @@ class RouteCommands implements CommandInterface
             $this->output->writeln($this->output->color("========================================", 'green'));
             $this->output->writeln($this->output->color("Route cache cleared!", 'green', true));
             $this->output->writeln($this->output->color("========================================", 'green'));
-        } catch (\Exception $e) {
-            $this->output->error("Error clearing cache: " . $e->getMessage());
+        } catch (\Exception $exception) {
+            $this->output->error("Error clearing cache: " . $exception->getMessage());
         }
     }
 }

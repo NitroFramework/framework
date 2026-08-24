@@ -92,8 +92,8 @@ class ProcessInspector
 
         $status = 0;
         // $http_response_header is populated in local scope by file_get_contents.
-        if (isset($http_response_header[0]) && preg_match('#\s(\d{3})\s#', $http_response_header[0], $m)) {
-            $status = (int) $m[1];
+        if (isset($http_response_header[0]) && preg_match('#\s(\d{3})\s#', $http_response_header[0], $matches)) {
+            $status = (int) $matches[1];
         }
 
         return ['status' => $status, 'body' => $response];

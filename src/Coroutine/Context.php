@@ -19,9 +19,9 @@ class Context
 
     public static function set(string $key, mixed $value): mixed
     {
-        $co = self::coroutine();
-        if ($co !== null) {
-            $co->context[$key] = $value;
+        $coroutine = self::coroutine();
+        if ($coroutine !== null) {
+            $coroutine->context[$key] = $value;
         } else {
             self::$global[$key] = $value;
         }
@@ -31,9 +31,9 @@ class Context
 
     public static function get(string $key, mixed $default = null): mixed
     {
-        $co = self::coroutine();
-        if ($co !== null) {
-            return $co->context[$key] ?? $default;
+        $coroutine = self::coroutine();
+        if ($coroutine !== null) {
+            return $coroutine->context[$key] ?? $default;
         }
 
         return self::$global[$key] ?? $default;
@@ -41,16 +41,16 @@ class Context
 
     public static function has(string $key): bool
     {
-        $co = self::coroutine();
+        $coroutine = self::coroutine();
 
-        return $co !== null ? isset($co->context[$key]) : isset(self::$global[$key]);
+        return $coroutine !== null ? isset($coroutine->context[$key]) : isset(self::$global[$key]);
     }
 
     public static function forget(string $key): void
     {
-        $co = self::coroutine();
-        if ($co !== null) {
-            unset($co->context[$key]);
+        $coroutine = self::coroutine();
+        if ($coroutine !== null) {
+            unset($coroutine->context[$key]);
         } else {
             unset(self::$global[$key]);
         }
@@ -59,9 +59,9 @@ class Context
     /** A snapshot of the running coroutine's context (for handing to a child). @return array<string, mixed> */
     public static function all(): array
     {
-        $co = self::coroutine();
+        $coroutine = self::coroutine();
 
-        return $co !== null ? $co->context->getArrayCopy() : self::$global;
+        return $coroutine !== null ? $coroutine->context->getArrayCopy() : self::$global;
     }
 
     /**

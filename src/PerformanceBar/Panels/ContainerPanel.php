@@ -37,38 +37,38 @@ class ContainerPanel implements PanelInterface
             return '<p style="color:#555;padding:20px">No container resolutions recorded. Make sure profiling is enabled.</p>';
         }
 
-        $s = $this->summary;
+        $summary = $this->summary;
         $jsonData = json_encode(array_values($this->resolutions), JSON_HEX_TAG | JSON_HEX_APOS);
         $maxOffset = 1;
-        foreach ($this->resolutions as $r) {
-            $end = $r['offset_ms'] + ($r['duration_ms'] ?? 0.1);
+        foreach ($this->resolutions as $resolution) {
+            $end = $resolution['offset_ms'] + ($resolution['duration_ms'] ?? 0.1);
             if ($end > $maxOffset) $maxOffset = $end;
         }
 
         return <<<HTML
 <div class="ndb-perf-grid">
     <div class="ndb-metric-card">
-        <div class="ndb-metric-val">{$s['total_events']}</div>
+        <div class="ndb-metric-val">{$summary['total_events']}</div>
         <div class="ndb-metric-lbl">Total Events</div>
     </div>
     <div class="ndb-metric-card">
-        <div class="ndb-metric-val" >{$s['total_cached']}</div>
+        <div class="ndb-metric-val" >{$summary['total_cached']}</div>
         <div class="ndb-metric-lbl">Cached</div>
     </div>
     <div class="ndb-metric-card">
-        <div class="ndb-metric-val" >{$s['total_built']}</div>
+        <div class="ndb-metric-val" >{$summary['total_built']}</div>
         <div class="ndb-metric-lbl">Built</div>
     </div>
     <div class="ndb-metric-card">
-        <div class="ndb-metric-val" >{$s['max_depth']}</div>
+        <div class="ndb-metric-val" >{$summary['max_depth']}</div>
         <div class="ndb-metric-lbl">Max Depth</div>
     </div>
     <div class="ndb-metric-card">
-        <div class="ndb-metric-val">{$s['total_duration_ms']}ms</div>
+        <div class="ndb-metric-val">{$summary['total_duration_ms']}ms</div>
         <div class="ndb-metric-lbl">Total DI Time</div>
     </div>
     <div class="ndb-metric-card">
-        <div class="ndb-metric-val">{$s['slowest']}ms</div>
+        <div class="ndb-metric-val">{$summary['slowest']}ms</div>
         <div class="ndb-metric-lbl">Slowest Build</div>
     </div>
 </div>

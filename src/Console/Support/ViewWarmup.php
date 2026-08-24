@@ -62,9 +62,9 @@ class ViewWarmup
                     if ($compiledPath && is_file($compiledPath)) {
                         $compiledPaths[] = $compiledPath;
                     }
-                } catch (\Throwable $e) {
+                } catch (\Throwable $exception) {
                     $this->output->writeln($this->output->color("  ✖ Failed to compile view: {$viewName}", 'red'));
-                    $this->output->writeln($this->output->color("    Error: " . $e->getMessage(), 'red'));
+                    $this->output->writeln($this->output->color("    Error: " . $exception->getMessage(), 'red'));
                 }
             }
 
@@ -83,8 +83,8 @@ class ViewWarmup
             // this on every web request, priming opcache for ALL compiled
             // views in one shot.
             $this->writeViewWarmupBundle($compiledPaths);
-        } catch (\Throwable $e) {
-            $this->output->writeln($this->output->color("  ✖ View cache fatal error: " . $e->getMessage(), 'red'));
+        } catch (\Throwable $exception) {
+            $this->output->writeln($this->output->color("  ✖ View cache fatal error: " . $exception->getMessage(), 'red'));
         }
     }
 

@@ -149,7 +149,7 @@ class RouteLoader
             if (isset($cached['routes']) && is_array($cached['routes'])) {
                 $router->loadCachedRoutes($cached);
             }
-        } catch (Throwable $e) {
+        } catch (Throwable $exception) {
             $this->loadFromFile($router);
         }
     }

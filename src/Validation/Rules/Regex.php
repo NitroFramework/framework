@@ -25,7 +25,7 @@ class Regex extends AbstractRule
 
         try {
             return preg_match((string)$pattern, (string)$this->value) === 1;
-        } catch (\Throwable $e) {
+        } catch (\Throwable $exception) {
             // Invalid regex pattern
             return false;
         }

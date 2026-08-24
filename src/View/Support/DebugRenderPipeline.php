@@ -67,8 +67,8 @@ class DebugRenderPipeline
         if (empty($context)) return '';
 
         $parts = [];
-        foreach ($context as $k => $v) {
-            $parts[] = "{$k}=" . (is_array($v) ? json_encode($v) : $v);
+        foreach ($context as $key => $value) {
+            $parts[] = "{$key}=" . (is_array($value) ? json_encode($value) : $value);
         }
         return ' (' . implode(', ', $parts) . ')';
     }

@@ -107,8 +107,8 @@ class DatabaseCommands implements CommandInterface
             $query->where($col, '=', $val);
         }
 
-        $n = $query->count();
-        $this->output->info("{$table}: {$n} row(s)");
+        $count = $query->count();
+        $this->output->info("{$table}: {$count} row(s)");
     }
 
     // ── db:wipe ───────────────────────────────────────────────────────
@@ -139,25 +139,25 @@ class DatabaseCommands implements CommandInterface
     /** First non-flag positional argument. */
     private function positional(array $args): ?string
     {
-        foreach ($args as $a) {
-            if (!str_starts_with($a, '--')) return $a;
+        foreach ($args as $argument) {
+            if (!str_starts_with($argument, '--')) return $argument;
         }
         return null;
     }
 
     private function flag(array $args, string $flag): bool
     {
-        foreach ($args as $a) {
-            if ($a === $flag || str_starts_with($a, $flag . '=')) return true;
+        foreach ($args as $argument) {
+            if ($argument === $flag || str_starts_with($argument, $flag . '=')) return true;
         }
         return false;
     }
 
     private function flagValue(array $args, string $flag): ?string
     {
-        foreach ($args as $a) {
-            if (str_starts_with($a, $flag . '=')) {
-                return substr($a, strlen($flag) + 1);
+        foreach ($args as $argument) {
+            if (str_starts_with($argument, $flag . '=')) {
+                return substr($argument, strlen($flag) + 1);
             }
         }
         return null;
@@ -170,12 +170,12 @@ class DatabaseCommands implements CommandInterface
     private function parseWheres(array $args): array
     {
         $out = [];
-        foreach ($args as $a) {
-            if (!str_starts_with($a, '--where=')) continue;
-            $body = substr($a, 8);
+        foreach ($args as $argument) {
+            if (!str_starts_with($argument, '--where=')) continue;
+            $body = substr($argument, 8);
             $pos = strpos($body, ':');
             if ($pos === false) {
-                $this->output->warning("--where missing ':' separator, ignored: {$a}");
+                $this->output->warning("--where missing ':' separator, ignored: {$argument}");
                 continue;
             }
             $out[] = [substr($body, 0, $pos), substr($body, $pos + 1)];
@@ -193,42 +193,42 @@ class DatabaseCommands implements CommandInterface
         $columns = array_keys($rows[0]);
         $widths  = array_fill_keys($columns, 0);
 
-        foreach ($columns as $c) $widths[$c] = strlen((string) $c);
+        foreach ($columns as $column) $widths[$column] = strlen((string) $column);
         foreach ($rows as $row) {
-            foreach ($columns as $c) {
-                $val = $this->stringify($row[$c] ?? null);
-                $widths[$c] = max($widths[$c], min(strlen($val), 40));
+            foreach ($columns as $column) {
+                $val = $this->stringify($row[$column] ?? null);
+                $widths[$column] = max($widths[$column], min(strlen($val), 40));
             }
         }
 
         $renderRow = function (array $cells) use ($columns, $widths) {
             $parts = [];
-            foreach ($columns as $c) {
-                $parts[] = str_pad($cells[$c] ?? '', $widths[$c]);
+            foreach ($columns as $column) {
+                $parts[] = str_pad($cells[$column] ?? '', $widths[$column]);
             }
             return '| ' . implode(' | ', $parts) . ' |';
         };
 
-        $divider = '+' . implode('+', array_map(fn($c) => str_repeat('-', $widths[$c] + 2), $columns)) . '+';
+        $divider = '+' . implode('+', array_map(fn($column) => str_repeat('-', $widths[$column] + 2), $columns)) . '+';
 
         $this->output->writeln($divider);
         $this->output->writeln($renderRow(array_combine($columns, $columns)));
         $this->output->writeln($divider);
         foreach ($rows as $row) {
             $cells = [];
-            foreach ($columns as $c) {
-                $cells[$c] = $this->stringify($row[$c] ?? null);
+            foreach ($columns as $column) {
+                $cells[$column] = $this->stringify($row[$column] ?? null);
             }
             $this->output->writeln($renderRow($cells));
         }
         $this->output->writeln($divider);
     }
 
-    private function stringify(mixed $v): string
+    private function stringify(mixed $value): string
     {
-        if ($v === null) return 'NULL';
-        if (is_bool($v)) return $v ? 'true' : 'false';
-        $s = is_scalar($v) ? (string) $v : json_encode($v);
-        return strlen($s) > 40 ? substr($s, 0, 37) . '…' : $s;
+        if ($value === null) return 'NULL';
+        if (is_bool($value)) return $value ? 'true' : 'false';
+        $formatted = is_scalar($value) ? (string) $value : json_encode($value);
+        return strlen($formatted) > 40 ? substr($formatted, 0, 37) . '…' : $formatted;
     }
 }

@@ -35,7 +35,7 @@ trait SerializesData
         if (property_exists($this, 'relations')) {
             foreach ($this->relations as $key => $value) {
                 if ($value instanceof Collection) {
-                    $array[$key] = array_map(fn($m) => $m->toArray(), $value->all());
+                    $array[$key] = array_map(fn($model) => $model->toArray(), $value->all());
                 } elseif ($value instanceof Model) {
                     $array[$key] = $value->toArray();
                 } else {

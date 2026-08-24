@@ -43,16 +43,16 @@ class HasMany extends Relation
 
         $owner = $this->ownerKey;
         $idSet = [];
-        foreach ($parents as $p) {
-            $v = $p->{$owner};
-            if ($v !== null && $v !== '') {
-                $idSet[$v] = true;
+        foreach ($parents as $parent) {
+            $value = $parent->{$owner};
+            if ($value !== null && $value !== '') {
+                $idSet[$value] = true;
             }
         }
         if (empty($idSet)) {
             $empty = new Collection();
-            foreach ($parents as $p) {
-                $p->setRelation($relationName, $empty);
+            foreach ($parents as $parent) {
+                $parent->setRelation($relationName, $empty);
             }
             return;
         }
@@ -71,9 +71,9 @@ class HasMany extends Relation
             $grouped[$row->{$fkShort}][] = $row;
         }
 
-        foreach ($parents as $p) {
-            $key = $p->{$owner};
-            $p->setRelation($relationName, new Collection($grouped[$key] ?? []));
+        foreach ($parents as $parent) {
+            $key = $parent->{$owner};
+            $parent->setRelation($relationName, new Collection($grouped[$key] ?? []));
         }
 
         if ($nested && !empty($hydrated)) {

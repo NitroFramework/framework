@@ -154,8 +154,8 @@ class ComponentRenderer implements ComponentEngine
             // slot/slots/attributes triplet. Avoids the 3-merge chain the
             // old code used.
             $viewData = $componentData;
-            foreach ($component->data() as $k => $v) { $viewData[$k] = $v; }
-            foreach ($component->with() as $k => $v) { $viewData[$k] = $v; }
+            foreach ($component->data() as $dataKey => $value) { $viewData[$dataKey] = $value; }
+            foreach ($component->with() as $dataKey => $value) { $viewData[$dataKey] = $value; }
 
             $viewData['slot']       = $component->slot;
             $viewData['slots']      = $component->slots;
@@ -241,14 +241,14 @@ class ComponentRenderer implements ComponentEngine
         }
 
         $args = [];
-        foreach ($meta as $p) {
-            $n = $p['name'];
-            if (array_key_exists($n, $componentData)) {
-                $args[$n] = $componentData[$n];
-            } elseif ($p['hasDefault']) {
-                $args[$n] = $p['default'];
-            } elseif ($p['nullable']) {
-                $args[$n] = null;
+        foreach ($meta as $parameter) {
+            $name = $parameter['name'];
+            if (array_key_exists($name, $componentData)) {
+                $args[$name] = $componentData[$name];
+            } elseif ($parameter['hasDefault']) {
+                $args[$name] = $parameter['default'];
+            } elseif ($parameter['nullable']) {
+                $args[$name] = null;
             }
         }
 

@@ -43,7 +43,7 @@ class PackageManifest
         // rather than crashing the whole boot.
         return array_values(array_filter(
             $this->config('providers'),
-            static fn ($p): bool => is_string($p) && class_exists($p)
+            static fn ($providerClass): bool => is_string($providerClass) && class_exists($providerClass)
         ));
     }
 
@@ -63,11 +63,11 @@ class PackageManifest
         $result = [];
 
         foreach ($this->getManifest() as $configuration) {
-            foreach ((array) ($configuration[$key] ?? []) as $k => $value) {
+            foreach ((array) ($configuration[$key] ?? []) as $entryKey => $value) {
                 if ($value === null || $value === '') {
                     continue;
                 }
-                is_int($k) ? $result[] = $value : $result[$k] = $value;
+                is_int($entryKey) ? $result[] = $value : $result[$entryKey] = $value;
             }
         }
 

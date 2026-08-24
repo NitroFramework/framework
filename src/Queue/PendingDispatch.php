@@ -84,14 +84,14 @@ final class PendingDispatch
         if (!$this->committed) {
             try {
                 $this->push();
-            } catch (\Throwable $e) {
+            } catch (\Throwable $exception) {
                 // The destructor runs during teardown — throwing here
                 // would obscure whatever was actually going on. Surface
                 // the failure via error_log and move on; callers that
                 // care should call ->push() explicitly to handle errors.
                 error_log(
                     '[queue] PendingDispatch::__destruct push failed: '
-                    . $e::class . ': ' . $e->getMessage()
+                    . $exception::class . ': ' . $exception->getMessage()
                 );
             }
         }
