@@ -3,9 +3,9 @@
 namespace Tests\Unit\Livewire;
 
 use Nitro\Database\Model\Model;
-use Nitro\Livewire\SecurityPolicy;
-use Nitro\Livewire\Synthesizers\EnumSynth;
-use Nitro\Livewire\Synthesizers\ModelSynth;
+use Nitro\Livewire\Snapshot\SecurityPolicy;
+use Nitro\Livewire\Snapshot\Synthesizers\EnumSynth;
+use Nitro\Livewire\Snapshot\Synthesizers\ModelSynth;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 

@@ -2,7 +2,7 @@
 
 namespace Tests\Unit\Livewire;
 
-use Nitro\Livewire\TemporaryUploadedFile;
+use Nitro\Livewire\Support\TemporaryUploadedFile;
 use PHPUnit\Framework\TestCase;
 use ReflectionMethod;
 

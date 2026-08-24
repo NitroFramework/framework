@@ -7,7 +7,7 @@ use Nitro\Foundation\Application;
 use Nitro\Http\Request;
 use Nitro\Livewire\Attributes\RenderRegion;
 use Nitro\Livewire\Component;
-use Nitro\Livewire\LivewireManager;
+use Nitro\Livewire\Runtime\LivewireManager;
 use PHPUnit\Framework\TestCase;
 
 /**

@@ -5,6 +5,10 @@ namespace Nitro\Livewire;
 use Nitro\Foundation\Providers\ServiceProvider;
 use Nitro\Http\Request;
 use Nitro\Http\Response;
+use Nitro\Livewire\Compilation\IslandCompiler;
+use Nitro\Livewire\Compilation\LivewireTagCompiler;
+use Nitro\Livewire\Features\SupportsFileUploads;
+use Nitro\Livewire\Runtime\LivewireManager;
 use Nitro\Routing\Router;
 use Nitro\View\Blade;
 use Nitro\View\Contracts\ViewEngine;
@@ -19,8 +23,8 @@ class LivewireServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        $this->container->singleton(LivewireManager::class, function ($c) {
-            return new LivewireManager($c);
+        $this->container->singleton(LivewireManager::class, function ($container) {
+            return new LivewireManager($container);
         });
         $this->container->alias('livewire', LivewireManager::class);
 
@@ -41,7 +45,7 @@ class LivewireServiceProvider extends ServiceProvider
     /** Register the livewire:: and livewire-sfc:: view namespaces. */
     protected function registerViews(): void
     {
-        $engine = $this->container->make(ViewEngine::class);
+        $engine = $this->container->createOrResolve(ViewEngine::class);
         $engine->addNamespace('livewire', __DIR__ . '/views');
 
         // Compiled single-file component views live here.
@@ -59,7 +63,7 @@ class LivewireServiceProvider extends ServiceProvider
 
         Router::macro('livewire', function (string $path, string $name) use ($container) {
             return $this->addRoute('GET', $path, function () use ($container, $name): Response {
-                return Response::html($container->make('livewire')->page($name));
+                return Response::html($container->createOrResolve('livewire')->page($name));
             });
         });
     }
@@ -75,7 +79,7 @@ class LivewireServiceProvider extends ServiceProvider
 
     /**
      * GET /livewire/livewire.js — serve the client runtime from the framework
-     * package itself (src/Livewire/dist/livewire.js), the same way Livewire
+     * package itself (src/Livewire/Http/dist/livewire.js), the same way Livewire
      * serves its own dist file. The app never ships this file in public/; every
      * app runs the runtime bundled with its installed nitro/framework version,
      * so there are no per-app copies to keep in sync.
@@ -86,10 +90,10 @@ class LivewireServiceProvider extends ServiceProvider
     protected function registerAssetRoute(): void
     {
         $container = $this->container;
-        $router = $this->container->make('router');
+        $router = $this->container->createOrResolve('router');
 
         $router->get('/livewire/livewire.js', function () use ($container): Response {
-            return $container->make(LivewireManager::class)->scriptResponse();
+            return $container->createOrResolve(LivewireManager::class)->scriptResponse();
         });
     }
 
@@ -97,7 +101,7 @@ class LivewireServiceProvider extends ServiceProvider
     protected function registerUpdateRoute(): void
     {
         $container = $this->container;
-        $router = $this->container->make('router');
+        $router = $this->container->createOrResolve('router');
         $path = config('livewire.update_uri', '/livewire/update');
 
         // Behind the 'web' group so CSRF is verified (VerifyCsrfToken reads the
@@ -110,7 +114,7 @@ class LivewireServiceProvider extends ServiceProvider
                 // into $_POST — read and decode it directly.
                 $payload = json_decode((string) file_get_contents('php://input'), true) ?: [];
 
-                $result = $container->make(LivewireManager::class)->update($payload);
+                $result = $container->createOrResolve(LivewireManager::class)->update($payload);
 
                 return Response::json($result);
             });
@@ -124,26 +128,23 @@ class LivewireServiceProvider extends ServiceProvider
      */
     protected function registerUploadRoute(): void
     {
-        $router = $this->container->make('router');
+        $router = $this->container->createOrResolve('router');
 
         // Uploads are state-changing → behind 'web' for CSRF too (livewire.js
         // sends X-CSRF-TOKEN on the upload request).
         $router->group(['middleware' => ['web']], function () use ($router) {
             $router->post('/livewire/upload', function (): Response {
-                $dir = storage_path('app/' . TemporaryUploadedFile::TMP_DIR);
-                if (! is_dir($dir)) {
-                    mkdir($dir, 0775, true);
-                }
+                $dir = SupportsFileUploads::temporaryDirectory();
 
                 $saved = [];
                 // Source uploads from the Request seam, never $_FILES directly —
                 // allFiles() returns the same $_FILES-shaped array (name/tmp_name/
                 // size/type/error), so the multi- vs single-file handling below is
                 // unchanged, but it's worker-safe and consistent with the rest.
-                $files = app('request')->allFiles()['files'] ?? null;
+                $files = $this->container->createOrResolve('request')->allFiles()['files'] ?? null;
 
                 if (is_array($files) && is_array($files['name'])) {
-                    for ($i = 0, $n = count($files['name']); $i < $n; $i++) {
+                    for ($i = 0, $count = count($files['name']); $i < $count; $i++) {
                         if ((int) $files['error'][$i] !== UPLOAD_ERR_OK) {
                             continue;
                         }
@@ -167,16 +168,7 @@ class LivewireServiceProvider extends ServiceProvider
     /** Move one uploaded file into the temp dir under a random name + write its meta sidecar. */
     protected function storeTemporaryUpload(string $dir, string $tmpPath, string $original, int $size, string $type): string
     {
-        $extension = pathinfo($original, PATHINFO_EXTENSION);
-        $name = bin2hex(random_bytes(16)) . ($extension !== '' ? '.' . $extension : '');
-
-        move_uploaded_file($tmpPath, $dir . '/' . $name);
-        file_put_contents(
-            $dir . '/' . $name . '.meta.json',
-            json_encode(['name' => $original, 'size' => $size, 'type' => $type])
-        );
-
-        return $name;
+        return SupportsFileUploads::store($dir, $tmpPath, $original, $size, $type);
     }
 
     /**
@@ -218,7 +210,7 @@ class LivewireServiceProvider extends ServiceProvider
     {
         // @js($value) — a PHP value as a safe JS literal.
         Blade::directive('js', static fn(string $expression): string =>
-            "<?php echo \\Nitro\\Livewire\\Js::from({$expression}); ?>");
+            "<?php echo \\Nitro\\Livewire\\Support\\Js::from({$expression}); ?>");
 
         // @this / @entangle('prop') — the component's $wire handle (inside @script).
         Blade::directive('this', static fn(): string => '$wire');

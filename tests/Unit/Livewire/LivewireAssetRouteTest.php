@@ -5,12 +5,12 @@ namespace Tests\Unit\Livewire;
 use Nitro\Container\Container;
 use Nitro\Foundation\Application;
 use Nitro\Http\Response;
-use Nitro\Livewire\LivewireManager;
+use Nitro\Livewire\Runtime\LivewireManager;
 use PHPUnit\Framework\TestCase;
 
 /**
  * The Livewire client runtime is owned and served by the framework package
- * (src/Livewire/dist/livewire.js via GET /livewire/livewire.js), the way
+ * (src/Livewire/Http/dist/livewire.js via GET /livewire/livewire.js), the way
  * Livewire serves its own dist file — the app never ships a copy in public/.
  */
 class LivewireAssetRouteTest extends TestCase
@@ -33,7 +33,7 @@ class LivewireAssetRouteTest extends TestCase
 
         $this->assertFileExists($lw->scriptPath());
         $this->assertStringEndsWith(
-            'src/Livewire/dist/livewire.js',
+            'src/Livewire/Http/dist/livewire.js',
             str_replace('\\', '/', $lw->scriptPath())
         );
     }

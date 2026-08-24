@@ -5,8 +5,8 @@ namespace Tests\Unit\Livewire;
 use Nitro\Container\Container;
 use Nitro\Foundation\Application;
 use Nitro\Livewire\Component;
-use Nitro\Livewire\Js;
-use Nitro\Livewire\LivewireManager;
+use Nitro\Livewire\Support\Js;
+use Nitro\Livewire\Runtime\LivewireManager;
 use Nitro\View\Contracts\TemplateCompiler;
 use PHPUnit\Framework\TestCase;
 
@@ -50,7 +50,7 @@ class LivewireDirectivesTest extends TestCase
     public function test_blade_compiles_js_this_and_entangle(): void
     {
         $out = $this->compile("@js(['a'=>1]) @this @entangle('search')");
-        $this->assertStringContainsString('\\Nitro\\Livewire\\Js::from([\'a\'=>1])', $out);
+        $this->assertStringContainsString('\\Nitro\\Livewire\\Support\\Js::from([\'a\'=>1])', $out);
         $this->assertStringContainsString('$wire', $out);
         $this->assertStringContainsString("\$wire.entangle('search')", $out);
     }

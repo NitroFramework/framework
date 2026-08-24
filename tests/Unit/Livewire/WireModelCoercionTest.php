@@ -3,9 +3,9 @@
 namespace Tests\Unit\Livewire;
 
 use Nitro\Livewire\Component;
-use Nitro\Livewire\Synthesizers\FloatSynth;
-use Nitro\Livewire\Synthesizers\IntSynth;
-use Nitro\Livewire\Synthesizers\SynthManager;
+use Nitro\Livewire\Snapshot\Synthesizers\FloatSynth;
+use Nitro\Livewire\Snapshot\Synthesizers\IntSynth;
+use Nitro\Livewire\Snapshot\Synthesizers\SynthManager;
 use PHPUnit\Framework\TestCase;
 
 enum CoercionStatus: string

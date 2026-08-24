@@ -2,7 +2,7 @@
 
 namespace Tests\Unit\Livewire;
 
-use Nitro\Livewire\Checksum;
+use Nitro\Livewire\Snapshot\Checksum;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 
