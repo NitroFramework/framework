@@ -1,3 +1,9 @@
 # Keep design/dev docs in the repo but out of the Composer dist archive
 # (so they don't ship into every app's vendor/nitro/framework).
 src/Fusion/DESIGN.md export-ignore
+
+# Maintainer-only release tooling and docs — not needed inside an app.
+ReleaseWorkflow.md export-ignore
+release-check.php export-ignore
+VARIABLE-CLEANUP.md export-ignore
+PACKAGE-SDK.md export-ignore

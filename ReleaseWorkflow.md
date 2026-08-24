@@ -18,6 +18,16 @@ Stay on `0.x` — don't jump to `1.0` without a deliberate decision.
 
 ## Cutting a release
 
+0. **Preflight.** Run it first, and again after step 5:
+
+   ```sh
+   php release-check.php 0.22.0
+   ```
+
+   It reads *both* repos, because the failure mode here is invisible in either one alone: the skeleton's `nitro/framework` constraint must be `^X.Y.Z` for the version being cut. Caret on `0.x` pins the minor, so a skeleton tagged `v0.21.0` while requiring `^0.20.0` installs framework **0.20.x** — a stale starter, and unfixable once published.
+
+   It also re-reads the last five skeleton tags and reports any that don't match their pair.
+
 1. **Green locally.** `composer test` in the framework passes.
 
 2. **Verify in a consumer against your local working tree — *before* tagging.** Point a consuming app at the local framework via a Composer path repository so it exercises your *uncommitted* code:
@@ -55,5 +65,7 @@ Stay on `0.x` — don't jump to `1.0` without a deliberate decision.
    git push origin main
    git tag -a vX.Y.Z -m "…" && git push origin vX.Y.Z
    ```
+
+   **Edit the file, don't just write the commit message.** `v0.21.0` was tagged with the message *"require framework ^0.21.0"* while `composer.json` still said `^0.20.0`; the bump had never been applied. Re-run `release-check.php` after committing — it compares the tag to the file, not to the message.
 
 Framework and skeleton now sit on the same tag, and `create-project` serves the current pair.
