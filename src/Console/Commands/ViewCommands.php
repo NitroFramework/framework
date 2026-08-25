@@ -81,7 +81,6 @@ class ViewCommands implements CommandInterface
                 }
             }
 
-            // ... Summary output logic ...
             $this->printSummary($cachedCount, $failedCount, $failedViews);
 
             $stats = $this->view->getCacheStats();
@@ -92,6 +91,29 @@ class ViewCommands implements CommandInterface
             $this->output->writeln("  Total size: " . $stats['total_size_formatted']);
         } catch (\Exception $exception) {
             $this->output->error("Error caching views: " . $exception->getMessage());
+        }
+    }
+
+    /**
+     * Summarise a `view:cache` run: how many compiled, how many did not, and
+     * which ones failed with why.
+     *
+     * @param array<int, array{view: string, error: string}> $failedViews
+     */
+    protected function printSummary(int $cachedCount, int $failedCount, array $failedViews): void
+    {
+        $this->output->writeln("");
+
+        if ($failedCount === 0) {
+            $this->output->success("Cached {$cachedCount} view(s).");
+
+            return;
+        }
+
+        $this->output->warning("Cached {$cachedCount} view(s), {$failedCount} failed:");
+
+        foreach ($failedViews as $failed) {
+            $this->output->writeln("  " . $failed['view'] . " — " . $failed['error']);
         }
     }
 
@@ -111,7 +133,6 @@ class ViewCommands implements CommandInterface
             } else {
                 $this->output->warning("No view cache found to clear.");
             }
-            // ... Final output formatting ...
         } catch (\Exception $exception) {
             $this->output->error("Error clearing view cache: " . $exception->getMessage());
         }
