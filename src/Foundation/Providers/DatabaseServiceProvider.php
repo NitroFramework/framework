@@ -26,6 +26,16 @@ class DatabaseServiceProvider extends ServiceProvider
         $this->container->singleton(Connection::class, fn() => DB::connection());
         $this->container->alias('db', Connection::class);
 
+        // A model's booted() hook registers its listeners against whichever
+        // dispatcher was current when it ran, but the flag saying it has booted
+        // is static and outlives the application that set that dispatcher.
+        // Build a second application in the same process — every test does, and
+        // so does a worker that rebuilds the app — and the models stay marked
+        // booted while their listeners sit on a dispatcher nothing fires any
+        // more. Every model-level guard then silently stops applying: an
+        // immutable record accepts an update and reports success.
+        Model::clearBootedModels();
+
         // Route model lifecycle events through the app event bus. Set in register()
         // (before any provider boot()) so model-event listeners registered in a
         // provider's boot() land on the dispatcher.
