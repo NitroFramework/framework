@@ -294,8 +294,23 @@ class Router implements RouterInterface
     }
 
     /**
-     * Append middleware to the stack applied to subsequently registered
-     * routes. Accepts a single name or an array of names.
+     * Put middleware on the route that was just registered.
+     *
+     *     Route::get('/invoice/{order}', ...)->middleware('auth')->name('invoice');
+     *
+     * On that route, not on everything after it. Appending to the group's stack
+     * here would mean one ->middleware('auth') quietly locking every route
+     * declared below it for the rest of the file — a leak that surfaces as a
+     * public page redirecting to the login screen, with nothing near the page
+     * to explain why.
+     *
+     * Middleware for a group goes in the group's own attributes:
+     *
+     *     Route::group(['middleware' => 'auth'], function () { ... });
+     *
+     * Accepts a single name or an array of names.
+     *
+     * @throws RuntimeException When called before any route has been defined.
      */
     public function middleware($middleware): static
     {
@@ -303,8 +318,66 @@ class Router implements RouterInterface
             $middleware = [$middleware];
         }
 
-        $this->currentMiddleware = array_merge($this->currentMiddleware, $middleware);
+        if (! $this->lastRoute) {
+            throw new RuntimeException(
+                'No route to apply middleware to. Call middleware() immediately after defining a route, '
+                . "or pass it to a group: Route::group(['middleware' => '…'], …)."
+            );
+        }
+
+        $method = $this->lastRoute['method'];
+        $path = $this->lastRoute['path'];
+        $existing = $this->routes[$method][$path]['middleware'] ?? [];
+
+        $this->setOnLastRoute('middleware', array_values(array_unique(array_merge($existing, $middleware))));
+
         return $this;
+    }
+
+    /**
+     * Write one key onto the most recently registered route, everywhere it is
+     * stored.
+     *
+     * A dynamic route is denormalised into three structures — the unified map,
+     * the flat dynamic list, and the prefix buckets that matching actually
+     * reads — each a by-value copy. Miss one and the matched route loses the
+     * change in whichever code path reads that copy.
+     */
+    protected function setOnLastRoute(string $key, mixed $value): void
+    {
+        $method = $this->lastRoute['method'];
+        $path = $this->lastRoute['path'];
+
+        $this->routes[$method][$path][$key] = $value;
+
+        if (isset($this->staticRoutes[$method][$path])) {
+            $this->staticRoutes[$method][$path][$key] = $value;
+
+            return;
+        }
+
+        if (isset($this->dynamicRoutes[$method])) {
+            foreach ($this->dynamicRoutes[$method] as &$route) {
+                if ($route['pattern'] === $path) {
+                    $route['handler'][$key] = $value;
+                    break;
+                }
+            }
+            unset($route);
+        }
+
+        if (isset($this->dynamicRoutesByPrefix[$method])) {
+            foreach ($this->dynamicRoutesByPrefix[$method] as &$bucket) {
+                foreach ($bucket as &$route) {
+                    if ($route['pattern'] === $path) {
+                        $route['handler'][$key] = $value;
+                        break;
+                    }
+                }
+                unset($route);
+            }
+            unset($bucket);
+        }
     }
 
     /**

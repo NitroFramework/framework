@@ -105,4 +105,30 @@ class SupportsValidation extends ComponentHook
     {
         $this->errors = $errors;
     }
+
+    /**
+     * Put a message against a field without running the rules.
+     *
+     * Plenty of failures are not validation failures: a payment the gateway
+     * declined, an email somebody else already holds, a seat that ran out
+     * between the page loading and the button being pressed. They still belong
+     * beside the field they are about, and the alternative is every component
+     * inventing its own error channel for the view to render separately.
+     */
+    public function addError(string $field, string $message): void
+    {
+        $this->errors[$field][] = $message;
+    }
+
+    /** Drop every error, or just one field's. */
+    public function resetValidation(?string $field = null): void
+    {
+        if ($field === null) {
+            $this->errors = [];
+
+            return;
+        }
+
+        unset($this->errors[$field]);
+    }
 }

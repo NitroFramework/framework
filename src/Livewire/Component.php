@@ -155,6 +155,24 @@ abstract class Component
         return $this->hooks()->get(SupportsValidation::class)->errors();
     }
 
+    /**
+     * Put a message against a field without running the rules.
+     *
+     * For the failures that are not validation failures — a declined payment,
+     * a seat that ran out while the page was open — which still belong beside
+     * the field they are about.
+     */
+    public function addError(string $field, string $message): void
+    {
+        $this->hooks()->get(SupportsValidation::class)->addError($field, $message);
+    }
+
+    /** Drop every error, or just one field's. */
+    public function resetValidation(?string $field = null): void
+    {
+        $this->hooks()->get(SupportsValidation::class)->resetValidation($field);
+    }
+
     /** Raw error array for snapshot persistence. */
     public function errorsToArray(): array
     {
