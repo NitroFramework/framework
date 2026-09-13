@@ -105,11 +105,58 @@ class Mounter
             return $html;
         }
 
+        // A layout may be either kind. An @extends/@yield layout takes the
+        // component's HTML as a named section; a Blade component layout takes
+        // it as its slot. Applications routinely have one of each — a
+        // component shell for the public site and a section layout for the
+        // console — and #[Layout] should not care which it was handed.
+        if ($this->isComponentLayout($layout[0])) {
+            return $this->renderComponentLayout($layout[0], $html);
+        }
+
         return $this->container->createOrResolve(ViewEngine::class)->render('livewire::page', [
             '__layout'  => $layout[0],
             '__section' => $layout[1],
             '__slot'    => $html,
         ]);
+    }
+
+    /**
+     * Whether a layout name refers to a Blade component rather than an
+     * @extends-style template.
+     *
+     * Decided by where it lives: anything under the components directory is a
+     * component, which is the same rule the component tag compiler uses.
+     */
+    protected function isComponentLayout(string $layout): bool
+    {
+        return str_starts_with($layout, 'components.');
+    }
+
+    /**
+     * Render the component layout with the page as its slot.
+     */
+    protected function renderComponentLayout(string $layout, string $html): string
+    {
+        $name = substr($layout, strlen('components.'));
+
+        $engine = $this->container->createOrResolve(ViewEngine::class);
+
+        // The bound ViewEngine may be the renderer itself or a factory holding
+        // one; both shapes are in use.
+        $renderer = method_exists($engine, 'getRenderer') ? $engine->getRenderer() : $engine;
+
+        ob_start();
+
+        try {
+            $renderer->renderComponent($name, [], $html);
+        } catch (\Throwable $exception) {
+            ob_end_clean();
+
+            throw $exception;
+        }
+
+        return (string) ob_get_clean();
     }
 
     /** Resolve a component's layout: #[Layout] attribute, else config default. */

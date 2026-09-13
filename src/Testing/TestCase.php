@@ -108,6 +108,32 @@ abstract class TestCase extends BaseTestCase
 
         $this->app = new Application($this->basePath());
         $this->app->bootstrap();
+
+        $this->flushSession();
+    }
+
+    /**
+     * Give each test an empty session.
+     *
+     * The container is rebuilt per test but the session store is backed by a
+     * file keyed by an id that survives the process, so without this one test's
+     * session reaches the next: a basket filled in one test is still full in
+     * the one after, and the failure appears in whichever test happens to run
+     * second rather than in the one that caused it.
+     */
+    protected function flushSession(): void
+    {
+        try {
+            $session = $this->app->getContainer()->createOrResolve('session');
+
+            if (! $session->isStarted()) {
+                $session->start();
+            }
+
+            $session->flush();
+        } catch (\Throwable) {
+            // An application with no session configured is not a failure.
+        }
     }
 
     // ─── Making requests ──────────────────────────────────

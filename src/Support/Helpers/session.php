@@ -30,11 +30,11 @@ if (!function_exists('session')) {
             return true;
         }
 
-        if (func_num_args() === 2) {
-            $store->put($key, $default);
-            return $default;
-        }
-
+        // Every string form is a read, including the two-argument one. Writing
+        // a single key here would make session('basket', []) — an ordinary read
+        // with a default — empty the basket rather than return one, silently
+        // and on every request. Write with session(['key' => $value]) or
+        // session()->put(), as the docblock above says.
         return $store->get($key, $default);
     }
 }
