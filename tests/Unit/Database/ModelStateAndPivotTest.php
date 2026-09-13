@@ -40,8 +40,8 @@ class ModelStateAndPivotTest extends TestCase
 
         $conn->statement('CREATE TABLE pv_courses (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, secret TEXT, published_at TEXT)');
         $conn->statement('CREATE TABLE pv_bodies (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT)');
-        $conn->statement('CREATE TABLE pv_body_pv_course (id INTEGER PRIMARY KEY AUTOINCREMENT, pvcourse_id INTEGER, pvbody_id INTEGER, reference TEXT)');
-        $conn->statement('CREATE TABLE pv_lessons (id INTEGER PRIMARY KEY AUTOINCREMENT, pvcourse_id INTEGER, title TEXT)');
+        $conn->statement('CREATE TABLE pv_body_pv_course (id INTEGER PRIMARY KEY AUTOINCREMENT, pv_course_id INTEGER, pv_body_id INTEGER, reference TEXT)');
+        $conn->statement('CREATE TABLE pv_lessons (id INTEGER PRIMARY KEY AUTOINCREMENT, pv_course_id INTEGER, title TEXT)');
 
         Model::clearBootedModels();
     }
@@ -92,7 +92,7 @@ class ModelStateAndPivotTest extends TestCase
     public function test_load_fetches_a_relation_after_the_query(): void
     {
         $course = PvCourse::create(['title' => 'With lessons']);
-        DB::table('pv_lessons')->insert(['pvcourse_id' => $course->getKey(), 'title' => 'One']);
+        DB::table('pv_lessons')->insert(['pv_course_id' => $course->getKey(), 'title' => 'One']);
 
         $this->assertFalse($course->relationLoaded('lessons'));
 
@@ -105,14 +105,14 @@ class ModelStateAndPivotTest extends TestCase
     public function test_load_missing_does_not_requery_what_is_there(): void
     {
         $course = PvCourse::create(['title' => 'With lessons']);
-        DB::table('pv_lessons')->insert(['pvcourse_id' => $course->getKey(), 'title' => 'One']);
+        DB::table('pv_lessons')->insert(['pv_course_id' => $course->getKey(), 'title' => 'One']);
 
         $course->load('lessons');
 
         // A second lesson appears after the first load. loadMissing must not
         // pick it up — that is the whole difference from load(), and it is
         // what stops a loop re-querying on every iteration.
-        DB::table('pv_lessons')->insert(['pvcourse_id' => $course->getKey(), 'title' => 'Two']);
+        DB::table('pv_lessons')->insert(['pv_course_id' => $course->getKey(), 'title' => 'Two']);
 
         $course->loadMissing('lessons');
         $this->assertCount(1, $course->lessons->all());
@@ -261,6 +261,6 @@ class PvBody extends Model
 class PvLesson extends Model
 {
     protected string $table = 'pv_lessons';
-    protected array $fillable = ['pvcourse_id', 'title'];
+    protected array $fillable = ['pv_course_id', 'title'];
     protected bool $timestamps = false;
 }

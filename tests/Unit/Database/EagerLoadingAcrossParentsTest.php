@@ -47,11 +47,11 @@ class EagerLoadingAcrossParentsTest extends TestCase
         $g->setValue(null, new \Nitro\Database\Query\Grammar\SqliteGrammar());
 
         $conn->statement('CREATE TABLE el_categories (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT)');
-        $conn->statement('CREATE TABLE el_courses (id INTEGER PRIMARY KEY AUTOINCREMENT, elcategory_id INTEGER, title TEXT)');
-        $conn->statement('CREATE TABLE el_summaries (id INTEGER PRIMARY KEY AUTOINCREMENT, elcourse_id INTEGER, body TEXT)');
-        $conn->statement('CREATE TABLE el_lessons (id INTEGER PRIMARY KEY AUTOINCREMENT, elcourse_id INTEGER, title TEXT)');
+        $conn->statement('CREATE TABLE el_courses (id INTEGER PRIMARY KEY AUTOINCREMENT, el_category_id INTEGER, title TEXT)');
+        $conn->statement('CREATE TABLE el_summaries (id INTEGER PRIMARY KEY AUTOINCREMENT, el_course_id INTEGER, body TEXT)');
+        $conn->statement('CREATE TABLE el_lessons (id INTEGER PRIMARY KEY AUTOINCREMENT, el_course_id INTEGER, title TEXT)');
         $conn->statement('CREATE TABLE el_bodies (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT)');
-        $conn->statement('CREATE TABLE el_body_el_course (id INTEGER PRIMARY KEY AUTOINCREMENT, elcourse_id INTEGER, elbody_id INTEGER)');
+        $conn->statement('CREATE TABLE el_body_el_course (id INTEGER PRIMARY KEY AUTOINCREMENT, el_course_id INTEGER, el_body_id INTEGER)');
 
         Model::clearBootedModels();
 
@@ -61,19 +61,19 @@ class EagerLoadingAcrossParentsTest extends TestCase
             $categoryId = (int) DB::table('el_categories')->insertGetId(['name' => $name]);
 
             $courseId = (int) DB::table('el_courses')->insertGetId([
-                'elcategory_id' => $categoryId,
+                'el_category_id' => $categoryId,
                 'title' => $name . ' course',
             ]);
 
             DB::table('el_summaries')->insert([
-                'elcourse_id' => $courseId,
+                'el_course_id' => $courseId,
                 'body' => $name . ' summary',
             ]);
 
-            DB::table('el_lessons')->insert(['elcourse_id' => $courseId, 'title' => $name . ' lesson']);
+            DB::table('el_lessons')->insert(['el_course_id' => $courseId, 'title' => $name . ' lesson']);
 
             $bodyId = (int) DB::table('el_bodies')->insertGetId(['name' => $name . ' body']);
-            DB::table('el_body_el_course')->insert(['elcourse_id' => $courseId, 'elbody_id' => $bodyId]);
+            DB::table('el_body_el_course')->insert(['el_course_id' => $courseId, 'el_body_id' => $bodyId]);
         }
     }
 
@@ -153,7 +153,7 @@ class ElCategory extends Model
 class ElCourse extends Model
 {
     protected string $table = 'el_courses';
-    protected array $fillable = ['elcategory_id', 'title'];
+    protected array $fillable = ['el_category_id', 'title'];
     protected bool $timestamps = false;
 
     public function category(): \Nitro\Database\Model\Relations\BelongsTo
@@ -180,14 +180,14 @@ class ElCourse extends Model
 class ElSummary extends Model
 {
     protected string $table = 'el_summaries';
-    protected array $fillable = ['elcourse_id', 'body'];
+    protected array $fillable = ['el_course_id', 'body'];
     protected bool $timestamps = false;
 }
 
 class ElLesson extends Model
 {
     protected string $table = 'el_lessons';
-    protected array $fillable = ['elcourse_id', 'title'];
+    protected array $fillable = ['el_course_id', 'title'];
     protected bool $timestamps = false;
 }
 

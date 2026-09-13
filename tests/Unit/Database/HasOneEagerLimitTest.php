@@ -43,7 +43,7 @@ class HasOneEagerLimitTest extends TestCase
         $g->setValue(null, new \Nitro\Database\Query\Grammar\SqliteGrammar());
 
         $conn->statement('CREATE TABLE eager_users (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT)');
-        $conn->statement('CREATE TABLE eager_profiles (id INTEGER PRIMARY KEY AUTOINCREMENT, eageruser_id INTEGER, bio TEXT)');
+        $conn->statement('CREATE TABLE eager_profiles (id INTEGER PRIMARY KEY AUTOINCREMENT, eager_user_id INTEGER, bio TEXT)');
 
         Model::clearBootedModels();
     }
@@ -59,7 +59,7 @@ class HasOneEagerLimitTest extends TestCase
     {
         foreach (['A', 'B', 'C'] as $name) {
             $id = DB::table('eager_users')->insertGetId(['name' => $name]);
-            DB::table('eager_profiles')->insert(['eageruser_id' => $id, 'bio' => "bio {$name}"]);
+            DB::table('eager_profiles')->insert(['eager_user_id' => $id, 'bio' => "bio {$name}"]);
         }
 
         $loaded = [];
@@ -89,5 +89,5 @@ class EagerUser extends Model
 class EagerProfile extends Model
 {
     protected string $table = 'eager_profiles';
-    protected array $fillable = ['eageruser_id', 'bio'];
+    protected array $fillable = ['eager_user_id', 'bio'];
 }

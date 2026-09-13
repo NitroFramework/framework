@@ -11,6 +11,7 @@ use Nitro\Database\Model\Relations\HasOne;
 use Nitro\Database\Model\Relations\MorphMany;
 use Nitro\Database\Model\Relations\MorphOne;
 use Nitro\Database\Model\Relations\MorphTo;
+use Nitro\Support\Str;
 
 /**
  * Model concern: defining and resolving relationships (hasOne/hasMany/belongsTo/...).
@@ -190,18 +191,26 @@ trait HasRelationships
 
     // ─── Key Guessing ─────────────────────────────────────
 
+    /**
+     * The foreign key a related table uses to point at this model.
+     *
+     * snake_case, not lowercase: CourseVersion means course_version_id, which
+     * is what the migration writes and what every other convention in the
+     * framework uses. Lowercasing produced courseversion_id and failed at the
+     * first query with "no such column".
+     */
     protected function guessForeignKey(): string
     {
-        return strtolower(class_basename(static::class)) . '_id';
+        return Str::snake(class_basename(static::class)) . '_id';
     }
 
     protected function guessBelongsToKey(string $model): string
     {
-        return strtolower(class_basename($model)) . '_id';
+        return Str::snake(class_basename($model)) . '_id';
     }
 
     protected function guessForeignKeyFor(string $model): string
     {
-        return strtolower(class_basename($model)) . '_id';
+        return Str::snake(class_basename($model)) . '_id';
     }
 }

@@ -42,8 +42,8 @@ class QueriesRelationshipsTest extends TestCase
         $g->setValue(null, new \Nitro\Database\Query\Grammar\SqliteGrammar());
 
         $conn->statement('CREATE TABLE rel_categories (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT)');
-        $conn->statement('CREATE TABLE rel_courses (id INTEGER PRIMARY KEY AUTOINCREMENT, relcategory_id INTEGER, title TEXT, status TEXT)');
-        $conn->statement('CREATE TABLE rel_versions (id INTEGER PRIMARY KEY AUTOINCREMENT, relcourse_id INTEGER, version INTEGER, status TEXT)');
+        $conn->statement('CREATE TABLE rel_courses (id INTEGER PRIMARY KEY AUTOINCREMENT, rel_category_id INTEGER, title TEXT, status TEXT)');
+        $conn->statement('CREATE TABLE rel_versions (id INTEGER PRIMARY KEY AUTOINCREMENT, rel_course_id INTEGER, version INTEGER, status TEXT)');
 
         Model::clearBootedModels();
     }
@@ -58,7 +58,7 @@ class QueriesRelationshipsTest extends TestCase
     private function course(int $categoryId, string $title, string $status = 'published'): int
     {
         return (int) DB::table('rel_courses')->insertGetId([
-            'relcategory_id' => $categoryId,
+            'rel_category_id' => $categoryId,
             'title' => $title,
             'status' => $status,
         ]);
@@ -67,7 +67,7 @@ class QueriesRelationshipsTest extends TestCase
     private function version(int $courseId, int $number, string $status): void
     {
         DB::table('rel_versions')->insert([
-            'relcourse_id' => $courseId,
+            'rel_course_id' => $courseId,
             'version' => $number,
             'status' => $status,
         ]);
@@ -260,7 +260,7 @@ class RelCategory extends Model
 class RelCourse extends Model
 {
     protected string $table = 'rel_courses';
-    protected array $fillable = ['relcategory_id', 'title', 'status'];
+    protected array $fillable = ['rel_category_id', 'title', 'status'];
 
     public function category(): \Nitro\Database\Model\Relations\BelongsTo
     {
@@ -276,5 +276,5 @@ class RelCourse extends Model
 class RelVersion extends Model
 {
     protected string $table = 'rel_versions';
-    protected array $fillable = ['relcourse_id', 'version', 'status'];
+    protected array $fillable = ['rel_course_id', 'version', 'status'];
 }
