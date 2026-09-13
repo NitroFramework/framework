@@ -360,15 +360,19 @@ class Blueprint
     }
 
     /**
-     * Convention used by constrained() when the table isn't passed.
-     * 'user_id' → 'users'. Naive — appends 's'. Pass the table name
-     * explicitly when irregular ('category_id' → 'categories' not
-     * 'categorys').
+     * Convention used by constrained() when the table isn't passed:
+     * 'user_id' → 'users', 'category_id' → 'categories'.
+     *
+     * Pluralised properly rather than by appending an 's'. The naive version
+     * produced 'categorys', and because SQLite resolves a foreign key lazily
+     * that surfaced as "no such table" on the first insert — in a seeder, a
+     * long way from the migration that caused it.
+     *
+     * Pass the table name explicitly for anything genuinely irregular.
      */
     private function guessForeignTableName(string $column): string
     {
-        $stem = preg_replace('/_id$/', '', $column);
-        return $stem . 's';
+        return \Nitro\Support\Str::plural((string) preg_replace('/_id$/', '', $column));
     }
 
     /**

@@ -222,4 +222,93 @@ class Str
         }
         return rtrim($matches[0]) . $end;
     }
+
+    /**
+     * Words whose plural is not built by rule.
+     *
+     * @var array<string, string>
+     */
+    private const IRREGULAR_PLURALS = [
+        'person' => 'people',
+        'man' => 'men',
+        'woman' => 'women',
+        'child' => 'children',
+        'tooth' => 'teeth',
+        'foot' => 'feet',
+        'mouse' => 'mice',
+        'goose' => 'geese',
+        'criterion' => 'criteria',
+        'datum' => 'data',
+        'medium' => 'media',
+        'analysis' => 'analyses',
+        'diagnosis' => 'diagnoses',
+        'thesis' => 'theses',
+        'matrix' => 'matrices',
+        'quiz' => 'quizzes',
+    ];
+
+    /** Words that are the same in the plural. */
+    private const UNCOUNTABLE = [
+        'equipment', 'information', 'staff', 'series', 'species',
+        'sheep', 'fish', 'news', 'audio', 'training', 'feedback',
+    ];
+
+    /**
+     * The plural of an English word.
+     *
+     * Deliberately rule-based rather than exhaustive. It exists because the
+     * naive "add an s" it replaces turns category into categorys and company
+     * into companys — which surfaces as a missing-table error at insert time,
+     * a long way from the migration that caused it.
+     *
+     * Where a name is genuinely irregular and not listed here, name the table
+     * explicitly: that is always available and always unambiguous.
+     */
+    public static function plural(string $value): string
+    {
+        $lower = mb_strtolower($value);
+
+        if (in_array($lower, self::UNCOUNTABLE, true)) {
+            return $value;
+        }
+
+        if (isset(self::IRREGULAR_PLURALS[$lower])) {
+            return self::matchCase($value, self::IRREGULAR_PLURALS[$lower]);
+        }
+
+        // Consonant + y → ies ('category' → 'categories'); vowel + y stays
+        // ('day' → 'days').
+        if (preg_match('/[^aeiou]y$/i', $value)) {
+            return self::matchCase($value, substr($value, 0, -1) . 'ies');
+        }
+
+        // Sibilant endings take -es, or the plural is unpronounceable.
+        if (preg_match('/(s|x|z|ch|sh)$/i', $value)) {
+            return self::matchCase($value, $value . 'es');
+        }
+
+        // 'shelf' → 'shelves', 'knife' → 'knives'.
+        if (preg_match('/(?:[^f]fe|[lr]f)$/i', $value)) {
+            return self::matchCase($value, preg_replace('/(?:([^f])fe|([lr])f)$/i', '$1$2ves', $value));
+        }
+
+        return self::matchCase($value, $value . 's');
+    }
+
+    /**
+     * Give the plural the capitalisation of the original, so Category
+     * pluralises to Categories rather than to categories.
+     */
+    private static function matchCase(string $original, string $plural): string
+    {
+        if ($original === mb_strtoupper($original)) {
+            return mb_strtoupper($plural);
+        }
+
+        if ($original !== '' && mb_substr($original, 0, 1) === mb_strtoupper(mb_substr($original, 0, 1))) {
+            return static::ucfirst($plural);
+        }
+
+        return $plural;
+    }
 }

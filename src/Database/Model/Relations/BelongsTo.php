@@ -54,7 +54,12 @@ class BelongsTo extends Relation
             return;
         }
 
-        $eagerQuery = $this->query->cloneWithoutFirstWhere();
+        // withoutLimit(): the constructor's limit(1) is right for one parent
+        // and wrong for a batched lookup. Kept, the whole eager query returns a
+        // single related row, and every parent not pointing at that exact row
+        // is handed null — a category that silently vanishes from all but the
+        // first course on the page.
+        $eagerQuery = $this->query->cloneWithoutFirstWhere()->withoutLimit();
         $eagerQuery->whereIn($this->ownerKey, array_keys($idSet));
 
         $rows = $eagerQuery->get()->all();

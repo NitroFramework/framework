@@ -293,8 +293,10 @@ abstract class Model
     public function getTable(): string
     {
         if ($this->table) return $this->table;
-        $class = class_basename(static::class);
-        return strtolower($class) . 's';
+
+        // Pluralised properly: the naive "add an s" made Category look for
+        // 'categorys'. Set $table explicitly for anything irregular.
+        return \Nitro\Support\Str::plural(strtolower(class_basename(static::class)));
     }
 }
 
