@@ -4,7 +4,7 @@ namespace Tests\Unit\Livewire;
 
 use Nitro\Container\Container;
 use Nitro\Foundation\Application;
-use Nitro\Foundation\Http\Kernel;
+use Nitro\Http\Kernel;
 use Nitro\Http\Middleware\VerifyCsrfToken;
 use Nitro\Livewire\Snapshot\Checksum;
 use Nitro\Livewire\Runtime\LivewireManager;

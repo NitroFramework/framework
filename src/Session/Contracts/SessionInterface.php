@@ -18,6 +18,18 @@ interface SessionInterface
     /** Persist the session (ages flash data, writes through the handler). */
     public function save(): void;
 
+    /**
+     * Whether start() has run and not yet been saved.
+     *
+     * Lets the request lifecycle tell "this route opened a session" from "this
+     * route never wanted one", so routes outside the 'web' group skip the
+     * cookie and the write entirely.
+     */
+    public function isStarted(): bool;
+
+    /** Remove persisted sessions idle longer than $minutes. */
+    public function collectGarbage(int $minutes): void;
+
     /** The session id. */
     public function getId(): string;
 

@@ -1,6 +1,6 @@
 <?php
 
-namespace Nitro\Foundation\Http;
+namespace Nitro\Http;
 
 use Nitro\Container\Contracts\ContainerInterface;
 use Nitro\Exceptions\ExceptionHandler;
@@ -10,6 +10,7 @@ use Nitro\Http\Contracts\Responsable;
 use Nitro\Http\Exceptions\HttpResponseException;
 use Nitro\Http\Middleware\AddQueuedCookiesToResponse;
 use Nitro\Http\Middleware\EncryptCookies;
+use Nitro\Http\Middleware\StartSession;
 use Nitro\Http\Middleware\VerifyCsrfToken;
 use Nitro\Http\Request;
 use Nitro\Http\Response;
@@ -38,6 +39,10 @@ class Kernel
         'web' => [
             EncryptCookies::class,
             AddQueuedCookiesToResponse::class,
+            // Must precede VerifyCsrfToken, which reads the token off the
+            // session this starts. Routes outside this group get no session
+            // at all — no Store, no file read, no file write.
+            StartSession::class,
             VerifyCsrfToken::class,
         ],
         'api' => [],
@@ -330,6 +335,25 @@ class Kernel
     }
 
     /** Get middleware groups. */
+    /**
+     * The lifecycle hooks currently attached, keyed by seam name.
+     *
+     * Hooks are action-at-a-distance: reading handle() shows a runHooks() call
+     * against an array whose contents were attached from some provider's boot().
+     * Exposing them lets `nitro lifecycle` name what actually runs at each seam,
+     * which is otherwise only discoverable by grepping the whole framework.
+     *
+     * @return array<string, array<int, callable>>
+     */
+    public function getLifecycleHooks(): array
+    {
+        return [
+            'requestReceived' => $this->requestReceivedHooks,
+            'responseReady'   => $this->responseReadyHooks,
+            'terminating'     => $this->terminatingHooks,
+        ];
+    }
+
     public function getMiddlewareGroups(): array
     {
         return $this->middlewareGroups;

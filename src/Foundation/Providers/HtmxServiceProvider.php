@@ -3,7 +3,7 @@
 namespace Nitro\Foundation\Providers;
 
 use Nitro\Cache\CacheManager;
-use Nitro\Foundation\Http\Kernel;
+use Nitro\Http\Kernel;
 use Nitro\Foundation\Providers\ServiceProvider;
 use Nitro\Htmx\HtmxComponentRenderer;
 use Nitro\Htmx\HtmxDispatcher;

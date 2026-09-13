@@ -54,6 +54,16 @@ class Store implements SessionInterface
         return $this->started;
     }
 
+    /**
+     * Delegate garbage collection to the handler. Called on a lottery from the
+     * session lifecycle rather than every request — see
+     * SessionServiceProvider::sweepExpiredSessions().
+     */
+    public function collectGarbage(int $minutes): void
+    {
+        $this->handler->gc($minutes * 60);
+    }
+
     /** Read + unserialize the persisted payload for the current id. */
     protected function readFromHandler(): array
     {

@@ -4,7 +4,7 @@ namespace Tests\Unit\Http;
 
 use Nitro\Container\Contracts\ContainerInterface;
 use Nitro\Foundation\Application;
-use Nitro\Foundation\Http\Kernel;
+use Nitro\Http\Kernel;
 use Nitro\Routing\Route;
 use Nitro\Routing\RouteDispatcher;
 use Nitro\Routing\Router;

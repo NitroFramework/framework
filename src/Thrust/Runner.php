@@ -3,7 +3,7 @@
 namespace Nitro\Thrust;
 
 use Nitro\Foundation\Application;
-use Nitro\Foundation\Http\Kernel;
+use Nitro\Http\Kernel;
 use Nitro\PerformanceBar\PerformanceMetrics;
 use Nitro\Http\Request;
 use Nitro\PerformanceBar\PerformanceBar;

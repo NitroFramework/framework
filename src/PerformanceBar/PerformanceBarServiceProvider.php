@@ -2,7 +2,7 @@
 
 namespace Nitro\PerformanceBar;
 
-use Nitro\Foundation\Http\Kernel;
+use Nitro\Http\Kernel;
 use Nitro\Foundation\Providers\ServiceProvider;
 use Nitro\Http\Request;
 use Throwable;
