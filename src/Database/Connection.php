@@ -337,6 +337,11 @@ class Connection
                 $bindings[$key] = (int) $value;
             } elseif ($value instanceof \DateTimeInterface) {
                 $bindings[$key] = $value->format('Y-m-d H:i:s');
+            } elseif ($value instanceof \BackedEnum) {
+                // where('status', OrderStatus::Paid) is the natural thing to
+                // write once a column casts to an enum, and PDO cannot bind an
+                // object. Unwrap here rather than at every call site.
+                $bindings[$key] = $value->value;
             }
         }
         return $bindings;

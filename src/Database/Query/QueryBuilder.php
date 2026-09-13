@@ -212,6 +212,20 @@ class QueryBuilder
         return $this->limit($limit);
     }
 
+    /**
+     * Drop any LIMIT previously set.
+     *
+     * limit() takes an int and there is no sentinel for "none", which matters
+     * when a query built for one row is reused for a batched lookup — an eager
+     * load over fifty parents must not inherit the limit(1) that was right for
+     * one of them.
+     */
+    public function withoutLimit(): static
+    {
+        $this->limitValue = null;
+        return $this;
+    }
+
     public function offset(int $offset): static
     {
         $this->offsetValue = $offset;

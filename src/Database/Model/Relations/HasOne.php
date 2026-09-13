@@ -35,6 +35,43 @@ class HasOne extends Relation
     public function getForeignKey(): string { return $this->foreignKey; }
     public function getOwnerKey(): string { return $this->ownerKey; }
 
+    /**
+     * Narrow this to the one related row that wins an aggregate.
+     *
+     *     $this->hasOne(CourseVersion::class)->ofMany(
+     *         ['version' => 'max'],
+     *         fn ($query) => $query->where('status', VersionStatus::Published),
+     *     );
+     *
+     * The closure constrains what is eligible to win, inside the aggregate —
+     * see {@see HasOneOfMany} for why that distinction is not cosmetic.
+     *
+     * @param  array<string, string>  $aggregate  Column => 'max'|'min'.
+     */
+    public function ofMany(array $aggregate, ?\Closure $constraint = null): HasOneOfMany
+    {
+        return new HasOneOfMany(
+            $this->parent,
+            $this->modelClass,
+            $this->foreignKey,
+            $this->ownerKey,
+            $aggregate,
+            $constraint,
+        );
+    }
+
+    /** The related row with the highest $column. Shorthand for ofMany([$column => 'max']). */
+    public function latestOfMany(string $column = 'id', ?\Closure $constraint = null): HasOneOfMany
+    {
+        return $this->ofMany([$column => 'max'], $constraint);
+    }
+
+    /** The related row with the lowest $column. Shorthand for ofMany([$column => 'min']). */
+    public function oldestOfMany(string $column = 'id', ?\Closure $constraint = null): HasOneOfMany
+    {
+        return $this->ofMany([$column => 'min'], $constraint);
+    }
+
     public function eagerLoad(array $parents, string $relationName, ?string $nested): void
     {
         if (empty($parents)) return;
@@ -54,7 +91,10 @@ class HasOne extends Relation
             return;
         }
 
-        $eagerQuery = $this->query->cloneWithoutFirstWhere();
+        // withoutLimit(): the constructor's limit(1) is right for one parent and
+        // wrong for a batched lookup — kept, it would return a single row for
+        // the whole set and hand every other parent a null relation.
+        $eagerQuery = $this->query->cloneWithoutFirstWhere()->withoutLimit();
         $eagerQuery->whereIn($this->foreignKey, array_keys($idSet));
 
         $rows = $eagerQuery->get()->all();
