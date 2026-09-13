@@ -63,6 +63,19 @@ class Mounter
 
         if (method_exists($component, 'mount')) {
             $this->container->call([$component, 'mount'], $params);
+        } else {
+            // No mount(): a parameter matching a public property sets it. That
+            // is what makes <livewire:seat-counter :quantity="3" /> work on a
+            // component with nothing to do on mount, instead of requiring a
+            // mount() whose whole body assigns its own arguments.
+            //
+            // Through setProperty(), so the same public-only guard that
+            // protects a browser update applies to a mount parameter too.
+            foreach ($params as $key => $value) {
+                if (is_string($key)) {
+                    $component->setProperty($key, $value);
+                }
+            }
         }
 
         $component->hooks()->mount($params);

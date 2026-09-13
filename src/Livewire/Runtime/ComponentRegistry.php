@@ -64,6 +64,14 @@ class ComponentRegistry
             return $this->components[$name];
         }
 
+        // An already-qualified component class resolves to itself. Without
+        // this, the convention below prefixes the namespace onto a name that
+        // already carries it — App\Livewire\App\Livewire\Basket — so a test
+        // naming Basket::class could never find its own component.
+        if ($this->isComponentClass($name)) {
+            return $name;
+        }
+
         $segments = array_map(
             static fn(string $part): string => str_replace(' ', '', ucwords(str_replace(['-', '_'], ' ', $part))),
             explode('.', $name)
@@ -72,6 +80,42 @@ class ComponentRegistry
         $class = $this->namespace . implode('\\', $segments);
 
         return class_exists($class) ? $class : null;
+    }
+
+    /** Whether $name is the class of a component, rather than a component name. */
+    protected function isComponentClass(string $name): bool
+    {
+        return str_contains($name, '\\')
+            && class_exists($name)
+            && is_subclass_of($name, Component::class);
+    }
+
+    /**
+     * The dotted, kebab-cased name a class would be known by.
+     *
+     * App\Livewire\SeatCounter        → seat-counter
+     * App\Livewire\Nav\UserBar        → nav.user-bar
+     *
+     * Anything that is not a class is already a name and passes through.
+     */
+    protected function conventionalName(string $name): string
+    {
+        if (! $this->isComponentClass($name)) {
+            return $name;
+        }
+
+        $relative = str_starts_with($name, $this->namespace)
+            ? substr($name, strlen($this->namespace))
+            : $name;
+
+        $segments = array_map(
+            static fn (string $part): string => strtolower(
+                preg_replace('/(?<!^)[A-Z]/', '-$0', $part)
+            ),
+            explode('\\', $relative)
+        );
+
+        return implode('.', $segments);
     }
 
     /**
@@ -87,7 +131,12 @@ class ComponentRegistry
             /** @var Component $component */
             $component = $this->container->createOrResolve($class);
             $component->assertPropertiesAreTyped();
-            $component->setContext($this->generateId(), $name);
+
+            // The context name is what the conventional view path is built
+            // from, so a component asked for by class gets the same name it
+            // would have had by convention. Otherwise it would look for
+            // livewire.App\Livewire\SeatCounter and find nothing.
+            $component->setContext($this->generateId(), $this->conventionalName($name));
 
             return $component;
         }
