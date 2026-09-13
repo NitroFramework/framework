@@ -30,6 +30,37 @@ use Nitro\Database\Query\RawExpression;
 trait QueriesRelationships
 {
     /**
+     * Constrain by primary key, whatever the model calls it.
+     *
+     * whereKey($id) rather than where('id', $id) so a model with a different
+     * primary key is not quietly queried on a column it does not have.
+     *
+     * @param  mixed  $id  One key, or an array of them.
+     */
+    public function whereKey(mixed $id): static
+    {
+        $key = (new $this->modelClass)->getKeyName();
+
+        is_array($id)
+            ? $this->query->whereIn($key, $id)
+            : $this->query->where($key, $id);
+
+        return $this;
+    }
+
+    /** The inverse of {@see whereKey()} — everything but these. */
+    public function whereKeyNot(mixed $id): static
+    {
+        $key = (new $this->modelClass)->getKeyName();
+
+        is_array($id)
+            ? $this->query->whereNotIn($key, $id)
+            : $this->query->where($key, '!=', $id);
+
+        return $this;
+    }
+
+    /**
      * Only rows whose relation has at least one match.
      *
      * @param  Closure|null  $constraint  Receives the subquery.

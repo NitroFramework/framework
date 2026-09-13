@@ -50,6 +50,9 @@ class QueryBuilder
     protected array $havings = [];
     protected array $orders = [];
     protected ?int $limitValue = null;
+
+    /** Row-lock mode for SELECT: 'update', 'share', or none. */
+    protected ?string $lock = null;
     protected ?int $offsetValue = null;
 
     public function __construct(Connection $connection, Grammar $grammar)
@@ -213,6 +216,54 @@ class QueryBuilder
     }
 
     /**
+     * Lock the matched rows for update, where the driver has such a thing.
+     *
+     * The clause comes from the grammar, so this is a no-op on SQLite rather
+     * than a syntax error: SQLite's write transaction already locks the whole
+     * database, so the transaction the caller is holding IS the lock. That is
+     * what lets an application that allocates a seat under lockForUpdate()
+     * develop on SQLite and run on MySQL.
+     *
+     * Only meaningful inside a transaction. On its own it locks rows and
+     * releases them immediately, which protects nothing.
+     */
+    public function lockForUpdate(): static
+    {
+        $this->lock = 'update';
+        return $this;
+    }
+
+    /** A shared (read) lock, for the same reasons. */
+    public function sharedLock(): static
+    {
+        $this->lock = 'share';
+        return $this;
+    }
+
+    /**
+     * Compare a datetime column by its date part only.
+     *
+     * The expression is grammar-supplied because the function differs by
+     * engine, and comparing a DATETIME to '2026-09-13' with a plain = matches
+     * only rows stored at exactly midnight.
+     */
+    public function whereDate(string $column, string $operator, mixed $value = null): static
+    {
+        if ($value === null) {
+            [$operator, $value] = ['=', $operator];
+        }
+
+        if ($value instanceof \DateTimeInterface) {
+            $value = $value->format('Y-m-d');
+        }
+
+        return $this->whereRaw(
+            $this->grammar->compileDate($this->grammar->wrap($column)) . " {$operator} ?",
+            [$value]
+        );
+    }
+
+    /**
      * Drop any LIMIT previously set.
      *
      * limit() takes an int and there is no sentinel for "none", which matters
@@ -318,6 +369,12 @@ class QueryBuilder
     {
         return $this->from;
     }
+    /** The requested row-lock mode, if any. Read by the grammar. */
+    public function getLock(): ?string
+    {
+        return $this->lock;
+    }
+
     public function getColumns(): array
     {
         return $this->columns;

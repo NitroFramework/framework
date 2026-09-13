@@ -84,4 +84,14 @@ class SqliteGrammar extends Grammar
     {
         return '';
     }
+
+    /**
+     * SQLite has no DATE() over a DATETIME string in the MySQL sense; date()
+     * is the equivalent, and it also copes with the ISO strings this framework
+     * writes.
+     */
+    public function compileDate(string $wrappedColumn): string
+    {
+        return "date({$wrappedColumn})";
+    }
 }

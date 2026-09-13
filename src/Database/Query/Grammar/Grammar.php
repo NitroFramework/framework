@@ -58,7 +58,23 @@ class Grammar
         if ($limit = $this->compileLimit($query)) $sql[] = $limit;
         if ($offset = $this->compileOffset($query)) $sql[] = $offset;
 
+        // Last, because FOR UPDATE closes the statement.
+        if (($lock = $query->getLock()) !== null && ($clause = $this->compileLock($lock)) !== '') {
+            $sql[] = $clause;
+        }
+
         return implode(' ', $sql);
+    }
+
+    /**
+     * Wrap a datetime column so that it compares as a date.
+     *
+     * Per engine, because comparing a DATETIME to '2026-09-13' with a plain =
+     * matches only the rows stored at exactly midnight.
+     */
+    public function compileDate(string $wrappedColumn): string
+    {
+        return "DATE({$wrappedColumn})";
     }
 
     public function compileInsert(QueryBuilder $query, array $values): string

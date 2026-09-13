@@ -9,6 +9,7 @@ use Nitro\Database\Model\Concerns\HasAttributes;
 use Nitro\Database\Model\Concerns\HasCrud;
 use Nitro\Database\Model\Concerns\HasEvents;
 use Nitro\Database\Model\Concerns\HasRelationships;
+use Nitro\Database\Model\Concerns\InteractsWithModelState;
 use Nitro\Database\Model\Concerns\SerializesData;
 
 /**
@@ -24,6 +25,7 @@ abstract class Model
     use HasCrud;
     use HasEvents;
     use HasRelationships;
+    use InteractsWithModelState;
     use SerializesData;
 
     /**
