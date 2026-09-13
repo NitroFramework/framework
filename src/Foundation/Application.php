@@ -12,7 +12,6 @@ use Nitro\Encryption\EncryptionServiceProvider;
 use Nitro\Events\Dispatcher as EventDispatcher;
 use Nitro\Filesystem\FilesystemServiceProvider;
 use Nitro\Foundation\Bootstrap\BootstrapperInterface;
-use Nitro\Foundation\Http\Kernel;
 use Nitro\Foundation\Providers\AuthServiceProvider;
 use Nitro\Foundation\Providers\ConsoleServiceProvider;
 use Nitro\Foundation\Providers\DatabaseServiceProvider;
@@ -24,6 +23,7 @@ use Nitro\Foundation\Providers\ServiceProvider;
 use Nitro\Foundation\Providers\SessionServiceProvider;
 use Nitro\Foundation\Providers\ValidationServiceProvider;
 use Nitro\Foundation\Providers\ViewServiceProvider;
+use Nitro\Http\Kernel;
 use Nitro\Notifications\NotificationServiceProvider;
 use Nitro\PerformanceBar\PerformanceBarServiceProvider;
 use Nitro\PerformanceBar\PerformanceMetrics;
@@ -127,10 +127,18 @@ class Application
     }
 
     /**
-     * Bootstrap the application and handle the incoming HTTP request. This is the
-     * whole public entry point — a front controller only needs:
+     * Bootstrap the application, then hand the request to the HTTP kernel. The
+     * whole front controller is:
      *
      *   Application::create(dirname(__DIR__))->run();
+     *
+     * Note what this does NOT contain: the request lifecycle. run() is two
+     * steps — {@see bootstrap()} (phase 1, once per process) and then a single
+     * hand-off to {@see \Nitro\Http\Kernel::run()} (phase 2, once
+     * per request). Trace a request there, not here.
+     *
+     * Thrust does not call this at all: public/worker.php runs bootstrap() once
+     * and then loops the kernel per request.
      */
     public function run(): void
     {
@@ -203,10 +211,36 @@ class Application
         }
     }
 
-
-
-
-
+    /**
+     * PHASE 1 of the lifecycle — boot. Runs ONCE per process.
+     *
+     * Under a classic SAPI (FPM/apache) that means once per request. Under
+     * Thrust/FrankenPHP it means once per *worker*: this runs at worker start
+     * and the warm Application is then reused for thousands of requests, so
+     * anything cached here lives for the worker's whole life. That distinction
+     * is the single most important fact about how Nitro executes.
+     *
+     * The sequence, in order:
+     *
+     *   1. bootingHooks       — beforeBooting() callbacks
+     *   2. runBootstrappers() — LoadEnvironment, LoadConfiguration,
+     *                           HandleExceptions, RegisterProviders (in that
+     *                           order; the last one calls register() on every
+     *                           provider from getDefaultProviders() + config)
+     *   3. applyDebugGates()  — debug-only profiling, now that config exists
+     *   4. bootProviders()    — boot() on each provider that has one, in
+     *                           registration order. This is where features
+     *                           attach middleware, macros, and kernel hooks.
+     *   5. bootedHooks        — booted() callbacks
+     *
+     * PHASE 2 — the per-request lifecycle — is NOT here. This class is the
+     * composition root: it assembles the object graph and stops. Request
+     * handling lives in {@see \Nitro\Http\Kernel::run()}
+     * (capture → handle → send → terminate).
+     *
+     * To see what any of the above actually attached at runtime, rather than
+     * grepping for it: `php nitro lifecycle`.
+     */
     public function bootstrap(): self
     {
         if ($this->bootstrapped) {
@@ -247,7 +281,17 @@ class Application
 
     private function registerCoreServices(): void
     {
-        $this->container->singleton('events', EventDispatcher::class);
+        // Built via a closure rather than by class name so the dispatcher gets
+        // the container: it needs one to resolve a listener named by class, and
+        // to reach the queue for a listener that should not run in the request.
+        $this->container->singleton('events', function ($container) {
+            $dispatcher = new EventDispatcher();
+            $dispatcher->setContainer($container);
+
+            return $dispatcher;
+        });
+
+        $this->container->alias(EventDispatcher::class, 'events');
 
         // The HTTP kernel is a singleton so lifecycle hooks (requestReceived,
         // responseReady, terminating) registered during provider boot are
@@ -277,6 +321,47 @@ class Application
     public function getContainer(): ContainerInterface
     {
         return $this->container;
+    }
+
+    /**
+     * The bootstrapper classes, in the order runBootstrappers() will run them.
+     *
+     * @return array<int, class-string>
+     */
+    public function getBootstrappers(): array
+    {
+        return $this->bootstrappers;
+    }
+
+    /**
+     * Every registered (non-deferred) provider instance, in registration order.
+     *
+     * @return array<int, ServiceProvider>
+     */
+    public function getServiceProviders(): array
+    {
+        return $this->serviceProviders;
+    }
+
+    /**
+     * Providers that expose a boot(), in the order bootProviders() calls them.
+     *
+     * @return array<int, ServiceProvider>
+     */
+    public function getBootableProviders(): array
+    {
+        return $this->bootableProviders;
+    }
+
+    /**
+     * Deferred services: [serviceAbstract => providerClass]. These providers
+     * have NOT registered or booted; the container loads them on first resolve.
+     *
+     * @return array<string, class-string>
+     */
+    public function getDeferredServices(): array
+    {
+        return $this->deferredServices;
     }
 
     /**

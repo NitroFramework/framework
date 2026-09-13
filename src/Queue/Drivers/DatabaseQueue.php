@@ -71,7 +71,13 @@ class DatabaseQueue implements Queue
         $now = time();
         $cutoff = $now - $this->visibilityTimeout;
 
-        return DB::transaction(function () use ($queue, $now, $cutoff) {
+        // Asked of the grammar rather than written into the SQL: SQLite has no
+        // FOR UPDATE and does not need one (its write transaction locks the
+        // whole database), so hardcoding it made the database queue a
+        // MySQL-only driver and broke every local run.
+        $lock = DB::grammar()->compileLock('update');
+
+        return DB::transaction(function () use ($queue, $now, $cutoff, $lock) {
             // Available = (never reserved) OR (reservation stale).
             // available_at <= now ensures we respect delays and backoff.
             $rows = DB::select(
@@ -81,7 +87,7 @@ class DatabaseQueue implements Queue
                    AND (reserved_at IS NULL OR reserved_at <= ?)
                  ORDER BY id ASC
                  LIMIT 1
-                 FOR UPDATE",
+                 {$lock}",
                 [$queue, $now, $cutoff]
             );
 

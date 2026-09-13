@@ -69,4 +69,19 @@ class SqliteGrammar extends Grammar
     {
         return "SELECT COUNT(*) AS count FROM pragma_table_info(?) WHERE name = ?";
     }
+
+    /**
+     * SQLite has no row-level lock clause, and needs none: a write transaction
+     * takes a lock over the whole database, so only one writer is ever inside
+     * one at a time. The transaction the caller is already holding IS the lock
+     * that FOR UPDATE would ask MySQL for.
+     *
+     * Returning an empty string rather than throwing is what lets the same
+     * lockForUpdate() code run on SQLite locally and MySQL in production, which
+     * is the arrangement most applications actually develop under.
+     */
+    public function compileLock(string $type): string
+    {
+        return '';
+    }
 }
