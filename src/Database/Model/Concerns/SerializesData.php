@@ -16,7 +16,9 @@ trait SerializesData
 
         foreach ($this->casts as $key => $type) {
             if (isset($attributes[$key])) {
-                $attributes[$key] = $this->castAttribute($key, $attributes[$key]);
+                $attributes[$key] = $this->serializeCastValue(
+                    $this->castAttribute($key, $attributes[$key])
+                );
             }
         }
 
@@ -25,6 +27,27 @@ trait SerializesData
         }
 
         return $attributes;
+    }
+
+    /**
+     * Flatten a cast value to something JSON can carry.
+     *
+     * castAttribute() hands back rich objects — enum cases, DateTimes, whatever a
+     * custom caster returns — which is right for application code and wrong for
+     * an array destined for json_encode(). An enum serializes as its backing
+     * value and a date as an ISO-8601 string, so an API response reads the same
+     * as the column it came from; anything that can speak for itself
+     * (JsonSerializable, or a value object with toArray()) is left to do so.
+     */
+    protected function serializeCastValue(mixed $value): mixed
+    {
+        return match (true) {
+            $value instanceof \BackedEnum => $value->value,
+            $value instanceof \DateTimeInterface => $value->format(DATE_ATOM),
+            $value instanceof \JsonSerializable => $value->jsonSerialize(),
+            is_object($value) && method_exists($value, 'toArray') => $value->toArray(),
+            default => $value,
+        };
     }
 
     public function toArray(): array

@@ -99,3 +99,48 @@ if (!function_exists('class_basename')) {
         return basename(str_replace('\\', '/', $class));
     }
 }
+if (!function_exists('trait_uses_recursive')) {
+    /**
+     * Every trait used by a trait, including traits used by those traits.
+     *
+     * @param  string|object  $trait
+     * @return array<string, string>
+     */
+    function trait_uses_recursive($trait)
+    {
+        $traits = class_uses($trait) ?: [];
+
+        foreach ($traits as $used) {
+            $traits += trait_uses_recursive($used);
+        }
+
+        return $traits;
+    }
+}
+
+if (!function_exists('class_uses_recursive')) {
+    /**
+     * Every trait used by a class, its parents, and its traits' traits.
+     *
+     * Walks up the inheritance chain because a trait used by a base class is
+     * used by the subclass too — a model boot hook declared on a trait the
+     * parent brought in still has to run for the child.
+     *
+     * @param  string|object  $class
+     * @return array<string, string>
+     */
+    function class_uses_recursive($class)
+    {
+        if (is_object($class)) {
+            $class = get_class($class);
+        }
+
+        $results = [];
+
+        foreach (array_reverse(class_parents($class) ?: []) + [$class => $class] as $one) {
+            $results += trait_uses_recursive($one);
+        }
+
+        return array_unique($results);
+    }
+}

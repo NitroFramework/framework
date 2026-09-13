@@ -60,16 +60,102 @@ abstract class Model
     protected array $castCache = [];
 
     /**
+     * Classes whose boot() has already run, keyed by class name.
+     *
+     * Keyed rather than a flat list because booting is per concrete class: a
+     * parent and its subclass each get their own boot(), and a subclass must not
+     * be considered booted just because its parent was.
+     *
+     * @var array<class-string, true>
+     */
+    protected static array $booted = [];
+
+    /**
      * New model, optionally mass-assigned from $attributes (respecting
      * $fillable/$guarded) — Laravel's `new User([...])`. Hydration from the DB
      * goes through newFromObject(), not this, so it bypasses fillable.
      */
     public function __construct(array $attributes = [])
     {
+        $this->bootIfNotBooted();
+
         if ($attributes !== []) {
             $this->fill($attributes);
         }
     }
+
+    // ─── Booting ──────────────────────────────────────────
+
+    /**
+     * Run this class's one-time boot, if it hasn't already.
+     *
+     * Every route into a model goes through the constructor — query(), find(),
+     * newFromObject(), `new User` — so this is the one place that needs to ask.
+     * The guard matters: boot() registers event listeners, and running it twice
+     * would fire every saving()/deleting() hook twice per save.
+     */
+    protected function bootIfNotBooted(): void
+    {
+        if (isset(static::$booted[static::class])) {
+            return;
+        }
+
+        static::$booted[static::class] = true;
+
+        static::boot();
+    }
+
+    /**
+     * Boot the model: first each trait's boot hook, then the class's own.
+     *
+     * A trait named SoftDeletes may define bootSoftDeletes(), which is how a
+     * trait registers listeners or global constraints without every model that
+     * uses it having to remember to call something.
+     *
+     * Override booted(), not this — boot() is the plumbing.
+     */
+    protected static function boot(): void
+    {
+        foreach (class_uses_recursive(static::class) as $trait) {
+            $method = 'boot' . class_basename($trait);
+
+            if (method_exists(static::class, $method)) {
+                forward_static_call([static::class, $method]);
+            }
+        }
+
+        static::booted();
+    }
+
+    /**
+     * The model's own boot hook — override this.
+     *
+     * This is where model-level invariants belong, as opposed to the UI or a
+     * service that happens to write the row. A guard registered here holds for a
+     * seeder, an import and a console command alike:
+     *
+     *     protected static function booted(): void
+     *     {
+     *         static::updating(fn (self $version) => $version->isDraft());
+     *     }
+     */
+    protected static function booted(): void
+    {
+        // intentionally empty
+    }
+
+    /**
+     * Forget that a class was booted, so the next instance boots again.
+     *
+     * For tests that flush event listeners between cases: without this the model
+     * stays marked booted and never re-registers the listeners that were just
+     * flushed, and every guard silently stops applying.
+     */
+    public static function clearBootedModels(): void
+    {
+        static::$booted = [];
+    }
+
 
     // ─── Query Entry Point ────────────────────────────────
 

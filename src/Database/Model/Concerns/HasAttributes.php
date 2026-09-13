@@ -78,25 +78,6 @@ trait HasAttributes
         return $this;
     }
 
-    /**
-     * Encode a value for storage when its cast requires it. array/json/object
-     * casts must be serialized to a JSON string on write — PDO can't bind a PHP
-     * array/object, and the read-side cast (castAttribute) decodes it back. Other
-     * casts (and already-encoded strings) pass through untouched.
-     */
-    protected function castValueForStorage(string $key, mixed $value): mixed
-    {
-        if ($value === null || !isset($this->casts[$key])) {
-            return $value;
-        }
-
-        if (in_array($this->casts[$key], ['array', 'json', 'object'], true)
-            && (is_array($value) || is_object($value))) {
-            return json_encode($value);
-        }
-
-        return $value;
-    }
 
     /**
      * Resolve (and cache) the accessor/mutator method for a key, or null when
@@ -184,11 +165,28 @@ trait HasAttributes
 
     // ─── Casting ──────────────────────────────────────────
 
+    /**
+     * Resolved custom-cast instances, keyed by class → cast declaration. A caster
+     * is stateless by contract, so one instance answers for every model of the
+     * class and we never pay for the reflection twice.
+     *
+     * @var array<string, array<string, object>>
+     */
+    protected static array $casterCache = [];
+
     protected function castAttribute(string $key, mixed $value): mixed
     {
         if (!isset($this->casts[$key]) || $value === null) return $value;
 
-        return match ($this->casts[$key]) {
+        $cast = $this->casts[$key];
+
+        // A cast naming a class is either a backed enum or a CastsAttributes
+        // implementation; both are resolved by resolveClassCast().
+        if ($this->isClassCast($cast)) {
+            return $this->castToClass($key, $cast, $value);
+        }
+
+        return match ($cast) {
             'int', 'integer' => (int) $value,
             'float', 'double' => (float) $value,
             'string' => (string) $value,
@@ -196,12 +194,158 @@ trait HasAttributes
             'array', 'json' => is_string($value) ? json_decode($value, true) : $value,
             'object' => is_string($value) ? json_decode($value) : $value,
             'datetime' => $value instanceof \DateTimeInterface ? $value : new \DateTime($value),
+            'immutable_datetime' => $value instanceof \DateTimeImmutable
+                ? $value
+                : new \DateTimeImmutable($value instanceof \DateTimeInterface ? $value->format('Y-m-d H:i:s') : $value),
             'date' => $value instanceof \DateTimeInterface
                 ? $value->format('Y-m-d')
                 : (new \DateTime($value))->format('Y-m-d'),
             'timestamp' => is_numeric($value) ? (int) $value : strtotime($value),
             default => $value,
         };
+    }
+
+    /**
+     * Read side of a class cast. A backed enum comes back as a case; anything
+     * else goes through the caster's get().
+     *
+     * tryFrom(), not from(): a column holding a value the enum no longer has a
+     * case for is a data problem, and blowing up on every read of an unrelated
+     * attribute is a poor way to report it. Null surfaces it where it is used.
+     */
+    protected function castToClass(string $key, string $cast, mixed $value): mixed
+    {
+        [$class, $arguments] = $this->parseClassCast($cast);
+
+        if (is_subclass_of($class, \BackedEnum::class)) {
+            return $value instanceof $class ? $value : $class::tryFrom($value);
+        }
+
+        return $this->resolveCaster($cast, $class, $arguments)
+            ->get($this, $key, $value, $this->attributes);
+    }
+
+    /**
+     * Encode a value for storage when its cast requires it. array/json/object
+     * casts must be serialized to a JSON string on write — PDO can't bind a PHP
+     * array/object, and the read-side cast (castAttribute) decodes it back. A
+     * backed enum stores its ->value; a CastsAttributes cast delegates to set().
+     * Other casts (and already-encoded strings) pass through untouched.
+     */
+    protected function castValueForStorage(string $key, mixed $value): mixed
+    {
+        if ($value === null || !isset($this->casts[$key])) {
+            return $value;
+        }
+
+        $cast = $this->casts[$key];
+
+        if ($this->isClassCast($cast)) {
+            return $this->castFromClass($key, $cast, $value);
+        }
+
+        if (in_array($cast, ['array', 'json', 'object'], true)
+            && (is_array($value) || is_object($value))) {
+            return json_encode($value);
+        }
+
+        if (in_array($cast, ['datetime', 'immutable_datetime'], true)
+            && $value instanceof \DateTimeInterface) {
+            return $value->format('Y-m-d H:i:s');
+        }
+
+        return $value;
+    }
+
+    /**
+     * Write side of a class cast.
+     *
+     * A caster returning an array is writing several columns at once (a money
+     * amount and its currency, say); those are merged into the attributes and
+     * the key's own value is taken from the array when present. Anything else
+     * is a single-column value.
+     */
+    protected function castFromClass(string $key, string $cast, mixed $value): mixed
+    {
+        [$class, $arguments] = $this->parseClassCast($cast);
+
+        if (is_subclass_of($class, \BackedEnum::class)) {
+            return $value instanceof \BackedEnum ? $value->value : $value;
+        }
+
+        $set = $this->resolveCaster($cast, $class, $arguments)
+            ->set($this, $key, $value, $this->attributes);
+
+        if (is_array($set)) {
+            foreach ($set as $column => $columnValue) {
+                if ($column !== $key) {
+                    $this->attributes[$column] = $columnValue;
+                    unset($this->castCache[$column]);
+                }
+            }
+            return $set[$key] ?? null;
+        }
+
+        return $set;
+    }
+
+    /**
+     * The cast names the engine handles itself. Checked before class_exists(),
+     * which would otherwise put 'int' and 'array' through the autoloader on
+     * every single attribute read.
+     */
+    protected const BUILT_IN_CASTS = [
+        'int' => true, 'integer' => true, 'float' => true, 'double' => true,
+        'string' => true, 'bool' => true, 'boolean' => true, 'array' => true,
+        'json' => true, 'object' => true, 'datetime' => true, 'date' => true,
+        'immutable_datetime' => true, 'timestamp' => true,
+    ];
+
+    /** Whether a cast declaration names a class rather than a built-in type. */
+    protected function isClassCast(string $cast): bool
+    {
+        if (isset(self::BUILT_IN_CASTS[$cast])) {
+            return false;
+        }
+
+        return class_exists($this->parseClassCast($cast)[0]);
+    }
+
+    /**
+     * Split 'Some\Caster:arg,arg' into its class and argument list. The colon is
+     * only a separator after the class name, so a leading namespace separator or
+     * a Windows-ish path never confuses it.
+     *
+     * @return array{0: string, 1: array<int, string>}
+     */
+    protected function parseClassCast(string $cast): array
+    {
+        if (!str_contains($cast, ':')) {
+            return [$cast, []];
+        }
+
+        [$class, $arguments] = explode(':', $cast, 2);
+
+        return [$class, explode(',', $arguments)];
+    }
+
+    /**
+     * Resolve (and memoize) the caster for a cast declaration.
+     *
+     * @param  array<int, string>  $arguments
+     */
+    protected function resolveCaster(string $cast, string $class, array $arguments): \Nitro\Database\Model\Contracts\CastsAttributes
+    {
+        $caster = self::$casterCache[static::class][$cast] ??= new $class(...$arguments);
+
+        if (!$caster instanceof \Nitro\Database\Model\Contracts\CastsAttributes) {
+            throw new \InvalidArgumentException(
+                "Cast [{$class}] on " . static::class . "::\${$cast} must implement "
+                . \Nitro\Database\Model\Contracts\CastsAttributes::class . '.'
+            );
+        }
+
+        return $caster;
     }
 
     // ─── Mass Assignment ──────────────────────────────────
