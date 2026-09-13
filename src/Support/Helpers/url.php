@@ -59,12 +59,18 @@ if (!function_exists('route')) {
      * Generate a URL from a named route
      *
      * @param string $name Route name
-     * @param array $parameters Route parameters
+     * @param mixed $parameters One parameter, or an array of them
      * @return string
      */
-    function route(string $name, array $parameters = []): string
+    function route(string $name, mixed $parameters = []): string
     {
         $router = app('router');
+
+        // route('courses.show', $course) and route('courses.show', 'a-slug')
+        // are both ordinary things to write; only the array form was accepted.
+        if (! is_array($parameters)) {
+            $parameters = [$parameters];
+        }
 
         try {
             return $router->route($name, $parameters);

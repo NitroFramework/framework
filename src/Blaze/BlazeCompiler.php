@@ -44,7 +44,12 @@ class BlazeCompiler
     protected function compileSelfClosing(string $template): string
     {
         return preg_replace_callback(
-            '/<x-([\w.\-]+)((?:\s+[^>]*?)?)\s*\/>/s',
+            // The attribute run steps over quoted values rather than stopping
+            // at the first '>'. :title="$course->title" is an ordinary thing to
+            // write, and [^>] truncated it mid-expression to :title="$course-,
+            // which compiled to ['title' => ,] — a parse error in the generated
+            // template, reported a long way from the tag that caused it.
+            '/<x-([\w.\-]+)((?:\s+(?:"[^"]*"|\'[^\']*\'|[^>"\'])*)?)\s*\/>/s',
             function (array $matches): string {
                 [$ok, $name, $params] = $this->prepare($matches[1], $matches[2]);
                 if (! $ok) {
@@ -63,7 +68,8 @@ class BlazeCompiler
     protected function compilePaired(string $template): string
     {
         return preg_replace_callback(
-            '/<x-([\w.\-]+)((?:\s+[^>]*?)?)>(.*?)<\/x-\1>/s',
+            // Quoted values stepped over, as in compileSelfClosing().
+            '/<x-([\w.\-]+)((?:\s+(?:"[^"]*"|\'[^\']*\'|[^>"\'])*)?)>(.*?)<\/x-\1>/s',
             function (array $matches): string {
                 [$ok, $name, $params] = $this->prepare($matches[1], $matches[2]);
                 if (! $ok) {

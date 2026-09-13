@@ -109,9 +109,40 @@ trait GeneratesUrls
 
         $path = $route['path'];
 
-        // Replace parameters in path
+        // Positional parameters: route('courses.show', ['food-hygiene']) fills
+        // the placeholders left to right, so a single-parameter route does not
+        // have to name its parameter.
+        if ($parameters !== [] && array_is_list($parameters)) {
+            preg_match_all('/\{([^}]+)\}/', $path, $placeholders);
+
+            $named = [];
+            foreach ($placeholders[1] as $index => $placeholder) {
+                if (array_key_exists($index, $parameters)) {
+                    $named[rtrim($placeholder, '?')] = $parameters[$index];
+                }
+            }
+
+            // Anything beyond the placeholders is not positional; keep it so it
+            // can become a query string below.
+            $parameters = $named + array_slice($parameters, count($named));
+        }
+
+        $query = [];
+
         foreach ($parameters as $key => $value) {
-            $path = str_replace('{' . $key . '}', (string) $value, $path);
+            $placeholder = '{' . $key . '}';
+
+            if (! str_contains($path, $placeholder)) {
+                // Not a path parameter, so it belongs in the query string. This
+                // is what makes route('courses.index', ['categories' => [...]])
+                // produce ?categories[]=food-safety; previously it was dropped,
+                // and an array value fatally stringified to "Array".
+                $query[$key] = $value instanceof \BackedEnum ? $value->value : $value;
+
+                continue;
+            }
+
+            $path = str_replace($placeholder, rawurlencode($this->routeParameterValue($value)), $path);
         }
 
         // Check for unreplaced parameters
@@ -119,7 +150,32 @@ trait GeneratesUrls
             throw new InvalidArgumentException("Missing parameters for route [{$name}]");
         }
 
-        return $path;
+        return $query === [] ? $path : $path . '?' . http_build_query($query);
+    }
+
+    /**
+     * A path parameter's string form.
+     *
+     * A model is asked for its route key, so route('courses.show', $course)
+     * works — which is what anybody writes first.
+     */
+    private function routeParameterValue(mixed $value): string
+    {
+        if ($value instanceof \BackedEnum) {
+            return (string) $value->value;
+        }
+
+        if (is_object($value)) {
+            if (method_exists($value, 'getRouteKey')) {
+                return (string) $value->getRouteKey();
+            }
+
+            if (method_exists($value, 'getKey')) {
+                return (string) $value->getKey();
+            }
+        }
+
+        return (string) $value;
     }
 
     /**

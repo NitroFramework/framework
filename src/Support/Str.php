@@ -264,8 +264,19 @@ class Str
      * Where a name is genuinely irregular and not listed here, name the table
      * explicitly: that is always available and always unambiguous.
      */
-    public static function plural(string $value): string
+    public static function plural(string $value, int|float|array|\Countable $count = 2): string
     {
+        // A count of exactly one keeps the singular, so a template can write
+        // Str::plural('course', $n) and get "1 course" / "2 courses" without
+        // an inline conditional at every call site.
+        if (is_array($count) || $count instanceof \Countable) {
+            $count = count($count);
+        }
+
+        if ((float) $count === 1.0) {
+            return $value;
+        }
+
         $lower = mb_strtolower($value);
 
         if (in_array($lower, self::UNCOUNTABLE, true)) {

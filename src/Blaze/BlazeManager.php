@@ -98,6 +98,41 @@ class BlazeManager
      * null if the component is missing). The function extracts the resolved
      * component data and renders the compiled body.
      */
+    /**
+     * Lift `use X;` imports out of a compiled body so they can sit above the
+     * closure the body is about to become.
+     *
+     * Only class imports at the start of a statement are moved, and only the
+     * plain `use Foo\Bar;` / `use Foo\Bar as Baz;` / `use function …` forms —
+     * a closure's own `function () use ($x)` is a different construct entirely
+     * and must be left exactly where it is.
+     *
+     * @return array{0: string, 1: string}  [imports, body without them]
+     */
+    protected function hoistImports(string $body): array
+    {
+        $imports = [];
+
+        // The delimiter before the keyword is captured and put back, so this
+        // only ever matches a statement-position `use` — never the `use ($n)`
+        // clause of a closure, and never the word in prose.
+        $body = preg_replace_callback(
+            '/(^|[;{}]|<\?php)(\s*)use\s+((?:function\s+|const\s+)?\\\\?[A-Za-z_\x80-\xff][A-Za-z0-9_\x80-\xff]*(?:\\\\[A-Za-z_\x80-\xff][A-Za-z0-9_\x80-\xff]*)*(?:\s+as\s+[A-Za-z_\x80-\xff][A-Za-z0-9_\x80-\xff]*)?)\s*;/m',
+            function (array $matches) use (&$imports): string {
+                $imports[] = 'use ' . preg_replace('/\s+/', ' ', trim($matches[3])) . ';';
+
+                return $matches[1];
+            },
+            $body
+        );
+
+        if ($imports === []) {
+            return ['', $body];
+        }
+
+        return [implode("\n", array_unique($imports)) . "\n\n", $body];
+    }
+
     public function compile(string $name): ?string
     {
         $source = $this->componentPath($name);
@@ -120,7 +155,14 @@ class BlazeManager
             unset($this->compiling[$name]);
         }
 
-        $php = "<?php\n\nreturn function (array \$__data) {\n"
+        // A component's body becomes a closure, and PHP allows an import only
+        // at the top level of a file — so `@php use App\Support\Money; @endphp`,
+        // which is ordinary Blade and compiles fine through the core engine,
+        // was a parse error here. Hoist the imports above the closure.
+        [$imports, $body] = $this->hoistImports($body);
+
+        $php = "<?php\n\n" . $imports
+            . "return function (array \$__data) {\n"
             . "    extract(\$__data, EXTR_SKIP);\n"
             . "    ob_start();\n"
             . "    try {\n"

@@ -41,6 +41,32 @@ trait RefreshDatabase
         foreach ($this->migrations() as $migration) {
             $migration->up($schema);
         }
+
+        $this->flushCacheForFreshDatabase();
+    }
+
+    /**
+     * Empty the cache along with the database.
+     *
+     * A fresh database behind a stale cache is not a fresh state. Worse, the
+     * cache usually outlives the test process: a suite that seeds one course
+     * leaves "1" cached under the application's real key, and the next person
+     * to open the site is told it sells one course.
+     *
+     * Left overridable, because a test specifically about caching will want to
+     * decide this for itself.
+     */
+    protected function flushCacheForFreshDatabase(): void
+    {
+        try {
+            $cache = $this->app?->getContainer()->createOrResolve('cache');
+
+            if ($cache !== null && method_exists($cache, 'flush')) {
+                $cache->flush();
+            }
+        } catch (\Throwable) {
+            // No cache configured is not a reason to fail the test.
+        }
     }
 
     /**
