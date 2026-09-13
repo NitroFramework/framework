@@ -66,6 +66,17 @@ trait HasAttributes
 
     public function setAttribute(string $key, mixed $value): static
     {
+        // Snapshot BEFORE the write, not at the first getDirty().
+        //
+        // Hydration deliberately skips the copy — newFromObject leaves original
+        // null, because most rows are only ever read — but the snapshot then
+        // has to be taken the moment something is about to change. Taken later,
+        // it captures the already-modified state: getDirty() compares the new
+        // attributes against themselves, finds nothing, and save() writes
+        // nothing. The first save after loading a row did exactly that, and
+        // said it had succeeded.
+        $this->ensureOriginalSnapshot();
+
         // Mutator: setXxxAttribute($value) writes to $this->attributes itself.
         if ($mutator = $this->mutatorMethod('set', $key)) {
             $this->{$mutator}($value);
