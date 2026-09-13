@@ -578,11 +578,36 @@ class Container implements ContainerInterface
 
             // -------------------------------------------------------
             // 3. Numeric overrides (e.g. route params)
+            //
+            //    A class-typed parameter is a dependency to be resolved, not a
+            //    route segment — so a positional value is only handed to one
+            //    when the binder can turn it into that class (route-model
+            //    binding by position). Otherwise the position is left for the
+            //    next scalar parameter and the type is auto-wired below.
+            //
+            //    Without that distinction, __invoke(string $code, Renderer $r)
+            //    gets the route's second value in $r and dies on a type error,
+            //    which is a confusing way to learn that a controller may not
+            //    ask the container for anything after a route parameter.
             // -------------------------------------------------------
             if (array_key_exists($numericIndex, $primitives)) {
-                $dependencies[] = $primitives[$numericIndex];
-                $numericIndex++;
-                continue;
+                $value = $primitives[$numericIndex];
+
+                if ($typeName === null || $value instanceof $typeName) {
+                    $dependencies[] = $value;
+                    $numericIndex++;
+                    continue;
+                }
+
+                if ($this->parameterBinder !== null && is_scalar($value)) {
+                    $bound = ($this->parameterBinder)($typeName, $value);
+
+                    if ($bound !== self::PARAM_UNRESOLVED) {
+                        $dependencies[] = $bound;
+                        $numericIndex++;
+                        continue;
+                    }
+                }
             }
 
             // -------------------------------------------------------
