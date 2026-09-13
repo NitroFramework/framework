@@ -809,12 +809,27 @@ class Container implements ContainerInterface
     }
 
     /** Register an alias that resolves to an existing binding */
+    /**
+     * Register a second name for an existing binding.
+     *
+     * The alias resolves through to the target every time rather than caching
+     * anything of its own. Caching here silently promotes whatever it points at
+     * to a singleton: alias(Guard::class, 'auth') over a scoped 'auth' handed
+     * out the first request's guard for the life of the worker, still holding
+     * that request's session. Visitor two was signed in as visitor one, or —
+     * as it actually surfaced — signed in according to auth() and signed out
+     * according to the middleware, because one read the alias and one read the
+     * target.
+     *
+     * So: never a singleton, whatever the target is. The target's own binding
+     * decides the lifetime, which is the only place that decision belongs.
+     */
     public function alias(string $alias, string $abstract): void
     {
         $this->aliasTargets[$alias] = $abstract;
         $this->services[$alias] = [
             'value'     => fn($container) => $container->get($abstract),
-            'singleton' => true,
+            'singleton' => false,
         ];
     }
 }

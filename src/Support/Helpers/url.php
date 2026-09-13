@@ -56,33 +56,33 @@ if (!function_exists('method_field')) {
 
 if (!function_exists('route')) {
     /**
-     * Generate a URL from a named route
+     * The URL of a named route.
      *
-     * @param string $name Route name
-     * @param mixed $parameters One parameter, or an array of them
-     * @return string
+     * Throws when the name is unknown, and deliberately does not soften that.
+     * A route name is not runtime data — the route table is fixed at boot — so
+     * a miss is always a programming error, and the only question is whether
+     * you find out now or a customer finds out later.
+     *
+     * This used to return the error message as though it were a URL, which
+     * produced links to /Route[dashboard] not found: Route [dashboard] not
+     * found. Worse, in production it quietly returned the home page instead:
+     * a "Download your certificate" button that sends somebody to the
+     * marketing site, with nothing logged and nothing to notice.
+     *
+     * @param  string  $name  Route name
+     * @param  mixed  $parameters  One parameter, or an array of them
+     *
+     * @throws \InvalidArgumentException when no route has that name.
      */
     function route(string $name, mixed $parameters = []): string
     {
-        $router = app('router');
-
         // route('courses.show', $course) and route('courses.show', 'a-slug')
         // are both ordinary things to write; only the array form was accepted.
         if (! is_array($parameters)) {
             $parameters = [$parameters];
         }
 
-        try {
-            return $router->route($name, $parameters);
-        } catch (\Exception $exception) {
-            // In debug mode, show the error
-            if (config('app.debug')) {
-                return "Route[$name] not found: " . $exception->getMessage();
-            }
-
-            // In production, just return home
-            return url('/');
-        }
+        return app('router')->route($name, $parameters);
     }
 }
 

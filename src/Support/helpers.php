@@ -11,12 +11,48 @@
  * individual files in dependency order.
  *
  * Order matters — core helpers (app, config) must load before others.
+ *
+ * The bundle is only used while it is newer than every file it was built from.
+ * Without that check it shadows its own sources: edit a helper, and the change
+ * is silently ignored until somebody remembers to re-run optimize — the edit
+ * looks applied, the file on disk says so, and the running application
+ * disagrees. That cost an afternoon, and the fix costs twenty stat calls.
  */
 
 $bundle = __DIR__ . '/Helpers/bundle.php';
-if (is_file($bundle)) {
+
+if (is_file($bundle) && nitro_helpers_bundle_is_current($bundle)) {
     require_once $bundle;
     return;
+}
+
+/**
+ * Whether the bundle is newer than every source it was built from.
+ *
+ * Skipped only when APP_ENV explicitly says production, where the sources do
+ * not change between deploys and the stat calls would be paid on every request
+ * for nothing. Explicit, because the default has to be the safe direction:
+ * an unset APP_ENV that means "assume production" is how a development box
+ * ends up trusting a stale bundle, which is the exact failure this guard was
+ * written to stop.
+ */
+function nitro_helpers_bundle_is_current(string $bundle): bool
+{
+    $environment = $_ENV['APP_ENV'] ?? getenv('APP_ENV');
+
+    if ($environment === 'production') {
+        return true;
+    }
+
+    $builtAt = filemtime($bundle);
+
+    foreach (glob(__DIR__ . '/Helpers/*.php') ?: [] as $source) {
+        if ($source !== $bundle && filemtime($source) > $builtAt) {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 require_once __DIR__ . '/Helpers/app.php';
