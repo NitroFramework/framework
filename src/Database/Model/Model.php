@@ -156,6 +156,48 @@ abstract class Model
         static::$booted = [];
     }
 
+    // ─── Polymorphic type names ───────────────────────────
+
+    /**
+     * Short name => model class, for the value stored in a `*_type` column.
+     *
+     * Storing 'course' instead of 'App\Models\Course' is worth setting up on
+     * day one: the class name ends up in thousands of rows, and without a map
+     * the day somebody moves or renames that class is the day every one of
+     * those rows stops resolving. A map makes it a one-line edit.
+     *
+     *     Model::enforceMorphMap(['course' => Course::class]);
+     *
+     * @var array<string, class-string<Model>>
+     */
+    protected static array $morphMap = [];
+
+    /** @param array<string, class-string<Model>> $map */
+    public static function enforceMorphMap(array $map): void
+    {
+        static::$morphMap = array_merge(static::$morphMap, $map);
+    }
+
+    /** @return array<string, class-string<Model>> */
+    public static function morphMap(): array
+    {
+        return static::$morphMap;
+    }
+
+    /** The value to store in a `*_type` column for this model. */
+    public function getMorphClass(): string
+    {
+        $alias = array_search(static::class, static::$morphMap, true);
+
+        return $alias === false ? static::class : $alias;
+    }
+
+    /** The class a stored `*_type` value refers to. */
+    public static function morphedClass(string $type): string
+    {
+        return static::$morphMap[$type] ?? $type;
+    }
+
 
     // ─── Query Entry Point ────────────────────────────────
 

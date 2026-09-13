@@ -8,6 +8,9 @@ use Nitro\Database\Model\Relations\BelongsToMany;
 use Nitro\Database\Model\Relations\HasMany;
 use Nitro\Database\Model\Relations\HasManyThrough;
 use Nitro\Database\Model\Relations\HasOne;
+use Nitro\Database\Model\Relations\MorphMany;
+use Nitro\Database\Model\Relations\MorphOne;
+use Nitro\Database\Model\Relations\MorphTo;
 
 /**
  * Model concern: defining and resolving relationships (hasOne/hasMany/belongsTo/...).
@@ -93,6 +96,77 @@ trait HasRelationships
             $secondKey ?? $this->guessForeignKeyFor($through),     // FK on related to intermediate
             $localKey ?? $this->primaryKey,
             $secondLocalKey ?? $throughInstance->primaryKey,
+        );
+    }
+
+    // ─── Polymorphic Relationships ────────────────────────
+
+    /**
+     * Many children that may belong to several kinds of parent.
+     *
+     *     $course->comments()  // morphMany(Comment::class, 'commentable')
+     *
+     * $name is the pair's prefix: 'commentable' means commentable_id and
+     * commentable_type on the child's table.
+     */
+    public function morphMany(string $model, string $name, ?string $type = null, ?string $id = null, ?string $ownerKey = null): MorphMany
+    {
+        return new MorphMany(
+            $this,
+            $model,
+            $id ?? $name . '_id',
+            $type ?? $name . '_type',
+            $ownerKey ?? $this->primaryKey,
+        );
+    }
+
+    /** The singular of {@see morphMany()}. */
+    public function morphOne(string $model, string $name, ?string $type = null, ?string $id = null, ?string $ownerKey = null): MorphOne
+    {
+        return new MorphOne(
+            $this,
+            $model,
+            $id ?? $name . '_id',
+            $type ?? $name . '_type',
+            $ownerKey ?? $this->primaryKey,
+        );
+    }
+
+    /**
+     * The child's side: this row points at one of several kinds of parent.
+     *
+     *     $sentEmail->relatedTo()  // morphTo('related')
+     *
+     * $name defaults to the calling method's name, which is conventionally the
+     * relation's name — so morphTo() inside relatedTo() reads related_id and
+     * related_type without being told.
+     */
+    public function morphTo(?string $name = null, ?string $type = null, ?string $id = null): MorphTo
+    {
+        $name ??= $this->guessMorphName();
+
+        return new MorphTo(
+            $this,
+            $id ?? $name . '_id',
+            $type ?? $name . '_type',
+        );
+    }
+
+    /** The name of the method that called morphTo(). */
+    protected function guessMorphName(): string
+    {
+        // Frame 0 is this method and frame 1 is morphTo() itself; the caller we
+        // want is the first frame that is neither.
+        foreach (debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 5) as $frame) {
+            $function = $frame['function'] ?? '';
+
+            if (isset($frame['class']) && $function !== 'morphTo' && $function !== 'guessMorphName') {
+                return $function;
+            }
+        }
+
+        throw new \LogicException(
+            'morphTo() could not work out its name. Pass one: morphTo("related").'
         );
     }
 

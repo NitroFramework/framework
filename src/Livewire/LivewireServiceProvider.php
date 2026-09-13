@@ -108,7 +108,11 @@ class LivewireServiceProvider extends ServiceProvider
         // X-CSRF-TOKEN header livewire.js sends). The snapshot checksum only
         // proves the state wasn't tampered with — it does NOT prove the request
         // came from the user's own session, so the token is the CSRF defense.
-        $router->group(['middleware' => ['web']], function () use ($router, $path, $container) {
+        // Plus any persistent middleware the application registered. An update
+        // posts here rather than to the route that rendered the page, so
+        // without this the page's own route middleware never runs on it — see
+        // LivewireManager::addPersistentMiddleware().
+        $router->group(['middleware' => array_merge(['web'], LivewireManager::persistentMiddleware())], function () use ($router, $path, $container) {
             $router->post($path, function () use ($container): Response {
                 // The client posts a JSON commit body, which PHP does not fold
                 // into $_POST — read and decode it directly.
@@ -132,7 +136,7 @@ class LivewireServiceProvider extends ServiceProvider
 
         // Uploads are state-changing → behind 'web' for CSRF too (livewire.js
         // sends X-CSRF-TOKEN on the upload request).
-        $router->group(['middleware' => ['web']], function () use ($router) {
+        $router->group(['middleware' => array_merge(['web'], LivewireManager::persistentMiddleware())], function () use ($router) {
             $router->post('/livewire/upload', function (): Response {
                 $dir = SupportsFileUploads::temporaryDirectory();
 

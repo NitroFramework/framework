@@ -60,6 +60,10 @@ class MigrationCommands implements CommandInterface
     {
         return [
             'make:migration'    => 'Generate a new migration file',
+            // 'migrate' is the name everybody reaches for first, and getting
+            // "Command 'migrate' not found" on a fresh install reads as a
+            // broken install rather than as a naming convention.
+            'migrate'           => 'Run all pending migrations (alias of migrate:run)',
             'migrate:install'   => 'Create the migrations tracking table',
             'migrate:run'       => 'Run all pending migrations',
             'migrate:rollback'  => 'Rollback the last batch (or N batches via --step=N)',
@@ -90,7 +94,7 @@ class MigrationCommands implements CommandInterface
 
             match ($command) {
                 'migrate:install'   => $this->output->success("Migrations table is ready."),
-                'migrate:run'       => $this->runMigrations($arguments),
+                'migrate', 'migrate:run' => $this->runMigrations($arguments),
                 'migrate:rollback'  => $this->rollbackMigrations($arguments),
                 'migrate:reset'     => $this->resetMigrations($arguments),
                 'migrate:refresh'   => $this->refreshMigrations($arguments),

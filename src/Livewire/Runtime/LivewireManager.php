@@ -31,6 +31,56 @@ use Nitro\Livewire\Snapshot\Synthesizers\SynthManager;
  */
 class LivewireManager
 {
+    /**
+     * Middleware that must also run on the update endpoint.
+     *
+     * A Livewire update posts to /livewire/update, not to the route that
+     * rendered the page, so the page's own route middleware does not run on it.
+     * Anything a component reads out of ambient request state — a tenant or
+     * organisation resolved from the URL, a locale, an impersonation context —
+     * is therefore unset from the second request onward. The screen renders
+     * perfectly and then refuses every button on it, with no error anywhere.
+     *
+     * Registering middleware here puts it on the update route too:
+     *
+     *     LivewireManager::addPersistentMiddleware([EnsureOrganisationMember::class]);
+     *
+     * Call it from a provider's register(), which runs before every boot() and
+     * so cannot land after this layer has registered its routes.
+     *
+     * Static because it is boot-time configuration, identical for every request
+     * a worker serves.
+     *
+     * @var array<int, string>
+     */
+    private static array $persistentMiddleware = [];
+
+    /**
+     * Add middleware to the Livewire update and upload routes.
+     *
+     * @param  array<int, string>|string  $middleware  Alias or class name.
+     */
+    public static function addPersistentMiddleware(array|string $middleware): void
+    {
+        foreach ((array) $middleware as $name) {
+            if (!in_array($name, self::$persistentMiddleware, true)) {
+                self::$persistentMiddleware[] = $name;
+            }
+        }
+    }
+
+    /** @return array<int, string> */
+    public static function persistentMiddleware(): array
+    {
+        return self::$persistentMiddleware;
+    }
+
+    /** Drop the registered list. For tests, which must not leak into each other. */
+    public static function flushPersistentMiddleware(): void
+    {
+        self::$persistentMiddleware = [];
+    }
+
     protected ?ComponentRegistry $registry = null;
     protected ?SynthManager $synths = null;
     protected ?Checksum $checksum = null;
