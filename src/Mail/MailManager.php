@@ -21,6 +21,10 @@ class MailManager
 
     public function __construct(
         protected array $config = [],
+
+        // Optional, so the manager can be built without an application behind
+        // it — the mailers it makes then simply raise no events.
+        protected ?\Nitro\Events\Dispatcher $events = null,
     ) {}
 
     public function mailer(?string $name = null): Mailer
@@ -35,7 +39,7 @@ class MailManager
         $config = $this->config['mailers'][$name]
             ?? throw new InvalidArgumentException("Mailer [{$name}] is not configured.");
 
-        return new Mailer($this->createTransport($config), $this->config['from'] ?? null);
+        return new Mailer($this->createTransport($config), $this->config['from'] ?? null, $this->events);
     }
 
     protected function createTransport(array $config): Transport

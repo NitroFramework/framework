@@ -92,6 +92,33 @@ class Blade
     }
 
     /**
+     * Render a Blade template held in a string rather than in a file.
+     *
+     * For the short pieces of copy that live somewhere other than the views
+     * directory — an email subject line out of a config file or a database row,
+     * a notification's one-line body — where wanting "Your {{ $courseTitle }}
+     * certificate" to work should not mean inventing a second templating syntax
+     * beside this one.
+     *
+     * Not for page templates: a string has no path, so nothing about it is
+     * cached between calls.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    public function renderString(string $template, array $data = []): string
+    {
+        try {
+            return $this->factory->getRenderer()->renderString($template, $data);
+        } catch (\Throwable $exception) {
+            throw new RuntimeException(
+                'Failed to render template string: ' . $exception->getMessage(),
+                0,
+                $exception
+            );
+        }
+    }
+
+    /**
      * Register a custom Blade directive.
      *
      * The callback receives the directive arguments string (inside parentheses)

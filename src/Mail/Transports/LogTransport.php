@@ -20,11 +20,21 @@ class LogTransport implements Transport
         $to = implode(', ', array_map(static fn ($recipient) => $recipient['address'], $message->to));
         $body = $message->html ?? $message->text ?? '';
 
+        // Custom headers are written out too. They are what ties a message to
+        // the thing that produced it, and a local log that drops them cannot
+        // answer the question the log exists for.
+        $headers = '';
+
+        foreach ($message->headers as $name => $value) {
+            $headers .= $name . ': ' . $value . "\n";
+        }
+
         $entry = sprintf(
-            "[%s] mail to <%s>\nSubject: %s\n\n%s\n%s\n\n",
+            "[%s] mail to <%s>\nSubject: %s\n%s\n%s\n%s\n\n",
             date('Y-m-d H:i:s'),
             $to,
             $message->subject,
+            $headers,
             $body,
             str_repeat('-', 72),
         );

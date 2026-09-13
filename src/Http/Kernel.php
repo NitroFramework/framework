@@ -151,12 +151,19 @@ class Kernel
         // Compose inside-out: reverse so the first-listed middleware is the
         // outermost wrapper and therefore runs first.
         foreach (array_reverse($middlewareNames) as $name) {
-            $middleware = $this->resolveRouteMiddleware($name);
+            // 'platform:admin' is the alias 'platform' with 'admin' as an
+            // argument. Without the split the whole string resolves to nothing
+            // and the middleware is skipped — which, on a guard, leaves a route
+            // declared ->middleware('platform:admin') wide open while the route
+            // list still shows it as protected.
+            [$alias, $parameters] = $this->parseMiddlewareName($name);
+
+            $middleware = $this->resolveRouteMiddleware($alias);
             if ($middleware === null) {
                 continue;
             }
             $next = $finalNext;
-            $finalNext = fn(Request $req) => $middleware->handle($req, $next);
+            $finalNext = fn(Request $req) => $middleware->handle($req, $next, ...$parameters);
         }
 
         return $finalNext($request);
@@ -193,6 +200,26 @@ class Kernel
         }
 
         return $this->gatheredMiddlewareCache[$key] = $gathered;
+    }
+
+    /**
+     * Split 'alias:one,two' into its alias and its arguments.
+     *
+     * The colon only separates when the name is not a class: a fully-qualified
+     * middleware class cannot contain one, but a Windows-ish path or an
+     * unusual alias might, so the class check comes first.
+     *
+     * @return array{0: string, 1: array<int, string>}
+     */
+    protected function parseMiddlewareName(string $name): array
+    {
+        if (! str_contains($name, ':') || class_exists($name)) {
+            return [$name, []];
+        }
+
+        [$alias, $arguments] = explode(':', $name, 2);
+
+        return [$alias, $arguments === '' ? [] : explode(',', $arguments)];
     }
 
     /** Resolve a middleware alias (or a fully-qualified class name) to an instance. */

@@ -32,6 +32,14 @@ class BladeCompiler implements TemplateCompiler
     protected static array $precompilers = [];
 
     protected array $verbatimBlocks = [];
+
+    /**
+     * Bodies of @php blocks, lifted out before compilation so nothing inside
+     * them is read as a template. See storeRawPhpBlocks().
+     *
+     * @var array<string, string>
+     */
+    protected array $rawPhpBlocks = [];
     protected array $footer = [];
 
     public function __construct(
@@ -78,10 +86,53 @@ class BladeCompiler implements TemplateCompiler
     protected function compileInlineHtml(string $content): string
     {
         $content = $this->storeVerbatimBlocks($content);
+        $content = $this->storeRawPhpBlocks($content);
         $content = $this->compileComments($content);
         $content = $this->tagCompiler->compile($content);
         $content = $this->compileEchos($content);
         $content = $this->compileDirectives($content);
+        $content = $this->restoreRawPhpBlocks($content);
+
+        return $content;
+    }
+
+    /**
+     * Lift the body of every @php block out before anything else runs.
+     *
+     * Inside those braces is PHP, not a template, and compiling it is how a
+     * comment that mentions a directive silently becomes one: the words "an
+     * inline @if" in a code comment compiled to "<?php if: ?>", which closed
+     * the PHP block early and left every assignment after it undefined. The
+     * error then names the variable, nowhere near the comment that caused it —
+     * the same shape of failure as writing a closing PHP tag inside a comment.
+     *
+     * Lifted here rather than skipped by the tokenizer because at this point
+     * @php is still a directive: the tokenizer sees inline HTML, not PHP.
+     *
+     * @php($expression) — the one-line form — is left to the directive
+     * compiler, which is why the lookahead excludes it.
+     */
+    protected function storeRawPhpBlocks(string $content): string
+    {
+        return preg_replace_callback(
+            '/@php(?!\s*\()(.*?)@endphp/s',
+            function ($matches) {
+                $placeholder = '___RAWPHP_' . md5(uniqid('', true)) . '___';
+                $this->rawPhpBlocks[$placeholder] = $matches[1];
+
+                return $placeholder;
+            },
+            $content
+        ) ?? $content;
+    }
+
+    protected function restoreRawPhpBlocks(string $content): string
+    {
+        foreach ($this->rawPhpBlocks as $placeholder => $original) {
+            $content = str_replace($placeholder, '<?php ' . $original . ' ?>', $content);
+        }
+
+        $this->rawPhpBlocks = [];
 
         return $content;
     }

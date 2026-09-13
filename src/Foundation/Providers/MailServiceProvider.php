@@ -15,8 +15,13 @@ class MailServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        $this->container->singleton('mail', function () {
-            return new MailManager((array) config('mail', []));
+        $this->container->singleton('mail', function ($container) {
+            // The event bus goes in, so a message can be logged, redirected or
+            // stamped without anything having to wrap the mailer.
+            return new MailManager(
+                (array) config('mail', []),
+                $container->createOrResolve('events'),
+            );
         });
         $this->container->alias(MailManager::class, 'mail');
 

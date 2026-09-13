@@ -142,6 +142,14 @@ class SmtpTransport implements Transport
         }
         $headers[] = 'Message-ID: <' . bin2hex(random_bytes(12)) . '@' . $this->localDomain . '>';
 
+        // The message's own headers last, so they cannot displace From, To or
+        // Subject. Message::header() has already refused anything carrying a
+        // line break, which is what would let one of these append a header of
+        // its own.
+        foreach ($message->headers as $name => $value) {
+            $headers[] = $name . ': ' . $this->encodeHeader($value);
+        }
+
         [$contentHeaders, $body] = $this->buildBody($message);
 
         return implode("\r\n", array_merge($headers, $contentHeaders)) . "\r\n\r\n" . $body;

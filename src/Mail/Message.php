@@ -27,6 +27,16 @@ class Message
     /** @var array<int, array{name: string, mime: string, content: string}> */
     public array $attachments = [];
 
+    /**
+     * Custom headers, name => value.
+     *
+     * What a delivery log and a provider's bounce webhook use to recognise a
+     * message days after it was sent.
+     *
+     * @var array<string, string>
+     */
+    public array $headers = [];
+
     public function from(string $address, ?string $name = null): static
     {
         $this->from = ['address' => $this->assertValidAddress($address), 'name' => $name];
@@ -81,6 +91,57 @@ class Message
     {
         $this->subject = $subject;
         return $this;
+    }
+
+    /**
+     * Set a custom header, or read one back when the value is omitted.
+     *
+     *     $message->header('X-App-Template', 'certificate.issued');
+     *
+     * What this is for is tying a message that has left the building back to
+     * the thing that produced it: a delivery log answering "did this learner
+     * get their certificate email?", or a provider's bounce webhook arriving
+     * days later with nothing but the message's own headers to identify it by.
+     *
+     * A name or value carrying a line break would let anything user-supplied
+     * append headers of its own — a Bcc to somewhere else being the obvious one
+     * — so both are refused outright rather than stripped. Silently removing
+     * the break would keep a forged value in the header.
+     *
+     * @throws \InvalidArgumentException when either part could break the header block.
+     */
+    public function header(string $name, ?string $value = null): static|string|null
+    {
+        if ($value === null) {
+            return $this->headers[$name] ?? null;
+        }
+
+        $this->headers[$this->assertHeaderSafe($name, 'name')] = $this->assertHeaderSafe($value, 'value');
+
+        return $this;
+    }
+
+    /**
+     * Set several headers at once.
+     *
+     * @param  array<string, string>  $headers
+     */
+    public function withHeaders(array $headers): static
+    {
+        foreach ($headers as $name => $value) {
+            $this->header($name, $value);
+        }
+
+        return $this;
+    }
+
+    private function assertHeaderSafe(string $part, string $what): string
+    {
+        if (preg_match('/[\r\n\0]/', $part) === 1 || trim($part) === '') {
+            throw new \InvalidArgumentException("Invalid header {$what}: [{$part}].");
+        }
+
+        return trim($part);
     }
 
     public function html(string $html): static
