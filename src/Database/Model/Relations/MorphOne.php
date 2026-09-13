@@ -2,7 +2,6 @@
 
 namespace Nitro\Database\Model\Relations;
 
-use Nitro\Database\DB;
 use Nitro\Database\Model\Model;
 
 /**
@@ -11,6 +10,8 @@ use Nitro\Database\Model\Model;
  */
 class MorphOne extends HasOne
 {
+    protected string $typeColumn;
+
     public function __construct(
         Model $parent,
         string $relatedClass,
@@ -20,8 +21,16 @@ class MorphOne extends HasOne
     ) {
         parent::__construct($parent, $relatedClass, $foreignKey, $ownerKey);
 
+        $this->typeColumn = $typeColumn;
+
         // Applied after the parent constructor so the per-parent id WHERE stays
         // first — the eager path strips exactly one, and expects that one.
         $this->query->where($typeColumn, $parent->getMorphClass());
+    }
+
+    /** The column holding the parent's type. Read by whereHas()/withCount(). */
+    public function getTypeColumn(): string
+    {
+        return $this->typeColumn;
     }
 }

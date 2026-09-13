@@ -20,6 +20,8 @@ use Nitro\Database\Model\Model;
  */
 class MorphMany extends HasMany
 {
+    protected string $typeColumn;
+
     public function __construct(
         Model $parent,
         string $relatedClass,
@@ -29,9 +31,17 @@ class MorphMany extends HasMany
     ) {
         parent::__construct($parent, $relatedClass, $foreignKey, $ownerKey);
 
+        $this->typeColumn = $typeColumn;
+
         // Order matters: the id WHERE was applied by the parent constructor and
         // must stay first, because the eager path strips exactly one WHERE and
         // expects it to be the per-parent one.
         $this->query->where($typeColumn, $parent->getMorphClass());
+    }
+
+    /** The column holding the parent's type. Read by whereHas()/withCount(). */
+    public function getTypeColumn(): string
+    {
+        return $this->typeColumn;
     }
 }

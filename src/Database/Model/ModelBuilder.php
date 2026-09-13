@@ -23,6 +23,8 @@ use Nitro\Database\Query\QueryBuilder;
  */
 class ModelBuilder
 {
+    use Concerns\QueriesRelationships;
+
     protected QueryBuilder $query;
     protected string $modelClass;
     protected array $eagerLoads = [];
