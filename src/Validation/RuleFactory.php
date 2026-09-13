@@ -18,6 +18,16 @@ use Nitro\Validation\Rules\Regex;
 use Nitro\Validation\Rules\Url;
 use Nitro\Validation\Rules\Confirmed;
 use Nitro\Validation\Rules\Unique;
+use Nitro\Validation\Rules\Exists;
+use Nitro\Validation\Rules\ArrayRule;
+use Nitro\Validation\Rules\BooleanRule;
+use Nitro\Validation\Rules\Between;
+use Nitro\Validation\Rules\Same;
+use Nitro\Validation\Rules\Different;
+use Nitro\Validation\Rules\RequiredIf;
+use Nitro\Validation\Rules\RequiredWith;
+use Nitro\Validation\Rules\After;
+use Nitro\Validation\Rules\Before;
 
 
 /**
@@ -57,6 +67,16 @@ class RuleFactory
         $this->register('url', Url::class);
         $this->register('confirmed', Confirmed::class);
         $this->register('unique', Unique::class);
+        $this->register('exists', Exists::class);
+        $this->register('array', ArrayRule::class);
+        $this->register('boolean', BooleanRule::class);
+        $this->register('between', Between::class);
+        $this->register('same', Same::class);
+        $this->register('different', Different::class);
+        $this->register('required_if', RequiredIf::class);
+        $this->register('required_with', RequiredWith::class);
+        $this->register('after', After::class);
+        $this->register('before', Before::class);
     }
 
     /**
