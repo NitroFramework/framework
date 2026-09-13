@@ -247,13 +247,70 @@ if (!function_exists('rescue')) {
      * @param mixed $rescue
      * @return mixed
      */
-    function rescue(callable $callback, $rescue = null)
+    function rescue(callable $callback, $rescue = null, bool $report = true)
     {
         try {
             return $callback();
         } catch (Throwable $exception) {
+            // Reported by default, because the alternative is a helper whose
+            // whole purpose is to swallow exceptions doing precisely that. A
+            // rescue() around a best-effort write — logging an email, warming a
+            // cache — is right to carry on, and wrong to leave no trace of why
+            // it had to. Pass false where the failure genuinely is an expected
+            // path rather than a fault.
+            if ($report) {
+                report($exception);
+            }
+
             return is_callable($rescue) ? $rescue($exception) : $rescue;
         }
+    }
+}
+
+if (!function_exists('report')) {
+    /**
+     * Record an exception and carry on.
+     *
+     * For the catch block that means "this is worth knowing about but must not
+     * stop what we are doing" — writing the mail log, say, which must never be
+     * the reason a certificate email fails to go out. Without it, such a block
+     * either reaches for the handler by hand or, far more often, swallows the
+     * exception and leaves nothing behind.
+     *
+     * Never throws: something that fails while reporting a failure must not
+     * replace the failure.
+     */
+    function report(Throwable|string $exception): void
+    {
+        if (is_string($exception)) {
+            $exception = new Exception($exception);
+        }
+
+        try {
+            app(\Nitro\Exceptions\ExceptionHandler::class)->report($exception);
+        } catch (Throwable) {
+            // No application, or a handler that is itself broken. The PHP error
+            // log keeps the trail rather than losing it.
+            error_log((string) $exception);
+        }
+    }
+}
+
+if (!function_exists('report_if')) {
+    /** Record an exception when the condition holds. */
+    function report_if(bool $condition, Throwable|string $exception): void
+    {
+        if ($condition) {
+            report($exception);
+        }
+    }
+}
+
+if (!function_exists('report_unless')) {
+    /** Record an exception unless the condition holds. */
+    function report_unless(bool $condition, Throwable|string $exception): void
+    {
+        report_if(! $condition, $exception);
     }
 }
 

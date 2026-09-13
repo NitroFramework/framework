@@ -278,9 +278,26 @@ class Kernel
         return Response::html((string) $result);
     }
 
+    /**
+     * The exception this kernel last turned into a response, if any.
+     *
+     * Kept so a test can ask to see the real failure rather than the rendered
+     * error page: by the time a test has a response the exception has already
+     * been converted, and the message, file and line are only recoverable from
+     * several kilobytes of styled markup.
+     */
+    public function lastException(): ?Throwable
+    {
+        return $this->lastException;
+    }
+
+    protected ?Throwable $lastException = null;
+
     /** Handle an exception that occurred during the request. */
     protected function handleException(Request $request, Throwable $exception): Response
     {
+        $this->lastException = $exception;
+
         $handler = $this->container->createOrResolve(ExceptionHandler::class);
 
         // Report ONCE, here, before deciding how to render. Doing it at the top
@@ -307,7 +324,20 @@ class Kernel
             ]);
         }
 
-        $response = new Response($content, $statusCode, ['Content-Type' => 'text/html']);
+        // Headers the exception itself asked for. A 429 without Retry-After
+        // tells a client to back off for an unknown length of time, so it
+        // retries immediately; a 401 without WWW-Authenticate does not say how
+        // to authenticate. Losing these at the last step is how an
+        // abort(429) ends up meaning less than the middleware that throws it.
+        $headers = ['Content-Type' => 'text/html'];
+
+        $prepared = $handler->prepareException($exception);
+
+        if ($prepared instanceof HttpException) {
+            $headers = array_merge($headers, $prepared->getHeaders());
+        }
+
+        $response = new Response($content, $statusCode, $headers);
 
         return $handler->finalize($response, $exception, $request) ?? $response;
     }

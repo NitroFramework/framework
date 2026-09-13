@@ -40,6 +40,14 @@ abstract class TestCase extends BaseTestCase
     protected bool $includeCsrfToken = true;
 
     /**
+     * Whether a request that throws comes back as a rendered error page.
+     *
+     * On by default, because that is what a browser gets and what a test
+     * asserting a 500 is asserting. See withoutExceptionHandling().
+     */
+    protected bool $handlesExceptions = true;
+
+    /**
      * The application's base path. Override when the test suite does not sit
      * two directories under the project root.
      */
@@ -217,9 +225,43 @@ abstract class TestCase extends BaseTestCase
         $container->instance('request', $request);
         $container->instance(Request::class, $request);
 
-        $response = $this->make(Kernel::class)->handle($request);
+        $kernel = $this->make(Kernel::class);
+        $response = $kernel->handle($request);
+
+        // The exception, when the test asked to see it rather than the page.
+        if (! $this->handlesExceptions && ($exception = $kernel->lastException()) !== null) {
+            throw $exception;
+        }
 
         return new TestResponse($response);
+    }
+
+    /**
+     * Let the exception out of the request instead of rendering it.
+     *
+     *     $this->withoutExceptionHandling()->get('/courses');
+     *
+     * By default a request that throws comes back as the rendered error page.
+     * That is right for a test asserting a 500, and wrong for a test that has
+     * just started failing: the message, the file and the line are all in
+     * there, buried in several kilobytes of styled markup, and what PHPUnit
+     * prints is the markup.
+     *
+     * With this on, PHPUnit reports the actual exception and its stack trace.
+     */
+    public function withoutExceptionHandling(): static
+    {
+        $this->handlesExceptions = false;
+
+        return $this;
+    }
+
+    /** Render exceptions again, as a request normally would. */
+    public function withExceptionHandling(): static
+    {
+        $this->handlesExceptions = true;
+
+        return $this;
     }
 
     /** Send these headers with every subsequent request from this test. */

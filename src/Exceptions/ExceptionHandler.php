@@ -77,6 +77,15 @@ class ExceptionHandler
         \Nitro\Exceptions\HttpException::class,
         \Nitro\Http\Exceptions\HttpResponseException::class,
         \Nitro\Validation\ValidationException::class,
+
+        // Refusals, not failures. Somebody not being signed in, or not being
+        // allowed, is the application working — logging every one of them
+        // buries the exceptions worth reading under the ordinary traffic of a
+        // login page. stopIgnoring() puts them back when an application does
+        // want to watch for a pattern of refused requests.
+        \Nitro\Auth\Exceptions\AuthenticationException::class,
+        \Nitro\Auth\Exceptions\AuthorizationException::class,
+        \Nitro\Database\Model\ModelNotFoundException::class,
     ];
 
     /** @var array<int, class-string> Classes removed from the internal ignore list. */
@@ -555,6 +564,18 @@ class ExceptionHandler
             // it to a redirect long before this, but a JSON client lands here).
             $exception instanceof \Nitro\Validation\ValidationException
                 => new HttpException($exception->status ?: 422, $exception->getMessage(), $exception),
+
+            // Nobody is signed in. A browser is sent to the login page by the
+            // response handler the auth provider registers; anything that gets
+            // this far — a JSON client, or an application with no login route —
+            // gets the 401 that says what actually happened.
+            $exception instanceof \Nitro\Auth\Exceptions\AuthenticationException
+                => new HttpException(401, $exception->getMessage(), $exception),
+
+            // Signed in and still not allowed. Usually 403, but 404 when
+            // admitting the thing exists is itself the disclosure.
+            $exception instanceof \Nitro\Auth\Exceptions\AuthorizationException
+                => new HttpException($exception->status(), $exception->getMessage(), $exception),
 
             default => $exception,
         };

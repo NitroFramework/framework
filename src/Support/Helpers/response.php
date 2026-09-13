@@ -150,3 +150,51 @@ if (!function_exists('abort')) {
         throw new \Nitro\Exceptions\HttpException($code, $message);
     }
 }
+
+if (!function_exists('abort_if')) {
+    /**
+     * Refuse when the condition holds.
+     *
+     *     abort_if($order->user_id !== auth()->id(), 404);
+     *
+     * The same as an if with an abort inside it, and worth having because the
+     * long form invites the mistake: a guard written as a statement gets an
+     * early return bolted on later, or a second branch, and the refusal quietly
+     * stops covering the case it was written for. One line does not.
+     *
+     * @param  array<string, string>  $headers
+     *
+     * @throws \Nitro\Exceptions\HttpException
+     */
+    function abort_if(bool $condition, int $code, string $message = '', array $headers = []): void
+    {
+        if (! $condition) {
+            return;
+        }
+
+        if ($headers === []) {
+            abort($code, $message);
+        }
+
+        throw (new \Nitro\Exceptions\HttpException($code, $message))->withHeaders($headers);
+    }
+}
+
+if (!function_exists('abort_unless')) {
+    /**
+     * Refuse unless the condition holds.
+     *
+     *     abort_unless($certificate->isVisibleTo(auth()->user()), 404);
+     *
+     * The form most authorisation reads in: a thing that must be true, said
+     * once, at the top.
+     *
+     * @param  array<string, string>  $headers
+     *
+     * @throws \Nitro\Exceptions\HttpException
+     */
+    function abort_unless(bool $condition, int $code, string $message = '', array $headers = []): void
+    {
+        abort_if(! $condition, $code, $message, $headers);
+    }
+}
