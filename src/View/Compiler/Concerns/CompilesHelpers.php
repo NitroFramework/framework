@@ -85,6 +85,22 @@ trait CompilesHelpers
         return "<?php echo '/' . ltrim({$expression}, '/'); ?>";
     }
 
+    /**
+     * @vite('resources/css/app.css')
+     * @vite(['resources/css/app.css', 'resources/js/app.js'])
+     *
+     * Emits whatever loads those entries: the dev server while `npm run dev` is
+     * running, the hashed build output otherwise. The template does not know
+     * which, and should not — that difference is a deployment fact rather than
+     * a design one.
+     */
+    protected function compileVite(string $args): string
+    {
+        $expression = $this->stripParentheses($args);
+
+        return "<?php echo app(\\Nitro\\View\\Vite::class)->tags({$expression}); ?>";
+    }
+
     protected function compileUrl(string $args): string
     {
         $expression = $this->stripParentheses($args);

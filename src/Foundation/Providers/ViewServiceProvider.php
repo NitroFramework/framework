@@ -37,6 +37,19 @@ class ViewServiceProvider extends ServiceProvider
         $this->container->singleton(ComposerResolver::class, ComposerResolver::class);
         $this->container->singleton(ViewRenderer::class, ViewRenderer::class);
 
+        /*
+         * What @vite resolves. A singleton because the manifest is read from
+         * disk once and then answers every entry on the page — and under a
+         * worker, once for the life of the process.
+         */
+        $this->container->singleton(\Nitro\View\Vite::class, function () {
+            return new \Nitro\View\Vite(
+                publicPath: function_exists('public_path') ? public_path() : getcwd() . '/public',
+                buildDirectory: (string) config('vite.build_directory', 'build'),
+                hotFile: (string) config('vite.hot_file', 'hot'),
+            );
+        });
+
         // ── Interface → concrete (route to the singleton above) ──
         $this->container->singleton(TemplateCompiler::class, BladeCompiler::class);
         $this->container->singleton(TagCompiler::class, ComponentTagCompiler::class);
