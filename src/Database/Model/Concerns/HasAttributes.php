@@ -137,6 +137,54 @@ trait HasAttributes
         return $this->original;
     }
 
+    /**
+     * The attribute values as they were when the model was last in sync with
+     * the database — before whatever is about to be written.
+     *
+     * Raw, exactly as stored: an enum column comes back as its backing string.
+     * That is what a guard comparing "what was it before" against "what is it
+     * becoming" wants, and casting first would mean handing a cast value to
+     * something expecting the column.
+     *
+     * @return mixed The value for $key, or the whole array when $key is null.
+     */
+    public function getRawOriginal(?string $key = null, mixed $default = null): mixed
+    {
+        $original = $this->ensureOriginalSnapshot();
+
+        if ($key === null) {
+            return $original;
+        }
+
+        return array_key_exists($key, $original) ? $original[$key] : $default;
+    }
+
+    /**
+     * The original attribute values, cast the way reading them would be.
+     *
+     *     $version->getOriginal('status')   // VersionStatus::Draft
+     *
+     * @return mixed The value for $key, or the whole array when $key is null.
+     */
+    public function getOriginal(?string $key = null, mixed $default = null): mixed
+    {
+        $original = $this->ensureOriginalSnapshot();
+
+        if ($key !== null) {
+            return array_key_exists($key, $original)
+                ? $this->castAttribute($key, $original[$key])
+                : $default;
+        }
+
+        $cast = [];
+
+        foreach ($original as $attribute => $value) {
+            $cast[$attribute] = $this->castAttribute($attribute, $value);
+        }
+
+        return $cast;
+    }
+
     public function getDirty(): array
     {
         $original = $this->ensureOriginalSnapshot();
