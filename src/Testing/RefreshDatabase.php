@@ -5,6 +5,7 @@ namespace Nitro\Testing;
 use Nitro\Database\DB;
 use Nitro\Database\Migration\MigrationPathRegistry;
 use Nitro\Database\Schema\SchemaBuilder;
+use Nitro\Database\Schema\SchemaCache;
 
 /**
  * Give each test a fresh, empty database built from the application's own
@@ -36,10 +37,21 @@ trait RefreshDatabase
         DB::disconnect();
         DB::configure($this->testDatabaseConfig());
 
-        $schema = new SchemaBuilder();
+        // Migrations must read the live schema: a guard such as hasColumn()
+        // asks whether its own change has already been applied, and a cached
+        // answer describes a different database.
+        SchemaCache::bypass(true);
+        SchemaCache::flushMemo();
 
-        foreach ($this->migrations() as $migration) {
-            $migration->up($schema);
+        try {
+            $schema = new SchemaBuilder();
+
+            foreach ($this->migrations() as $migration) {
+                $migration->up($schema);
+            }
+        } finally {
+            SchemaCache::bypass(false);
+            SchemaCache::flushMemo();
         }
 
         $this->flushCacheForFreshDatabase();

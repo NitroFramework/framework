@@ -379,6 +379,9 @@ class OptimizeCommand implements CommandInterface
             $tableNames = array_values(array_unique($tableNames));
 
             $cache = [
+                // Connection this cache describes; verified on load.
+                'database'       => SchemaCache::currentDatabase(),
+
                 'tables'         => $tables,
                 'table_names'    => $tableNames,
                 'table_columns'  => [],

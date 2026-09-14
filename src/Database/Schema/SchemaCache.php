@@ -129,7 +129,31 @@ class SchemaCache
         }
 
         $data = require $path;
-        return self::$cache = is_array($data) ? $data : [];
+
+        if (!is_array($data)) {
+            return [];
+        }
+
+        // A cache describes one connection and must not answer for another.
+        if (isset($data['database']) && $data['database'] !== self::currentDatabase()) {
+            return [];
+        }
+
+        return self::$cache = $data;
+    }
+
+    /**
+     * Identifier for the connection a cache belongs to, as driver:database.
+     */
+    public static function currentDatabase(): string
+    {
+        try {
+            $config = \Nitro\Database\DB::connection()->getConfig();
+
+            return ($config['driver'] ?? '') . ':' . ($config['database'] ?? '');
+        } catch (\Throwable) {
+            return '';
+        }
     }
 
     private static function cacheFilePath(): ?string

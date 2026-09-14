@@ -28,7 +28,7 @@ class Config implements ConfigRepository
         $configPath = $paths->config();
         $cachePath = $paths->cache('config.php');
 
-        if (!$ignoreCache && file_exists($cachePath) && self::cacheIsFresh($cachePath, $paths->base('.env'))) {
+        if (!$ignoreCache && !self::runningTests() && file_exists($cachePath) && self::cacheIsFresh($cachePath, $paths->base('.env'))) {
             try {
                 $cached = @require $cachePath;
                 if (is_array($cached)) {
@@ -134,6 +134,24 @@ class Config implements ConfigRepository
      * re-`optimize` — we deliberately don't stat the whole config dir per
      * request. .env is the value that changes on a live box.
      */
+    /**
+     * Whether the current process is a test run.
+     *
+     * The config cache is skipped for test runs: it is compiled from one
+     * environment's .env and would otherwise override the values a suite sets
+     * for itself (queue driver, cache path, mailer).
+     */
+    public static function runningTests(): bool
+    {
+        if (defined('PHPUNIT_COMPOSER_INSTALL') || class_exists(\PHPUnit\Framework\TestCase::class, false)) {
+            return true;
+        }
+
+        $entry = $_SERVER['SCRIPT_NAME'] ?? '';
+
+        return is_string($entry) && str_contains($entry, 'phpunit');
+    }
+
     public static function cacheIsFresh(string $cachePath, string $envFile): bool
     {
         $cacheTime = @filemtime($cachePath);

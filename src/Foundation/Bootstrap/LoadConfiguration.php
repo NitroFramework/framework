@@ -24,10 +24,11 @@ class LoadConfiguration implements BootstrapperInterface
         $container = $app->getContainer();
         $cachedConfigPath = $this->paths->cache('config.php');
 
-        // Use the compiled cache only when it's fresh relative to .env; a stale
-        // cache (e.g. .env edited after `optimize`) is bypassed so we never
-        // serve outdated config. Config::__construct applies the same guard.
-        if (file_exists($cachedConfigPath)
+        // Use the compiled cache only when it's fresh relative to .env, and
+        // never under a test runner — see Config::runningTests(). The same
+        // guard is applied in Config::__construct.
+        if (! Config::runningTests()
+            && file_exists($cachedConfigPath)
             && Config::cacheIsFresh($cachedConfigPath, $this->paths->base('.env'))
         ) {
             $config = Config::fromArray(require $cachedConfigPath);
@@ -45,4 +46,5 @@ class LoadConfiguration implements BootstrapperInterface
         // to resolve 'config' from the container itself.
         $app->setConfig($config);
     }
+
 }
