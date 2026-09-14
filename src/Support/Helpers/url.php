@@ -58,16 +58,9 @@ if (!function_exists('route')) {
     /**
      * The URL of a named route.
      *
-     * Throws when the name is unknown, and deliberately does not soften that.
-     * A route name is not runtime data — the route table is fixed at boot — so
-     * a miss is always a programming error, and the only question is whether
-     * you find out now or a customer finds out later.
-     *
-     * This used to return the error message as though it were a URL, which
-     * produced links to /Route[dashboard] not found: Route [dashboard] not
-     * found. Worse, in production it quietly returned the home page instead:
-     * a "Download your certificate" button that sends somebody to the
-     * marketing site, with nothing logged and nothing to notice.
+     * Throws on an unknown name rather than returning a placeholder: the route
+     * table is fixed at boot, so a miss is a programming error, not a runtime
+     * condition.
      *
      * @param  string  $name  Route name
      * @param  mixed  $parameters  One parameter, or an array of them
@@ -76,13 +69,25 @@ if (!function_exists('route')) {
      */
     function route(string $name, mixed $parameters = []): string
     {
-        // route('courses.show', $course) and route('courses.show', 'a-slug')
-        // are both ordinary things to write; only the array form was accepted.
+        // Accept a bare parameter as well as an array.
         if (! is_array($parameters)) {
             $parameters = [$parameters];
         }
 
-        return app('router')->route($name, $parameters);
+        // Held between calls: a page of links would otherwise resolve the same
+        // singleton once per link. Keyed on the container so a reset (tests,
+        // worker teardown) does not hand back a stale router.
+        static $router = null;
+        static $from = null;
+
+        $container = app();
+
+        if ($router === null || $from !== $container) {
+            $from = $container;
+            $router = $container->createOrResolve('router');
+        }
+
+        return $router->route($name, $parameters);
     }
 }
 
