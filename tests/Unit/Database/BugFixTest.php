@@ -173,13 +173,13 @@ class BugFixTest extends TestCase
         // After pluck() the builder's $columns must be unchanged so a
         // subsequent get() still returns SELECT *.
         $b = $this->builder()->from('users');
-        $this->assertSame(['*'], $b->getColumns());
+        $this->assertSame([], $b->getColumns());
 
         // We can't run pluck() without a connection but we CAN verify the
         // clone-then-mutate pattern: pluck modifies its clone, not $this.
         $clone = clone $b;
         $clone->select('email');
-        $this->assertSame(['*'], $b->getColumns(), 'pluck must not mutate origin.');
+        $this->assertSame([], $b->getColumns(), 'pluck must not mutate origin.');
     }
 
     // ─── upsert MySQL row-alias syntax ────────────────────

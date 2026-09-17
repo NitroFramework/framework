@@ -91,13 +91,14 @@ class PerfSmokeTest extends TestCase
         };
 
         $row = (object) ['created_at' => '2024-01-15 12:34:56'];
-        $m = $model->newFromObject($row);
+        $instance = $model->newFromObject($row);
 
-        $first = $m->created_at;
-        $this->assertInstanceOf(\DateTime::class, $first);
+        $first = $instance->created_at;
+        $this->assertInstanceOf(\Nitro\Support\Carbon::class, $first);
+
         for ($i = 0; $i < 100; $i++) {
-            $repeat = $m->created_at;
-            $this->assertSame($first, $repeat, 'cast cache must return the same DateTime instance');
+            $repeat = $instance->created_at;
+            $this->assertSame($first, $repeat, 'cast cache must return the same instance');
         }
     }
 

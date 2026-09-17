@@ -51,11 +51,78 @@ class MySqlGrammar extends Grammar
         return "{$insert} AS new ON DUPLICATE KEY UPDATE {$updateSql}";
     }
 
+    /**
+     * MySQL decides LIKE case sensitivity by the column's collation, which is
+     * case-insensitive by default. BINARY compares the underlying bytes, which
+     * is the only way to ask for a case-sensitive match without knowing the
+     * collation the column was created with.
+     */
+    public function compileLike(string $wrappedColumn, bool $caseSensitive, bool $not): string
+    {
+        if (! $caseSensitive) {
+            return parent::compileLike($wrappedColumn, false, $not);
+        }
+
+        return $wrappedColumn . ($not ? ' NOT LIKE BINARY ?' : ' LIKE BINARY ?');
+    }
+
     public function compileLock(string $type): string
     {
         return match ($type) {
             'update' => 'FOR UPDATE',
             'share' => 'LOCK IN SHARE MODE',
+            default => '',
+        };
+    }
+
+    /**
+     * RAND() takes an optional seed, which makes a "random" order repeatable —
+     * the difference between a shuffled listing that paginates coherently and
+     * one that shows the same row twice.
+     */
+    public function compileRandom(string $seed = ''): string
+    {
+        return 'RAND(' . ($seed === '' ? '' : (int) $seed) . ')';
+    }
+
+    /**
+     * MATCH ... AGAINST, against a FULLTEXT index on those columns.
+     *
+     * The mode decides how the search string is read: 'boolean' honours the
+     * +required/-excluded operators, the default weighs the words instead.
+     *
+     * @param array<int, string>   $columns
+     * @param array<string, mixed> $options
+     */
+    public function compileFullText(array $columns, array $options): string
+    {
+        $wrapped = implode(', ', array_map([$this, 'wrap'], $columns));
+
+        $mode = ($options['mode'] ?? null) === 'boolean'
+            ? ' IN BOOLEAN MODE'
+            : ' IN NATURAL LANGUAGE MODE';
+
+        $expanded = ($options['expanded'] ?? false) && $mode !== ' IN BOOLEAN MODE'
+            ? ' WITH QUERY EXPANSION'
+            : '';
+
+        return "MATCH ({$wrapped}) AGAINST (?{$mode}{$expanded})";
+    }
+
+    protected function compileIndexHint(QueryBuilder $query): string
+    {
+        $hint = $query->getIndexHint();
+
+        if ($hint === null) {
+            return '';
+        }
+
+        $index = $this->wrap($hint['index']);
+
+        return match ($hint['type']) {
+            'hint' => "USE INDEX ({$index})",
+            'force' => "FORCE INDEX ({$index})",
+            'ignore' => "IGNORE INDEX ({$index})",
             default => '',
         };
     }

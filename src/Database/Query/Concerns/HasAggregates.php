@@ -22,6 +22,11 @@ trait HasAggregates
         return (float) $this->aggregate('AVG', $column);
     }
 
+    public function average(string $column): float
+    {
+        return $this->avg($column);
+    }
+
     public function min(string $column): mixed
     {
         return $this->aggregate('MIN', $column);
@@ -32,7 +37,7 @@ trait HasAggregates
         return $this->aggregate('MAX', $column);
     }
 
-    protected function aggregate(string $function, string $column): mixed
+    public function aggregate(string $function, string $column = '*'): mixed
     {
         return $this->cacheResult("agg:{$function}:{$column}", function () use ($function, $column) {
             $sql = $this->grammar->compileAggregate($this, $function, $column);

@@ -115,7 +115,9 @@ class QueryBuilderTest extends TestCase
 
     public function test_get_columns_default(): void
     {
-        $this->assertSame(['*'], $this->builder()->getColumns());
+        // Empty, not ['*']: nothing has been asked for yet, which is what lets
+        // a later selectRaw() stand on its own.
+        $this->assertSame([], $this->builder()->getColumns());
     }
 
     public function test_get_columns_after_select(): void

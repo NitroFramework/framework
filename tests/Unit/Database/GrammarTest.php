@@ -75,12 +75,21 @@ class GrammarTest extends TestCase
         $this->assertSame('SELECT `id`, `name` FROM `users`', $sql);
     }
 
-    public function test_select_raw_appends_to_existing_columns(): void
+    public function test_select_raw_on_a_fresh_builder_selects_only_the_expression(): void
     {
-        // selectRaw() APPENDS rather than replacing — matches Laravel.
-        // To replace, the caller does select() first or passes the raw via
-        // select(DB::raw('…')).
+        // A builder that has been given no columns is asking for all of them;
+        // once it is given one, that is what it asked for. An aggregate that
+        // came out as 'SELECT *, SUM(total)' would be unusable as a sub-select.
         $sql = $this->builder()->from('orders')
+            ->selectRaw('SUM(total) as revenue')
+            ->toSql();
+        $this->assertSame('SELECT SUM(total) as revenue FROM `orders`', $sql);
+    }
+
+    public function test_select_raw_appends_to_an_explicit_star(): void
+    {
+        $sql = $this->builder()->from('orders')
+            ->select('*')
             ->selectRaw('SUM(total) as revenue')
             ->toSql();
         $this->assertSame('SELECT *, SUM(total) as revenue FROM `orders`', $sql);

@@ -94,4 +94,134 @@ class SqliteGrammar extends Grammar
     {
         return "date({$wrappedColumn})";
     }
+
+    /**
+     * SQLite's json_extract() already returns an unquoted scalar, so there is
+     * nothing to unwrap around it.
+     */
+    protected function wrapJsonSelector(string $value): string
+    {
+        [$field, $path] = $this->wrapJsonFieldAndPath($value);
+
+        return "json_extract({$field}{$path})";
+    }
+
+    /**
+     * SQLite has no json_contains(); json_each() unrolls the array into rows,
+     * and the test becomes whether any of them is the value.
+     */
+    public function compileJsonContains(string $column): string
+    {
+        [$field, $path] = $this->wrapJsonFieldAndPath($column);
+
+        return "exists (select 1 from json_each({$field}{$path}) where json_each.value IS ?)";
+    }
+
+    public function compileJsonContainsKey(string $column, bool $not = false): string
+    {
+        [$field, $path] = $this->wrapJsonFieldAndPath($column);
+
+        return "json_type({$field}{$path}) IS " . ($not ? 'NULL' : 'NOT NULL');
+    }
+
+    public function compileJsonLength(string $column, string $operator): string
+    {
+        [$field, $path] = $this->wrapJsonFieldAndPath($column);
+
+        return "json_array_length({$field}{$path}) " . $this->validateOperator($operator) . ' ?';
+    }
+
+    /**
+     * Nor json_overlaps(): the same unrolling, asking whether any element of
+     * the column appears in the list bound alongside it.
+     */
+    public function compileJsonOverlaps(string $column): string
+    {
+        [$field, $path] = $this->wrapJsonFieldAndPath($column);
+
+        return "exists (select 1 from json_each({$field}{$path})"
+            . ' where json_each.value IN (select value from json_each(?)))';
+    }
+
+    /** SQLite compares the values themselves, not their JSON encoding. */
+    public function prepareJsonContainsBinding(mixed $value): mixed
+    {
+        return is_scalar($value) || $value === null
+            ? $value
+            : json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    }
+
+    /**
+     * SQLite spells the ignore as a conflict resolution on the INSERT itself.
+     *
+     * @param array<mixed> $values
+     */
+    public function compileInsertOrIgnore(\Nitro\Database\Query\QueryBuilder $query, array $values): string
+    {
+        return preg_replace('/^INSERT/', 'INSERT OR IGNORE', $this->compileInsert($query, $values), 1);
+    }
+
+    /**
+     * SQLite has one index hint, and it only forces a choice; there is no
+     * syntax for ignoring an index, so that request is dropped.
+     */
+    protected function compileIndexHint(\Nitro\Database\Query\QueryBuilder $query): string
+    {
+        $hint = $query->getIndexHint();
+
+        if ($hint === null || $hint['type'] === 'ignore') {
+            return '';
+        }
+
+        return 'INDEXED BY ' . $this->wrap($hint['index']);
+    }
+
+    /**
+     * SQLite has no YEAR()/MONTH()/DAY(); strftime() supplies all of them, and
+     * returns a zero-padded string — which is why the builder pads the value
+     * it binds for a month or a day.
+     */
+    public function compileDatePart(string $part, string $wrappedColumn): string
+    {
+        return match ($part) {
+            'date' => $this->compileDate($wrappedColumn),
+            'year' => "strftime('%Y', {$wrappedColumn})",
+            'month' => "strftime('%m', {$wrappedColumn})",
+            'day' => "strftime('%d', {$wrappedColumn})",
+            'time' => "strftime('%H:%M:%S', {$wrappedColumn})",
+            default => parent::compileDatePart($part, $wrappedColumn),
+        };
+    }
+
+    /**
+     * SQLite's LIKE is case-insensitive for ASCII and cannot be told
+     * otherwise per-query. GLOB is the case-sensitive matcher, so a
+     * case-sensitive request compiles to that instead and the pattern is
+     * translated in {@see prepareLikeBinding()}.
+     */
+    public function compileLike(string $wrappedColumn, bool $caseSensitive, bool $not): string
+    {
+        if (! $caseSensitive) {
+            return parent::compileLike($wrappedColumn, false, $not);
+        }
+
+        return $wrappedColumn . ($not ? ' NOT GLOB ?' : ' GLOB ?');
+    }
+
+    /**
+     * Translate a LIKE pattern into a GLOB one: % becomes *, _ becomes ?, and
+     * GLOB's own metacharacters are bracketed so they match literally.
+     */
+    public function prepareLikeBinding(string $value, bool $caseSensitive): string
+    {
+        if (! $caseSensitive) {
+            return $value;
+        }
+
+        return str_replace(
+            ['*', '?', '[', ']', '%', '_'],
+            ['[*]', '[?]', '[[]', '[]]', '*', '?'],
+            $value
+        );
+    }
 }

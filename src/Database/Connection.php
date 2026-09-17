@@ -180,6 +180,58 @@ class Connection
         });
     }
 
+    /**
+     * Read a result set one row at a time.
+     *
+     * The statement stays open while the caller iterates, so it is prepared
+     * outside the statement cache: a cached statement is shared, and a second
+     * query reaching for it mid-iteration would reset the result set out from
+     * under this loop.
+     *
+     * @param  array<int, mixed> $bindings
+     * @return \Generator<int, object>
+     */
+    public function cursor(string $sql, array $bindings = []): \Generator
+    {
+        if ($this->pretending) {
+            $this->capturePretend($sql, $bindings);
+
+            return;
+        }
+
+        $start = $this->logging ? microtime(true) : 0;
+
+        if (!empty($bindings)) {
+            $bindings = $this->prepareBindings($bindings);
+        }
+
+        $statement = $this->getPdo()->prepare($sql);
+
+        try {
+            $this->bindAndExecute($statement, $bindings);
+
+            while ($row = $statement->fetch()) {
+                yield $row;
+            }
+        } catch (PDOException $exception) {
+            throw new PDOException(
+                $exception->getMessage() . " (SQL: {$sql}) (Bindings: " . self::formatBindings($bindings) . ")",
+                (int) $exception->getCode(),
+                $exception
+            );
+        } finally {
+            $statement->closeCursor();
+
+            if ($this->logging) {
+                $this->log[] = [
+                    'sql' => $sql,
+                    'bindings' => $bindings,
+                    'time' => round((microtime(true) - $start) * 1000, 2),
+                ];
+            }
+        }
+    }
+
     public function insert(string $sql, array $bindings = []): bool
     {
         if ($this->pretending) { $this->capturePretend($sql, $bindings); return true; }
@@ -236,7 +288,7 @@ class Connection
 
         try {
             $stmt = $this->prepareCached($sql);
-            $stmt->execute($bindings);
+            $this->bindAndExecute($stmt, $bindings);
             $result = $callback($stmt);
         } catch (PDOException $exception) {
             // Drop the cached statement — it may be in an unusable state.
@@ -330,6 +382,44 @@ class Connection
      * guards against empty bindings so this never runs for a select with no
      * wheres — that's most of the simple-find traffic.
      */
+    /**
+     * Bind the parameters and run the statement.
+     *
+     * Each value is bound with its own type rather than handed to execute()
+     * as an array, which sends everything as a string. A string is usually
+     * harmless — the column's affinity converts it back — but an expression
+     * has no affinity to convert with, so json_array_length(...) > '1' on
+     * SQLite compares a number against text and matches nothing.
+     *
+     * @param array<int|string, mixed> $bindings
+     */
+    private function bindAndExecute(PDOStatement $statement, array $bindings): void
+    {
+        if ($bindings === []) {
+            $statement->execute();
+
+            return;
+        }
+
+        $position = 1;
+
+        foreach ($bindings as $key => $value) {
+            $statement->bindValue(
+                is_string($key) ? $key : $position++,
+                $value,
+                match (true) {
+                    $value === null => PDO::PARAM_NULL,
+                    is_int($value) => PDO::PARAM_INT,
+                    is_bool($value) => PDO::PARAM_BOOL,
+                    is_resource($value) => PDO::PARAM_LOB,
+                    default => PDO::PARAM_STR,
+                }
+            );
+        }
+
+        $statement->execute();
+    }
+
     private function prepareBindings(array $bindings): array
     {
         foreach ($bindings as $key => $value) {

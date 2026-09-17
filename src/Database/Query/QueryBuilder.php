@@ -6,11 +6,14 @@ use Closure;
 use Nitro\Database\Connection;
 use Nitro\Database\Query\Grammar\Grammar;
 use Nitro\Database\Query\RawExpression;
+use Nitro\Database\Query\Concerns\BuildsHavings;
 use Nitro\Database\Query\Concerns\BuildsJoins;
+use Nitro\Database\Query\Concerns\BuildsJsonWheres;
 use Nitro\Database\Query\Concerns\BuildsWheres;
 use Nitro\Database\Query\Concerns\CachesQueries;
 use Nitro\Database\Query\Concerns\ExecutesQueries;
 use Nitro\Database\Query\Concerns\HasAggregates;
+use Nitro\Database\Query\Concerns\InspectsQueries;
 
 /**
  * Fluent SQL query builder — composes and executes queries via the grammar and connection.
@@ -18,16 +21,31 @@ use Nitro\Database\Query\Concerns\HasAggregates;
 class QueryBuilder
 {
     use BuildsWheres;
+    use BuildsJsonWheres;
+    use BuildsHavings;
     use BuildsJoins;
     use ExecutesQueries;
     use HasAggregates;
+    use InspectsQueries;
     use CachesQueries;
 
     protected Connection $connection;
     protected Grammar $grammar;
 
-    protected string $from = '';
-    protected array $columns = ['*'];
+    protected string|RawExpression $from = '';
+
+    /**
+     * Columns to select. Empty means every column, so that a builder which has
+     * only been given a raw select — selectRaw('COUNT(*)'), say — asks for that
+     * alone rather than for it alongside a '*' nobody wanted.
+     */
+    protected array $columns = [];
+
+    /** Index hint for the FROM, where the grammar has syntax for one. */
+    protected ?array $indexHint = null;
+
+    /** Queries appended with UNION, each with its own 'all' flag. */
+    protected array $unions = [];
     protected bool $distinct = false;
     protected array $wheres = [];
     /**
@@ -36,14 +54,17 @@ class QueryBuilder
      *   SELECT [select] FROM JOIN [join] WHERE [where] HAVING [having]
      *   ORDER BY [order].
      *
-     * 'select' and 'order' hold bindings from selectRaw()/orderByRaw().
+     * 'select', 'group' and 'order' hold bindings from selectRaw(),
+     * groupByRaw() and orderByRaw().
      */
     protected array $bindings = [
         'select' => [],
         'join' => [],
         'where' => [],
+        'group' => [],
         'having' => [],
         'order' => [],
+        'union' => [],
     ];
     protected array $joins = [];
     protected array $groups = [];
@@ -61,7 +82,29 @@ class QueryBuilder
         $this->grammar = $grammar;
     }
 
+    /**
+     * Resolve whereColumnAndOtherColumn() style calls.
+     *
+     * @param array<int, mixed> $parameters
+     */
+    public function __call(string $method, array $parameters): mixed
+    {
+        if (str_starts_with($method, 'where') && strlen($method) > 5) {
+            return $this->dynamicWhere($method, $parameters);
+        }
+
+        throw new \BadMethodCallException(
+            'Call to undefined method ' . static::class . "::{$method}()."
+        );
+    }
+
     // ─── Table ─────────────────────────────────────────────
+
+    /** A new builder on the same connection and grammar, with nothing set. */
+    public function newQuery(): static
+    {
+        return new static($this->connection, $this->grammar);
+    }
 
     public function table(string $table): static
     {
@@ -69,9 +112,76 @@ class QueryBuilder
         return $this;
     }
 
-    public function from(string $table): static
+    public function from(string|RawExpression $table): static
     {
-        return $this->table($table);
+        $this->from = $table;
+
+        return $this;
+    }
+
+    /** Select from the results of another query, under an alias. */
+    public function fromSub(Closure|QueryBuilder|string $query, string $alias): static
+    {
+        [$sql, $bindings] = $this->parseSubQuery($query);
+
+        // Ahead of every other bucket: the sub-select is compiled into the
+        // FROM, so its placeholders come before the ones in WHERE.
+        $this->bindings['select'] = array_merge($this->bindings['select'], $bindings);
+
+        return $this->from(new RawExpression('(' . $sql . ') AS ' . $this->grammar->wrapTable($alias)));
+    }
+
+    /** @param array<int, mixed> $bindings */
+    public function fromRaw(string $expression, array $bindings = []): static
+    {
+        $this->bindings['select'] = array_merge($this->bindings['select'], array_values($bindings));
+
+        return $this->from(new RawExpression($expression));
+    }
+
+    /**
+     * An expression the grammar passes through untouched.
+     *
+     * Nothing escapes it, so never build one out of user input.
+     *
+     * @param array<int, mixed> $bindings
+     */
+    public function raw(string $expression, array $bindings = []): RawExpression
+    {
+        return new RawExpression($expression, $bindings);
+    }
+
+    /**
+     * Ask the engine to read the named index.
+     *
+     * A hint, not a guarantee, and grammars that have no syntax for it ignore
+     * it rather than failing — the query means the same thing either way.
+     */
+    public function useIndex(string $index): static
+    {
+        $this->indexHint = ['type' => 'hint', 'index' => $index];
+
+        return $this;
+    }
+
+    public function forceIndex(string $index): static
+    {
+        $this->indexHint = ['type' => 'force', 'index' => $index];
+
+        return $this;
+    }
+
+    public function ignoreIndex(string $index): static
+    {
+        $this->indexHint = ['type' => 'ignore', 'index' => $index];
+
+        return $this;
+    }
+
+    /** @return array{type: string, index: string}|null */
+    public function getIndexHint(): ?array
+    {
+        return $this->indexHint;
     }
 
     // ─── Select ────────────────────────────────────────────
@@ -112,6 +222,14 @@ class QueryBuilder
             }
         }
         return $this;
+    }
+
+    /** Select the single value another query returns, under an alias. */
+    public function selectSub(Closure|QueryBuilder|string $query, string $alias): static
+    {
+        [$sql, $bindings] = $this->parseSubQuery($query);
+
+        return $this->selectRaw('(' . $sql . ') AS ' . $this->grammar->wrap($alias), $bindings);
     }
 
     public function addSelect(string|array|RawExpression ...$columns): static
@@ -174,6 +292,72 @@ class QueryBuilder
         return $this->orderBy($column, 'desc');
     }
 
+    /** Order by the value a sub-select returns. */
+    public function orderBySub(Closure|QueryBuilder|string $query, string $direction = 'asc'): static
+    {
+        [$sql, $bindings] = $this->parseSubQuery($query);
+
+        return $this->orderByRaw('(' . $sql . ') ' . $this->grammar->validateDirection($direction), $bindings);
+    }
+
+    /**
+     * Drop every order, optionally replacing them with one.
+     *
+     * A query built for display order is often reused for a count or an
+     * aggregate, where the ORDER BY is dead weight the engine still pays for.
+     */
+    public function reorder(?string $column = null, string $direction = 'asc'): static
+    {
+        $this->orders = [];
+        $this->bindings['order'] = [];
+
+        if ($column !== null) {
+            return $this->orderBy($column, $direction);
+        }
+
+        return $this;
+    }
+
+    public function reorderDesc(string $column): static
+    {
+        return $this->reorder($column, 'desc');
+    }
+
+    /** Order rows at random, where the grammar has a function for it. */
+    public function inRandomOrder(string|int $seed = ''): static
+    {
+        return $this->orderByRaw($this->grammar->compileRandom((string) $seed));
+    }
+
+    /**
+     * Order by an explicit list of values, keeping anything else last.
+     *
+     * Compiled as a CASE rather than an engine-specific function, so the same
+     * call sorts the same way on every driver.
+     *
+     * @param array<int, mixed> $values
+     */
+    public function inOrderOf(string $column, array $values): static
+    {
+        $values = array_values($values);
+
+        if ($values === []) {
+            return $this;
+        }
+
+        $wrapped = $this->grammar->wrap($column);
+        $cases = [];
+
+        foreach ($values as $index => $value) {
+            $cases[] = "WHEN {$wrapped} = ? THEN {$index}";
+        }
+
+        return $this->orderByRaw(
+            'CASE ' . implode(' ', $cases) . ' ELSE ' . count($values) . ' END',
+            $values
+        );
+    }
+
     public function latest(string $column = 'created_at'): static
     {
         return $this->orderBy($column, 'DESC');
@@ -190,15 +374,12 @@ class QueryBuilder
         return $this;
     }
 
-    public function having(string $column, ?string $operator = null, mixed $value = null): static
+    /** @param array<int, mixed> $bindings */
+    public function groupByRaw(string $expression, array $bindings = []): static
     {
-        // Same operator/value split as where(): only treat the operator slot as
-        // the value when just two args were given, so having('c','>',null) keeps
-        // its operator instead of collapsing to 'c = ">"'.
-        [$value, $operator] = $this->prepareValueAndOperator($value, $operator, func_num_args() === 2);
+        $this->groups[] = new RawExpression($expression);
+        $this->bindings['group'] = array_merge($this->bindings['group'], array_values($bindings));
 
-        $this->havings[] = ['column' => $column, 'operator' => $operator, 'value' => $value];
-        $this->bindings['having'][] = $value;
         return $this;
     }
 
@@ -240,27 +421,12 @@ class QueryBuilder
         return $this;
     }
 
-    /**
-     * Compare a datetime column by its date part only.
-     *
-     * The expression is grammar-supplied because the function differs by
-     * engine, and comparing a DATETIME to '2026-09-13' with a plain = matches
-     * only rows stored at exactly midnight.
-     */
-    public function whereDate(string $column, string $operator, mixed $value = null): static
+    /** Set the lock mode directly: 'update', 'share', or none. */
+    public function lock(?string $mode = 'update'): static
     {
-        if ($value === null) {
-            [$operator, $value] = ['=', $operator];
-        }
+        $this->lock = $mode;
 
-        if ($value instanceof \DateTimeInterface) {
-            $value = $value->format('Y-m-d');
-        }
-
-        return $this->whereRaw(
-            $this->grammar->compileDate($this->grammar->wrap($column)) . " {$operator} ?",
-            [$value]
-        );
+        return $this;
     }
 
     /**
@@ -288,6 +454,80 @@ class QueryBuilder
         return $this->offset($offset);
     }
 
+    /** Limit and offset for one page of results. */
+    public function forPage(int $page, int $perPage = 15): static
+    {
+        return $this->offset(max(0, $page - 1) * $perPage)->limit($perPage);
+    }
+
+    /**
+     * One page of results, taken after a known id.
+     *
+     * Cheaper than an offset on a large table, which the engine has to count
+     * through row by row, and stable while rows are being inserted.
+     */
+    public function forPageAfterId(int $perPage = 15, int|string|null $lastId = 0, string $column = 'id'): static
+    {
+        $this->orders = array_values(array_filter(
+            $this->orders,
+            static fn ($order): bool => ! is_array($order) || ($order['column'] ?? null) !== $column
+        ));
+
+        if ($lastId !== null) {
+            $this->where($column, '>', $lastId);
+        }
+
+        return $this->orderBy($column, 'asc')->limit($perPage);
+    }
+
+    /** The same, walking backwards. */
+    public function forPageBeforeId(int $perPage = 15, int|string|null $lastId = 0, string $column = 'id'): static
+    {
+        $this->orders = array_values(array_filter(
+            $this->orders,
+            static fn ($order): bool => ! is_array($order) || ($order['column'] ?? null) !== $column
+        ));
+
+        if ($lastId !== null) {
+            $this->where($column, '<', $lastId);
+        }
+
+        return $this->orderBy($column, 'desc')->limit($perPage);
+    }
+
+    // ─── Unions ─────────────────────────────────────────────
+
+    /**
+     * Append another query's results to this one's.
+     *
+     * The appended query keeps its own WHERE and its own bindings; only the
+     * ordering and the limit of the outer query apply to the combined result.
+     */
+    public function union(Closure|QueryBuilder $query, bool $all = false): static
+    {
+        if ($query instanceof Closure) {
+            $callback = $query;
+            $query = $this->newQuery();
+            $callback($query);
+        }
+
+        $this->unions[] = ['query' => $query, 'all' => $all];
+        $this->bindings['union'] = array_merge($this->bindings['union'], $query->getBindings());
+
+        return $this;
+    }
+
+    public function unionAll(Closure|QueryBuilder $query): static
+    {
+        return $this->union($query, true);
+    }
+
+    /** @return array<int, array{query: QueryBuilder, all: bool}> */
+    public function getUnions(): array
+    {
+        return $this->unions;
+    }
+
     // ─── SQL Output ─────────────────────────────────────────
 
     public function toSql(): string
@@ -297,15 +537,17 @@ class QueryBuilder
 
     public function getBindings(): array
     {
-        // Flat array in compile-order (select → join → where → having →
-        // order). Avoiding nested loops here matters because get/first/
-        // count all call this on the hot path.
+        // Flat array in compile-order (select → join → where → group →
+        // having → order). Avoiding nested loops here matters because
+        // get/first/count all call this on the hot path.
         return [
             ...$this->bindings['select'],
             ...$this->bindings['join'],
             ...$this->bindings['where'],
+            ...$this->bindings['group'],
             ...$this->bindings['having'],
             ...$this->bindings['order'],
+            ...$this->bindings['union'],
         ];
     }
 
@@ -365,7 +607,7 @@ class QueryBuilder
 
     // ─── Getters (used by Grammar) ──────────────────────────
 
-    public function getFrom(): string
+    public function getFrom(): string|RawExpression
     {
         return $this->from;
     }
@@ -403,6 +645,16 @@ class QueryBuilder
     {
         return $this->orders;
     }
+    public function getLimit(): ?int
+    {
+        return $this->limitValue;
+    }
+
+    public function getOffset(): ?int
+    {
+        return $this->offsetValue;
+    }
+
     public function getLimitValue(): ?int
     {
         return $this->limitValue;

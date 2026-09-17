@@ -13,10 +13,12 @@ class Grammar
 {
     protected const VALID_OPERATORS = [
         '=', '!=', '<>', '<', '<=', '>', '>=',
-        'like', 'not like', 'ilike',
+        'like', 'not like', 'like binary', 'not like binary', 'ilike', 'not ilike',
+        'glob', 'not glob',
+        'rlike', 'not rlike', 'regexp', 'not regexp',
         'in', 'not in',
         'is', 'is not',
-        '&', '|', '^', '<<', '>>',
+        '&', '|', '^', '<<', '>>', '&~',
         '<=>',
     ];
 
@@ -54,6 +56,11 @@ class Grammar
         if ($wheres = $this->compileWheres($query)) $sql[] = $wheres;
         if ($groups = $this->compileGroups($query)) $sql[] = $groups;
         if ($havings = $this->compileHavings($query)) $sql[] = $havings;
+
+        // Before the ordering and the limit, which apply to the combined
+        // result rather than to the query that started it.
+        if ($unions = $this->compileUnions($query)) $sql[] = $unions;
+
         if ($orders = $this->compileOrders($query)) $sql[] = $orders;
         if ($limit = $this->compileLimit($query)) $sql[] = $limit;
         if ($offset = $this->compileOffset($query)) $sql[] = $offset;
@@ -103,6 +110,34 @@ class Grammar
     public function compileInsertGetId(QueryBuilder $query, array $values): string
     {
         return $this->compileInsert($query, $values);
+    }
+
+    /**
+     * An insert that passes over the rows which collide with an existing key.
+     *
+     * @param array<mixed> $values
+     */
+    public function compileInsertOrIgnore(QueryBuilder $query, array $values): string
+    {
+        return preg_replace('/^INSERT/', 'INSERT IGNORE', $this->compileInsert($query, $values), 1);
+    }
+
+    /**
+     * An insert whose rows come from a select.
+     *
+     * @param array<int, string> $columns
+     */
+    public function compileInsertUsing(QueryBuilder $query, array $columns, string $select): string
+    {
+        $table = $this->wrapTable($query->getFrom());
+
+        if ($columns === []) {
+            return "INSERT INTO {$table} {$select}";
+        }
+
+        $wrapped = implode(', ', array_map([$this, 'wrap'], $columns));
+
+        return "INSERT INTO {$table} ({$wrapped}) {$select}";
     }
 
     public function compileUpdate(QueryBuilder $query, array $values): string
@@ -208,7 +243,157 @@ class Grammar
 
     protected function compileFrom(QueryBuilder $query): string
     {
-        return 'FROM ' . $this->wrapTable($query->getFrom());
+        $sql = 'FROM ' . $this->wrapTable($query->getFrom());
+
+        if ($hint = $this->compileIndexHint($query)) {
+            $sql .= ' ' . $hint;
+        }
+
+        return $sql;
+    }
+
+    /**
+     * Compile an index hint, where the engine has syntax for one.
+     *
+     * Ignored by default: a hint changes how a query runs, never what it
+     * returns, so a grammar that cannot express one drops it rather than
+     * refusing the query.
+     */
+    protected function compileIndexHint(QueryBuilder $query): string
+    {
+        return '';
+    }
+
+    /**
+     * Compile the queries appended with UNION.
+     *
+     * Each keeps its own WHERE; only the outer ordering and limit apply to
+     * the combined result.
+     */
+    protected function compileUnions(QueryBuilder $query): string
+    {
+        $unions = $query->getUnions();
+
+        if ($unions === []) {
+            return '';
+        }
+
+        $sql = [];
+
+        foreach ($unions as $union) {
+            $sql[] = ($union['all'] ? 'UNION ALL ' : 'UNION ') . $union['query']->toSql();
+        }
+
+        return implode(' ', $sql);
+    }
+
+    /** The engine's random-ordering function. */
+    public function compileRandom(string $seed = ''): string
+    {
+        return 'RANDOM()';
+    }
+
+    // ─── JSON ─────────────────────────────────────────────
+
+    /**
+     * Compile a reference into a JSON column: options->notifications->email.
+     */
+    protected function wrapJsonSelector(string $value): string
+    {
+        [$field, $path] = $this->wrapJsonFieldAndPath($value);
+
+        // Unquoted, so a string inside the document compares against a bound
+        // string rather than against its quoted JSON form.
+        return "json_unquote(json_extract({$field}{$path}))";
+    }
+
+    /**
+     * Split a JSON reference into the wrapped column and its path argument.
+     *
+     * @return array{0: string, 1: string} The path is empty when none was given.
+     */
+    protected function wrapJsonFieldAndPath(string $value): array
+    {
+        $parts = explode('->', $value);
+        $field = $this->wrap(array_shift($parts));
+
+        if ($parts === []) {
+            return [$field, ''];
+        }
+
+        $path = '$' . implode('', array_map(
+            static fn (string $segment): string => is_numeric($segment)
+                ? "[{$segment}]"
+                : '."' . str_replace('"', '', $segment) . '"',
+            $parts
+        ));
+
+        return [$field, ", '{$path}'"];
+    }
+
+    public function compileJsonContains(string $column): string
+    {
+        [$field, $path] = $this->wrapJsonFieldAndPath($column);
+
+        return "json_contains({$field}, ?{$path})";
+    }
+
+    public function compileJsonContainsKey(string $column, bool $not = false): string
+    {
+        [$field, $path] = $this->wrapJsonFieldAndPath($column);
+
+        if ($path === '') {
+            return "json_type({$field}) IS " . ($not ? 'NULL' : 'NOT NULL');
+        }
+
+        return ($not ? 'NOT ' : '') . 'ifnull(json_contains_path(' . $field . ", 'one'" . $path . '), 0)';
+    }
+
+    public function compileJsonLength(string $column, string $operator): string
+    {
+        [$field, $path] = $this->wrapJsonFieldAndPath($column);
+
+        return "json_length({$field}{$path}) " . $this->validateOperator($operator) . ' ?';
+    }
+
+    public function compileJsonOverlaps(string $column): string
+    {
+        [$field, $path] = $this->wrapJsonFieldAndPath($column);
+
+        $target = $path === '' ? $field : "json_extract({$field}{$path})";
+
+        return "json_overlaps({$target}, ?)";
+    }
+
+    /**
+     * The value bound for a JSON containment test.
+     *
+     * The engine compares JSON against JSON, so a PHP value is encoded before
+     * it is bound — 'en' has to arrive as '"en"' to match an element of
+     * ["en", "fr"].
+     */
+    public function prepareJsonContainsBinding(mixed $value): mixed
+    {
+        return json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    }
+
+    public function prepareJsonOverlapsBinding(mixed $value): mixed
+    {
+        return json_encode(
+            is_array($value) ? array_values($value) : [$value],
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+        );
+    }
+
+    /**
+     * Compile a full-text search.
+     *
+     * @param array<int, string>   $columns
+     * @param array<string, mixed> $options
+     */
+    public function compileFullText(array $columns, array $options): string
+    {
+        throw new \RuntimeException('This database engine does not support full text search.');
     }
 
     protected function compileJoins(QueryBuilder $query): string
@@ -217,20 +402,26 @@ class Grammar
         if (empty($joins)) return '';
 
         $sql = [];
+
         foreach ($joins as $join) {
             $type = strtoupper($join['type']);
+
             if (!in_array($type, ['INNER', 'LEFT', 'RIGHT', 'CROSS', 'FULL'], true)) {
                 throw new InvalidArgumentException("Invalid join type: {$join['type']}");
             }
-            $table = $this->wrapTable($join['table']);
-            if ($type === 'CROSS') {
-                $sql[] = "CROSS JOIN {$table}";
-                continue;
-            }
-            $first = $this->wrap($join['first']);
-            $operator = $this->validateOperator($join['operator']);
-            $second = $this->wrap($join['second']);
-            $sql[] = "{$type} JOIN {$table} ON {$first} {$operator} {$second}";
+
+            $table = $join['table'] instanceof RawExpression
+                ? (string) $join['table']
+                : $this->wrapTable($join['table']);
+
+            // A join's ON is a boolean expression like any other, so it
+            // compiles through the same path as a WHERE — which is what lets a
+            // join carry an OR, a nested group or a value comparison.
+            $conditions = $this->compileWhereGroup($join['wheres']);
+
+            $sql[] = $conditions === ''
+                ? "{$type} JOIN {$table}"
+                : "{$type} JOIN {$table} ON {$conditions}";
         }
 
         return implode(' ', $sql);
@@ -239,15 +430,40 @@ class Grammar
     public function compileWheres(QueryBuilder $query): string
     {
         $wheres = $query->getWheres();
-        if (empty($wheres)) return '';
 
-        $sql = [];
-        foreach ($wheres as $i => $where) {
-            $compiled = $this->compileWhere($where);
-            $sql[] = ($i === 0) ? $compiled : "{$where['boolean']} {$compiled}";
+        if (empty($wheres)) {
+            return '';
         }
 
-        return 'WHERE ' . implode(' ', $sql);
+        return 'WHERE ' . $this->compileWhereGroup($wheres);
+    }
+
+    /**
+     * Compile a list of where clauses into one boolean expression, without the
+     * leading WHERE.
+     *
+     * The first clause never carries its boolean — "WHERE AND x = ?" is not
+     * SQL — which is also what makes a nested group safe to compile through
+     * here: the group's own boolean belongs to the clause holding it, not to
+     * the first clause inside it.
+     *
+     * @param array<int, array<string, mixed>> $wheres
+     */
+    public function compileWhereGroup(array $wheres): string
+    {
+        $sql = [];
+
+        foreach ($wheres as $where) {
+            $compiled = $this->compileWhere($where);
+
+            if ($compiled === '') {
+                continue;
+            }
+
+            $sql[] = ($sql === []) ? $compiled : "{$where['boolean']} {$compiled}";
+        }
+
+        return implode(' ', $sql);
     }
 
     public function compileWhere(array $where): string
@@ -256,15 +472,83 @@ class Grammar
             'basic' => $this->wrap($where['column']) . ' ' . $this->validateOperator($where['operator']) . ' ?',
             'in' => $this->wrap($where['column']) . ' IN (' . implode(', ', array_fill(0, count($where['values']), '?')) . ')',
             'not_in' => $this->wrap($where['column']) . ' NOT IN (' . implode(', ', array_fill(0, count($where['values']), '?')) . ')',
+            'in_raw' => $this->wrap($where['column']) . ' IN (' . implode(', ', $where['values']) . ')',
+            'not_in_raw' => $this->wrap($where['column']) . ' NOT IN (' . implode(', ', $where['values']) . ')',
             'null' => $this->wrap($where['column']) . ' IS NULL',
             'not_null' => $this->wrap($where['column']) . ' IS NOT NULL',
             'between' => $this->wrap($where['column']) . ' BETWEEN ? AND ?',
+            'not_between' => $this->wrap($where['column']) . ' NOT BETWEEN ? AND ?',
+            'between_columns' => $this->wrap($where['column']) . ' BETWEEN '
+                . $this->wrap($where['values'][0]) . ' AND ' . $this->wrap($where['values'][1]),
+            'not_between_columns' => $this->wrap($where['column']) . ' NOT BETWEEN '
+                . $this->wrap($where['values'][0]) . ' AND ' . $this->wrap($where['values'][1]),
             'column' => $this->wrap($where['first']) . ' ' . $this->validateOperator($where['operator']) . ' ' . $this->wrap($where['second']),
+            'date' => $this->compileDatePart($where['part'], $this->wrap($where['column']))
+                . ' ' . $this->validateOperator($where['operator']) . ' ?',
+            'like' => $this->compileLike($this->wrap($where['column']), $where['caseSensitive'], $where['not']),
+            'row_values' => '(' . implode(', ', array_map([$this, 'wrap'], $where['columns'])) . ') '
+                . $this->validateOperator($where['operator'])
+                . ' (' . implode(', ', array_fill(0, count($where['values']), '?')) . ')',
+            'nested' => '(' . $this->compileWhereGroup($where['wheres']) . ')',
+            'not_nested' => 'NOT (' . $this->compileWhereGroup($where['wheres']) . ')',
+            'json_contains' => ($where['not'] ? 'NOT ' : '') . $this->compileJsonContains($where['column']),
+            'json_contains_key' => $this->compileJsonContainsKey($where['column'], $where['not']),
+            'json_length' => $this->compileJsonLength($where['column'], $where['operator']),
+            'json_overlaps' => ($where['not'] ? 'NOT ' : '') . $this->compileJsonOverlaps($where['column']),
+            'fulltext' => $this->compileFullText($where['columns'], $where['options']),
             'exists' => "EXISTS ({$where['query']})",
             'not_exists' => "NOT EXISTS ({$where['query']})",
+            'sub' => $this->wrap($where['column']) . ' ' . $this->validateOperator($where['operator']) . " ({$where['query']})",
+            'in_sub' => $this->wrap($where['column']) . " IN ({$where['query']})",
+            'not_in_sub' => $this->wrap($where['column']) . " NOT IN ({$where['query']})",
             'raw' => (string) $where['expression'],
             default => '',
         };
+    }
+
+    /**
+     * Wrap a datetime column so it compares by one of its parts.
+     *
+     * Per engine, because the functions differ and comparing a DATETIME to
+     * '2026-09-13' with a plain = matches only the rows stored at midnight.
+     */
+    public function compileDatePart(string $part, string $wrappedColumn): string
+    {
+        return match ($part) {
+            'date' => $this->compileDate($wrappedColumn),
+            'year' => "YEAR({$wrappedColumn})",
+            'month' => "MONTH({$wrappedColumn})",
+            'day' => "DAY({$wrappedColumn})",
+            'time' => "TIME({$wrappedColumn})",
+            default => throw new InvalidArgumentException("Unknown date part: {$part}"),
+        };
+    }
+
+    /**
+     * Compile a LIKE comparison.
+     *
+     * Case sensitivity is not something SQL carries as a flag — engines decide
+     * it by collation — so an engine that cannot honour the request says so
+     * rather than quietly matching more rows than were asked for.
+     */
+    public function compileLike(string $wrappedColumn, bool $caseSensitive, bool $not): string
+    {
+        if ($caseSensitive) {
+            throw new \RuntimeException('This database engine does not support case sensitive LIKE.');
+        }
+
+        return $wrappedColumn . ($not ? ' NOT LIKE ?' : ' LIKE ?');
+    }
+
+    /**
+     * Adjust a LIKE pattern to suit the form {@see compileLike()} emitted.
+     *
+     * A grammar that reaches for a different operator to get case sensitivity
+     * translates the pattern here, so callers keep writing LIKE wildcards.
+     */
+    public function prepareLikeBinding(string $value, bool $caseSensitive): string
+    {
+        return $value;
     }
 
     protected function compileGroups(QueryBuilder $query): string
@@ -272,20 +556,57 @@ class Grammar
         $groups = $query->getGroups();
         if (empty($groups)) return '';
 
-        return 'GROUP BY ' . implode(', ', array_map([$this, 'wrap'], $groups));
+        $compiled = array_map(
+            fn ($group): string => $group instanceof RawExpression ? (string) $group : $this->wrap($group),
+            $groups
+        );
+
+        return 'GROUP BY ' . implode(', ', $compiled);
     }
 
     protected function compileHavings(QueryBuilder $query): string
     {
         $havings = $query->getHavings();
-        if (empty($havings)) return '';
 
-        $sql = [];
-        foreach ($havings as $having) {
-            $sql[] = $this->wrap($having['column']) . ' ' . $this->validateOperator($having['operator']) . ' ?';
+        if (empty($havings)) {
+            return '';
         }
 
-        return 'HAVING ' . implode(' AND ', $sql);
+        return 'HAVING ' . $this->compileHavingGroup($havings);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $havings
+     */
+    public function compileHavingGroup(array $havings): string
+    {
+        $sql = [];
+
+        foreach ($havings as $having) {
+            $compiled = $this->compileHaving($having);
+
+            if ($compiled === '') {
+                continue;
+            }
+
+            $sql[] = ($sql === []) ? $compiled : "{$having['boolean']} {$compiled}";
+        }
+
+        return implode(' ', $sql);
+    }
+
+    public function compileHaving(array $having): string
+    {
+        return match ($having['type']) {
+            'basic' => $this->wrap($having['column']) . ' ' . $this->validateOperator($having['operator']) . ' ?',
+            'between' => $this->wrap($having['column']) . ' BETWEEN ? AND ?',
+            'not_between' => $this->wrap($having['column']) . ' NOT BETWEEN ? AND ?',
+            'null' => $this->wrap($having['column']) . ' IS NULL',
+            'not_null' => $this->wrap($having['column']) . ' IS NOT NULL',
+            'nested' => '(' . $this->compileHavingGroup($having['havings']) . ')',
+            'raw' => (string) $having['expression'],
+            default => '',
+        };
     }
 
     protected function compileOrders(QueryBuilder $query): string
@@ -349,6 +670,13 @@ class Grammar
             return $this->wrapCache[$value] = '*';
         }
 
+        // 'options->theme' addresses a value inside a JSON column, which no
+        // amount of quoting turns into a column name — the engine needs its
+        // own accessor for it.
+        if (str_contains($value, '->')) {
+            return $this->wrapCache[$value] = $this->wrapJsonSelector($value);
+        }
+
         if (stripos($value, ' as ') !== false) {
             $parts = preg_split('/\s+as\s+/i', $value, 2);
             $result = $this->wrap($parts[0]) . ' AS ' . $this->wrapSegment($parts[1]);
@@ -366,8 +694,14 @@ class Grammar
         return $this->wrapCache[$value] = $this->wrapSegment($value);
     }
 
-    public function wrapTable(string $table): string
+    public function wrapTable(string|RawExpression $table): string
     {
+        // A raw FROM — a sub-select under an alias, say — is already written
+        // the way it must appear, so wrapping it would only break it.
+        if ($table instanceof RawExpression) {
+            return (string) $table;
+        }
+
         if (isset($this->tableWrapCache[$table])) {
             return $this->tableWrapCache[$table];
         }
@@ -412,7 +746,7 @@ class Grammar
         return $this->operatorCache[$operator] = strtoupper($normalized);
     }
 
-    protected function validateDirection(string $direction): string
+    public function validateDirection(string $direction): string
     {
         $direction = strtoupper(trim($direction));
         if (!in_array($direction, ['ASC', 'DESC'], true)) {
