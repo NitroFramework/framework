@@ -11,8 +11,7 @@
  *
  * Only keys that have a meaningful framework-level default live here. App-specific
  * values (database credentials, app key, filesystem paths) intentionally have no
- * default — the application must provide them. The htmx.* keys are omitted on
- * purpose: config/htmx.php ships with the framework and always supplies them.
+ * default — the application must provide them.
  *
  * Values mirror the shipped config/*.php; where inline fallbacks had drifted
  * (app.debug, view.cache.expiry, view.cache.use_*), the config/*.php value wins.
@@ -24,7 +23,11 @@ return [
         'env'                   => 'production',
         'debug'                 => false,
         'url'                   => 'http://localhost',
-        'controllers_namespace' => 'App\\Controllers\\',
+        // Prefix applied to a controller named as a bare string in a route
+        // ("PostController@index"). Only that form consults it — a route giving
+        // the class itself resolves without it — so an application keeping
+        // controllers elsewhere overrides this and nothing else changes.
+        'controllers_namespace' => 'App\\Http\\Controllers\\',
         'providers'             => [],
         // IPs of proxies/load balancers whose X-Forwarded-* headers may be
         // trusted (an array of exact REMOTE_ADDR values, or '*' to trust all —

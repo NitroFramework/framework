@@ -72,7 +72,6 @@ class CommandManager
             Commands\KeyGenerateCommand::class,
             Commands\ServeCommand::class,
             ThrustCommands::class,
-            Commands\HtmxCommands::class,
             Commands\QueueCommands::class,
             Commands\ScheduleCommands::class,
             Commands\SeederCommands::class,
