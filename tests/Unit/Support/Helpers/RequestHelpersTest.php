@@ -56,7 +56,9 @@ class RequestHelpersTest extends TestCase
 
         $this->bind(new Request('POST', '/upload', [], [], [], ['doc' => $upload]));
 
-        $this->assertSame($upload, files('doc'));
+        // files() now yields UploadedFile objects rather than the raw $_FILES entry.
+        $this->assertInstanceOf(\Nitro\Http\UploadedFile::class, files('doc'));
+        $this->assertSame('a.txt', files('doc')->getClientOriginalName());
         $this->assertNull(files('missing'));
         $this->assertTrue(has_file('doc'));
         $this->assertFalse(has_file('missing'));

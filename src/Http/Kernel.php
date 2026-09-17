@@ -57,22 +57,25 @@ class Kernel
     private array $terminatingHooks = [];
 
     /**
-     * Per-route gathered middleware-name lists, keyed by the route's own
-     * middleware signature. The global stack + group expansion are deterministic
-     * for a given route, so this is computed once and reused every request —
-     * only the instances are resolved fresh (below), keeping request-scoped
-     * middleware dependencies correct.
+     * Expanded middleware-name lists, keyed by a route's declared middleware.
+     * Group expansion is deterministic for a given group map, so it is computed
+     * once per route shape; instances are still resolved per request, keeping
+     * request-scoped middleware dependencies correct.
+     *
+     * Invalidated only by {@see middlewareGroup()}.
      *
      * @var array<string, array<int, string>>
      */
     private array $gatheredMiddlewareCache = [];
 
     /**
-     * Resolved middleware name → class-string (or null when unresolvable). Pure
-     * string lookup, safe to memoize for the kernel's lifetime; avoids repeating
-     * the alias lookup + class_exists() on every request.
+     * Middleware name → class-string, for names that resolved. The lookup is
+     * pure, so it is memoized for the kernel's lifetime rather than repeating
+     * the alias check and class_exists() per request.
      *
-     * @var array<string, string|null>
+     * Holds successful lookups only; see {@see resolveRouteMiddleware()}.
+     *
+     * @var array<string, class-string>
      */
     private array $middlewareClassCache = [];
 
@@ -108,7 +111,18 @@ class Kernel
 
     // --- Request Handling ---
 
-    /** Handle an incoming HTTP request. */
+    /**
+     * Handle an incoming HTTP request.
+     *
+     * Has exactly one return, through {@see finish()}, so that every way a
+     * request can end — matched route, 404, validation short-circuit,
+     * unhandled throwable — passes the responseReady seam. Hooks registered
+     * there emit the session cookie and rewrite HTMX responses; a path that
+     * skips them produces a response that looks correct and is missing a
+     * header.
+     *
+     * Enforced by ResponseSeamGuardTest.
+     */
     public function handle(Request $request): Response
     {
         // Mark where this request's output buffering starts. If it fails, the
@@ -116,40 +130,121 @@ class Kernel
         // layout — without touching any the host (a Thrust worker) owns below it.
         ExceptionHandler::$requestObLevel = ob_get_level();
 
+        return $this->finish($request, $this->buildResponse($request));
+    }
+
+    /**
+     * Produce the response for a request, by whichever path it takes.
+     *
+     * Deliberately runs no responseReady hooks: {@see handle()} is its only
+     * caller and funnels every result through {@see finish()}, so the seam is
+     * applied once regardless of which branch returned.
+     */
+    private function buildResponse(Request $request): Response
+    {
         try {
             $this->runHooks($this->requestReceivedHooks, $request);
-            $response = $this->sendRequestThroughRouter($request);
-            $this->runHooks($this->responseReadyHooks, $request, $response);
-            return $response;
+
+            return $this->sendRequestThroughRouter($request);
         } catch (HttpResponseException $exception) {
             // A helper (e.g. request()->validate()) short-circuited with a
-            // ready response — send it as-is, then run response-ready hooks.
-            $response = $exception->getResponse();
-            $this->runHooks($this->responseReadyHooks, $request, $response);
-            return $response;
+            // ready response — send it as-is.
+            return $exception->getResponse();
         } catch (Throwable $exception) {
-            return $this->handleException($request, $exception);
+            return $this->renderException($request, $exception);
         }
     }
 
-    /** Route the request through matching, middleware, and dispatch. */
+    /**
+     * Run the responseReady seam over a finished response and return it.
+     *
+     * A failing hook is reported rather than swallowed, and rethrown in debug.
+     * Reporting it keeps a missing session cookie traceable; returning the
+     * response anyway avoids replacing a successful result with an error page
+     * because a post-processing step failed.
+     */
+    private function finish(Request $request, Response $response): Response
+    {
+        try {
+            $this->runHooks($this->responseReadyHooks, $request, $response);
+        } catch (Throwable $exception) {
+            $this->container->createOrResolve(ExceptionHandler::class)->report($exception);
+
+            if ($this->app->isDebug()) {
+                throw $exception;
+            }
+        }
+
+        return $response;
+    }
+
+    /**
+     * Route the request through matching, middleware, and dispatch:
+     *
+     *   global stack → route matching → route stack → handler
+     *
+     * The global stack wraps matching rather than sitting inside it, so it also
+     * covers requests that match nothing. Cross-cutting middleware — CORS,
+     * trusted proxies, maintenance mode — has to apply to a 404 as much as to a
+     * hit, or a mistyped URL fails in the client with a CORS error instead of
+     * returning a readable 404.
+     *
+     * Route middleware runs inside matching because until a route is resolved
+     * there is no list to read.
+     *
+     * The match is attached to the request here, once resolved, so that
+     * {@see Request::route()} and routeIs() answer for route middleware and the
+     * handler while global middleware — which runs before a route is known —
+     * correctly sees none.
+     *
+     * Explicitly bound parameters are resolved at the same point, before any
+     * route middleware runs, so a guard reading $request->route('user') sees
+     * the model rather than the raw segment.
+     */
     protected function sendRequestThroughRouter(Request $request): Response
     {
-        $resolvedRoute = $this->router->findMatchingRoute($request);
+        return $this->pipeline(
+            $this->middleware,
+            $request,
+            function (Request $request): Response {
+                $resolvedRoute = $this->router->findMatchingRoute($request);
 
-        if (!$resolvedRoute) {
-            return $this->createNotFoundResponse($request);
+                if (! $resolvedRoute) {
+                    return $this->createNotFoundResponse($request);
+                }
+
+                $this->router->substituteBindings($resolvedRoute);
+
+                $request->setRouteResolver(static fn () => $resolvedRoute);
+
+                return $this->pipeline(
+                    $this->gatherMiddleware($resolvedRoute),
+                    $request,
+                    fn (Request $request): Response => $this->dispatchToHandler($resolvedRoute, $request),
+                );
+            },
+        );
+    }
+
+    /**
+     * Compose a middleware list around a destination and run it.
+     *
+     * The list is wrapped inside-out — reversed, so the first-listed middleware
+     * becomes the outermost closure and therefore runs first.
+     *
+     * @param  array<int, string>          $middlewareNames Aliases, 'alias:args', or class names.
+     * @param  callable(Request): Response $destination     Invoked once all middleware have called $next.
+     *
+     * @throws RuntimeException When a name resolves to no middleware.
+     */
+    protected function pipeline(array $middlewareNames, Request $request, callable $destination): Response
+    {
+        if ($middlewareNames === []) {
+            return $destination($request);
         }
 
-        $middlewareNames = $this->gatherMiddleware($resolvedRoute);
-        if (empty($middlewareNames)) {
-            return $this->dispatchToHandler($resolvedRoute, $request);
-        }
+        $next = $destination;
 
-        $finalNext = fn(Request $req) => $this->dispatchToHandler($resolvedRoute, $req);
-
-        // Compose inside-out: reverse so the first-listed middleware is the
-        // outermost wrapper and therefore runs first.
         foreach (array_reverse($middlewareNames) as $name) {
             // 'platform:admin' is the alias 'platform' with 'admin' as an
             // argument. Without the split the whole string resolves to nothing
@@ -159,35 +254,35 @@ class Kernel
             [$alias, $parameters] = $this->parseMiddlewareName($name);
 
             $middleware = $this->resolveRouteMiddleware($alias);
-            if ($middleware === null) {
-                continue;
-            }
-            $next = $finalNext;
-            $finalNext = fn(Request $req) => $middleware->handle($req, $next, ...$parameters);
+            $current = $next;
+            $next = fn (Request $request): Response => $middleware->handle($request, $current, ...$parameters);
         }
 
-        return $finalNext($request);
+        return $next($request);
     }
 
     /**
-     * Build the ordered middleware list for a route: the global stack first
-     * (runs on every request), then the route's own middleware — expanding any
-     * name that refers to a middleware group (e.g. 'web') into that group's
-     * members. Mirrors Laravel's gatherRouteMiddleware + name resolution.
+     * Expand a route's declared middleware, replacing any group name (e.g.
+     * 'web') with that group's members and leaving other names untouched.
+     *
+     * The global stack is not included: it wraps routing one level out, in
+     * {@see sendRequestThroughRouter()}.
+     *
+     * @return array<int, string>
      */
     protected function gatherMiddleware(Route $resolvedRoute): array
     {
         $routeMiddleware = $resolvedRoute->getMiddleware();
 
-        // The gathered list depends only on the route's own middleware (the
-        // global stack + groups are fixed), so memoize by that signature and
-        // skip the group expansion on every subsequent request for this shape.
+        // Expansion depends only on the declared list and the group map, so it
+        // is memoized by that list rather than repeated per request.
+        // middlewareGroup() clears the cache when the map changes.
         $key = $routeMiddleware === [] ? '' : implode("\0", $routeMiddleware);
         if (isset($this->gatheredMiddlewareCache[$key])) {
             return $this->gatheredMiddlewareCache[$key];
         }
 
-        $gathered = $this->middleware;
+        $gathered = [];
 
         foreach ($routeMiddleware as $name) {
             if (isset($this->middlewareGroups[$name])) {
@@ -200,6 +295,60 @@ class Kernel
         }
 
         return $this->gatheredMiddlewareCache[$key] = $gathered;
+    }
+
+    /**
+     * Append middleware to the global stack, which runs on every request
+     * whether or not it matches a route. Already-registered names are ignored,
+     * so registration is idempotent across repeated provider boots.
+     *
+     * @param string|array<int, string> $middleware Class names or registered aliases.
+     */
+    public function pushMiddleware(string|array $middleware): static
+    {
+        foreach ((array) $middleware as $name) {
+            if (! in_array($name, $this->middleware, true)) {
+                $this->middleware[] = $name;
+            }
+        }
+
+        return $this;
+    }
+
+    /**
+     * Prepend middleware to the global stack, ahead of anything already
+     * registered — for middleware that must observe the request before other
+     * middleware can alter it, such as trusted-proxy handling.
+     *
+     * @param string|array<int, string> $middleware Class names or registered aliases, in final order.
+     */
+    public function prependMiddleware(string|array $middleware): static
+    {
+        foreach (array_reverse((array) $middleware) as $name) {
+            if (! in_array($name, $this->middleware, true)) {
+                array_unshift($this->middleware, $name);
+            }
+        }
+
+        return $this;
+    }
+
+    /**
+     * Define or replace a middleware group.
+     *
+     * Clears the gathered-list cache, whose entries hold the old expansion of
+     * this name. The kernel is a singleton, so under Thrust a stale entry would
+     * survive until the worker restarted rather than correcting itself on the
+     * next request.
+     *
+     * @param array<int, string> $middleware Members of the group, in run order.
+     */
+    public function middlewareGroup(string $name, array $middleware): static
+    {
+        $this->middlewareGroups[$name] = $middleware;
+        $this->gatheredMiddlewareCache = [];
+
+        return $this;
     }
 
     /**
@@ -222,25 +371,48 @@ class Kernel
         return [$alias, $arguments === '' ? [] : explode(',', $arguments)];
     }
 
-    /** Resolve a middleware alias (or a fully-qualified class name) to an instance. */
-    protected function resolveRouteMiddleware(string $name): ?object
+    /**
+     * Resolve a middleware alias, or a fully-qualified class name, to an
+     * instance.
+     *
+     * An unresolvable name throws, including in production. Skipping it instead
+     * would make a misspelled guard indistinguishable from a guard that passed:
+     * the route would run no check while route:list still reported it as
+     * protected. A 500 is the safer failure.
+     *
+     * Only successful lookups are cached; a negative result must stay
+     * uncached so that an alias registered later is still found, which matters
+     * in a Thrust worker where the kernel is never rebuilt.
+     *
+     * @throws RuntimeException When the name is neither a registered alias nor an existing class.
+     */
+    protected function resolveRouteMiddleware(string $name): object
     {
         // Registered alias first (resolved from the Router); otherwise accept a
         // class-name middleware directly (->middleware(MyMiddleware::class)), so
         // app middleware works without registering an alias. The name→class step
         // is pure, so memoize it; the instance itself is still resolved per
         // request so request-scoped dependencies stay fresh.
-        if (!array_key_exists($name, $this->middlewareClassCache)) {
-            $this->middlewareClassCache[$name] =
-                $this->router->getMiddlewareAlias($name)
+        if (! isset($this->middlewareClassCache[$name])) {
+            $class = $this->router->getMiddlewareAlias($name)
                 ?? ($name !== '' && class_exists($name) ? $name : null);
+
+            if ($class === null) {
+                $aliases = array_keys($this->router->getMiddlewareAliases());
+                sort($aliases);
+
+                throw new RuntimeException(
+                    "Middleware [{$name}] is not a registered alias and is not an existing class. "
+                    . 'A route declaring it would otherwise run no check at all while still '
+                    . "appearing protected in route:list. Registered aliases: "
+                    . ($aliases === [] ? '(none)' : implode(', ', $aliases)) . '.'
+                );
+            }
+
+            $this->middlewareClassCache[$name] = $class;
         }
 
-        $class = $this->middlewareClassCache[$name];
-        if ($class === null) {
-            return null;
-        }
-        return $this->container->createOrResolve($class);
+        return $this->container->createOrResolve($this->middlewareClassCache[$name]);
     }
 
     /** Dispatch the resolved route to its handler. */
@@ -293,8 +465,16 @@ class Kernel
 
     protected ?Throwable $lastException = null;
 
-    /** Handle an exception that occurred during the request. */
-    protected function handleException(Request $request, Throwable $exception): Response
+    /**
+     * Turn an exception into a Response.
+     *
+     * Reports once, then renders — either through a registered response handler
+     * (a validation failure becoming a redirect or a 422) or as an error page.
+     *
+     * Runs no responseReady hooks. Both of its callers return through
+     * {@see handle()}, which applies the seam to whatever comes back.
+     */
+    protected function renderException(Request $request, Throwable $exception): Response
     {
         $this->lastException = $exception;
 
@@ -308,21 +488,14 @@ class Kernel
 
         // Exceptions that convert to a full Response (e.g. a validation failure →
         // redirect-back / 422 JSON) are handled here, before the HTML renderer.
-        // These fire responseReady hooks just like a normal response would.
         $converted = $handler->renderResponse($exception, $request);
         if ($converted instanceof Response) {
-            $this->runHooks($this->responseReadyHooks, $request, $converted);
             return $converted;
         }
 
-        $content = $handler->render($exception);
         $statusCode = $handler->getStatusCode($exception);
 
-        if ($request->isHtmx()) {
-            return new Response('', 200, [
-                'HX-Redirect' => $request->path(),
-            ]);
-        }
+        $content = $handler->render($exception);
 
         // Headers the exception itself asked for. A 429 without Retry-After
         // tells a client to back off for an unknown length of time, so it
@@ -346,7 +519,8 @@ class Kernel
     protected function createNotFoundResponse(Request $request): Response
     {
         $message = "Route not found: {$request->method()} {$request->path()}";
-        return $this->handleException($request, new HttpException(404, $message));
+
+        return $this->renderException($request, new HttpException(404, $message));
     }
 
     /** Run cleanup tasks after the response has been sent. */
@@ -414,5 +588,18 @@ class Kernel
     public function getMiddlewareGroups(): array
     {
         return $this->middlewareGroups;
+    }
+
+    /**
+     * Middleware aliases a route may name, as [alias => class].
+     *
+     * Registered on the Router by feature providers; exposed here so that
+     * `nitro lifecycle` can report the whole middleware picture from one place.
+     *
+     * @return array<string, class-string>
+     */
+    public function getMiddlewareAliases(): array
+    {
+        return $this->router->getMiddlewareAliases();
     }
 }

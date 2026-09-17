@@ -85,35 +85,45 @@ if (!function_exists('get')) {
 
 if (!function_exists('files')) {
     /**
-     * Get uploaded files
+     * Uploaded files as {@see \Nitro\Http\UploadedFile} instances.
      *
-     * @param string|null $key File input name
-     * @return mixed
+     * Dot notation reaches into array inputs: files('docs.0').
+     *
+     * @param string|null $key File input name, or null for all of them.
+     * @return \Nitro\Http\UploadedFile|array<mixed>|null
      */
     function files(?string $key = null)
     {
         $request = nitro_current_request();
-        $all = $request ? $request->allFiles() : $_FILES;
 
-        if ($key === null) {
-            return $all;
+        if ($request !== null) {
+            return $key === null ? $request->allFiles() : $request->file($key);
         }
 
-        return $all[$key] ?? null;
+        // No bound request (console, early boot) — normalize the superglobal.
+        $all = \Nitro\Http\FileBag::normalize($_FILES);
+
+        return $key === null ? $all : ($all[$key] ?? null);
     }
 }
 
 if (!function_exists('has_file')) {
     /**
-     * Check if file was uploaded
+     * Whether a file arrived under $key.
      *
      * @param string $key
      * @return bool
      */
     function has_file(string $key): bool
     {
+        $request = nitro_current_request();
+
+        if ($request !== null) {
+            return $request->hasFile($key);
+        }
+
         $file = files($key);
 
-        return is_array($file) && ($file['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK;
+        return $file instanceof \Nitro\Http\UploadedFile && $file->getPathname() !== '';
     }
 }

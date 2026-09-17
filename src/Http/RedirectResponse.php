@@ -2,6 +2,7 @@
 
 namespace Nitro\Http;
 
+use Nitro\Http\UploadedFile;
 use Nitro\Validation\ErrorBag;
 
 /**
@@ -86,6 +87,30 @@ class RedirectResponse extends Response
     }
 
     /**
+     * Drop uploaded files from flashed input.
+     *
+     * Old input goes into the session, and an UploadedFile extends SplFileInfo,
+     * which refuses to serialize. Re-populating a file input from old() is not
+     * possible in a browser anyway — the temporary file is gone by the next
+     * request — so there is nothing to keep.
+     *
+     * @param  array<mixed> $input
+     * @return array<mixed>
+     */
+    protected static function withoutUploads(array $input): array
+    {
+        foreach ($input as $key => $value) {
+            if ($value instanceof UploadedFile) {
+                unset($input[$key]);
+            } elseif (is_array($value)) {
+                $input[$key] = static::withoutUploads($value);
+            }
+        }
+
+        return $input;
+    }
+
+    /**
      * Current request input with password-like fields stripped out.
      */
     protected function defaultInput(): array
@@ -97,7 +122,7 @@ class RedirectResponse extends Response
             unset($input[$field]);
         }
 
-        return $input;
+        return static::withoutUploads($input);
     }
 
     /**

@@ -211,9 +211,13 @@ class Response
     {
         $content = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
-        return new self($content, $statusCode, [
+        $response = new self($content, $statusCode, [
             'Content-Type' => 'application/json; charset=utf-8'
         ]);
+
+        // Keep the array so a caller can read the data back without decoding
+        // the body again.
+        return $response->setOriginalContent($data);
     }
 
     /**
@@ -265,6 +269,292 @@ class Response
 
         return self::error($content);
     }
+
+    // ─── Status and content ───────────────────────────────────────────────
+
+    /**
+     * Read the status code, or set it and continue the chain.
+     *
+     * The no-argument form is the reader, which is what a caller inspecting a
+     * response reaches for; setStatusCode() remains for the setter-only case.
+     */
+    public function status(?int $code = null): int|static
+    {
+        if ($code === null) {
+            return $this->statusCode;
+        }
+
+        $this->statusCode = $code;
+
+        return $this;
+    }
+
+    /** The reason phrase for the current status code. */
+    public function statusText(): string
+    {
+        return self::STATUS_TEXTS[$this->statusCode] ?? 'Unknown Status';
+    }
+
+    /** Read the body, or set it and continue the chain. */
+    public function content(?string $content = null): string|static
+    {
+        if ($content === null) {
+            return $this->content;
+        }
+
+        $this->content = $content;
+
+        return $this;
+    }
+
+    /**
+     * The value the response was built from, before it became a string.
+     *
+     * A response made from an array or an object keeps the original here, so a
+     * caller — a test, or middleware inspecting a JSON response — can read the
+     * data without decoding the body again.
+     */
+    public function getOriginalContent(): mixed
+    {
+        return $this->original ?? $this->content;
+    }
+
+    /** Record the value this response was built from. */
+    public function setOriginalContent(mixed $original): static
+    {
+        $this->original = $original;
+
+        return $this;
+    }
+
+    /** The value this response was built from, when it was not a string. */
+    protected mixed $original = null;
+
+    // ─── Status inspection ────────────────────────────────────────────────
+
+    public function isSuccessful(): bool
+    {
+        return $this->statusCode >= 200 && $this->statusCode < 300;
+    }
+
+    public function isOk(): bool
+    {
+        return $this->statusCode === 200;
+    }
+
+    public function isRedirect(?string $location = null): bool
+    {
+        $isRedirect = in_array($this->statusCode, [201, 301, 302, 303, 307, 308], true);
+
+        if (! $isRedirect || $location === null) {
+            return $isRedirect;
+        }
+
+        return $this->headerValue('Location') === $location;
+    }
+
+    /** A header's value, matched without regard to case. */
+    protected function headerValue(string $name): ?string
+    {
+        foreach ($this->headers as $existing => $value) {
+            if (strcasecmp((string) $existing, $name) === 0) {
+                return (string) $value;
+            }
+        }
+
+        return null;
+    }
+
+    public function isClientError(): bool
+    {
+        return $this->statusCode >= 400 && $this->statusCode < 500;
+    }
+
+    public function isServerError(): bool
+    {
+        return $this->statusCode >= 500 && $this->statusCode < 600;
+    }
+
+    public function isNotFound(): bool
+    {
+        return $this->statusCode === 404;
+    }
+
+    public function isForbidden(): bool
+    {
+        return $this->statusCode === 403;
+    }
+
+    public function isEmpty(): bool
+    {
+        return in_array($this->statusCode, [204, 304], true);
+    }
+
+    // ─── Headers ──────────────────────────────────────────────────────────
+
+    /** Remove a header, matched without regard to case. */
+    public function withoutHeader(string $name): static
+    {
+        foreach (array_keys($this->headers) as $existing) {
+            if (strcasecmp((string) $existing, $name) === 0) {
+                unset($this->headers[$existing]);
+            }
+        }
+
+        return $this;
+    }
+
+    public function hasHeader(string $name): bool
+    {
+        foreach (array_keys($this->headers) as $existing) {
+            if (strcasecmp((string) $existing, $name) === 0) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // ─── Cookies ──────────────────────────────────────────────────────────
+
+    /**
+     * Attach a cookie.
+     *
+     * Accepts a built Cookie, or the arguments to make one, so a caller does
+     * not have to import the class for the common case.
+     */
+    public function cookie(Cookie|string $cookie, string $value = '', int $minutes = 0, string $path = '/', ?string $domain = null, bool $secure = false, bool $httpOnly = true, string $sameSite = 'Lax'): static
+    {
+        if (! $cookie instanceof Cookie) {
+            $cookie = new Cookie(
+                $cookie,
+                $value,
+                $minutes === 0 ? 0 : time() + ($minutes * 60),
+                $path,
+                $domain,
+                $secure,
+                $httpOnly,
+                $sameSite
+            );
+        }
+
+        return $this->withCookie($cookie);
+    }
+
+    /**
+     * Attach several cookies at once.
+     *
+     * @param array<int, Cookie> $cookies
+     */
+    public function withCookies(array $cookies): static
+    {
+        foreach ($cookies as $cookie) {
+            if ($cookie instanceof Cookie) {
+                $this->withCookie($cookie);
+            }
+        }
+
+        return $this;
+    }
+
+    /**
+     * Expire a cookie in the browser.
+     *
+     * Queues it with an expiry in the past rather than dropping it from the
+     * list: the browser only forgets a cookie it is told to.
+     */
+    public function withoutCookie(string $name, string $path = '/', ?string $domain = null): static
+    {
+        $this->cookies = array_values(array_filter(
+            $this->cookies,
+            static fn (Cookie $cookie) => ! ($cookie->name === $name && $cookie->path === $path)
+        ));
+
+        return $this->withCookie(new Cookie($name, '', time() - 3600, $path, $domain));
+    }
+
+    /**
+     * Expire several cookies.
+     *
+     * @param array<int, string> $names
+     */
+    public function withoutCookies(array $names, string $path = '/', ?string $domain = null): static
+    {
+        foreach ($names as $name) {
+            $this->withoutCookie((string) $name, $path, $domain);
+        }
+
+        return $this;
+    }
+
+    // ─── Exceptions ───────────────────────────────────────────────────────
+
+    /** The exception this response was produced from, if any. */
+    protected ?\Throwable $exception = null;
+
+    /** Record the exception this response represents. */
+    public function withException(\Throwable $exception): static
+    {
+        $this->exception = $exception;
+
+        return $this;
+    }
+
+    public function getException(): ?\Throwable
+    {
+        return $this->exception;
+    }
+
+    /**
+     * Throw this response, unwinding to the kernel, which sends it as-is.
+     *
+     * Lets code deep in a call stack answer the request without threading a
+     * return value back through every caller.
+     */
+    public function throwResponse(): never
+    {
+        throw new Exceptions\HttpResponseException($this);
+    }
+
+    /**
+     * Reason phrases for the status codes a framework actually emits.
+     */
+    private const STATUS_TEXTS = [
+        100 => 'Continue',
+        101 => 'Switching Protocols',
+        200 => 'OK',
+        201 => 'Created',
+        202 => 'Accepted',
+        204 => 'No Content',
+        206 => 'Partial Content',
+        301 => 'Moved Permanently',
+        302 => 'Found',
+        303 => 'See Other',
+        304 => 'Not Modified',
+        307 => 'Temporary Redirect',
+        308 => 'Permanent Redirect',
+        400 => 'Bad Request',
+        401 => 'Unauthorized',
+        402 => 'Payment Required',
+        403 => 'Forbidden',
+        404 => 'Not Found',
+        405 => 'Method Not Allowed',
+        406 => 'Not Acceptable',
+        408 => 'Request Timeout',
+        409 => 'Conflict',
+        410 => 'Gone',
+        413 => 'Content Too Large',
+        415 => 'Unsupported Media Type',
+        419 => 'Page Expired',
+        422 => 'Unprocessable Content',
+        423 => 'Locked',
+        429 => 'Too Many Requests',
+        500 => 'Internal Server Error',
+        501 => 'Not Implemented',
+        502 => 'Bad Gateway',
+        503 => 'Service Unavailable',
+        504 => 'Gateway Timeout',
+    ];
 
     public function __toString(): string
     {
