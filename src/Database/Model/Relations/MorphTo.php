@@ -155,4 +155,10 @@ class MorphTo extends Relation
 
         return (class_exists($class) && is_subclass_of($class, Model::class)) ? $class : null;
     }
+
+    /** Single-result relation: one model or null. */
+    public function getResults(): mixed
+    {
+        return $this->first();
+    }
 }

@@ -47,6 +47,18 @@ abstract class Relation extends ModelBuilder
     abstract public function eagerLoad(array $parents, string $relationName, ?string $nested): void;
 
     /**
+     * Run the relation and return what it holds.
+     *
+     * Many-result relations return a Collection; single-result relations
+     * override this to return one model or null. Used when a relation is read
+     * as a property rather than eager-loaded.
+     */
+    public function getResults(): mixed
+    {
+        return $this->get();
+    }
+
+    /**
      * Result hydration helper — shared by every loader implementation.
      */
     protected function hydrate(array $rows): array

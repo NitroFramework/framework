@@ -35,7 +35,7 @@ trait HasRelationships
             $this,
             $model,
             $foreignKey ?? $this->guessForeignKey(),
-            $ownerKey ?? $this->primaryKey,
+            $ownerKey ?? $this->getKeyName(),
         );
     }
 
@@ -45,7 +45,7 @@ trait HasRelationships
             $this,
             $model,
             $foreignKey ?? $this->guessForeignKey(),
-            $ownerKey ?? $this->primaryKey,
+            $ownerKey ?? $this->getKeyName(),
         );
     }
 
@@ -56,7 +56,7 @@ trait HasRelationships
             $this,
             $model,
             $foreignKey ?? $this->guessBelongsToKey($model),
-            $ownerKey ?? $instance->primaryKey,
+            $ownerKey ?? $instance->getKeyName(),
         );
     }
 
@@ -75,8 +75,8 @@ trait HasRelationships
             $pivot,
             $foreignPivotKey ?? $this->guessForeignKey(),       // e.g. 'user_id' on pivot
             $relatedPivotKey ?? $this->guessForeignKeyFor($model), // e.g. 'role_id' on pivot
-            $parentKey ?? $this->primaryKey,
-            $relatedKey ?? $instance->primaryKey,
+            $parentKey ?? $this->getKeyName(),
+            $relatedKey ?? $instance->getKeyName(),
         );
     }
 
@@ -95,8 +95,8 @@ trait HasRelationships
             $throughInstance->getTable(),
             $firstKey ?? $this->guessForeignKey(),                 // FK on intermediate to parent
             $secondKey ?? $this->guessForeignKeyFor($through),     // FK on related to intermediate
-            $localKey ?? $this->primaryKey,
-            $secondLocalKey ?? $throughInstance->primaryKey,
+            $localKey ?? $this->getKeyName(),
+            $secondLocalKey ?? $throughInstance->getKeyName(),
         );
     }
 
@@ -117,7 +117,7 @@ trait HasRelationships
             $model,
             $id ?? $name . '_id',
             $type ?? $name . '_type',
-            $ownerKey ?? $this->primaryKey,
+            $ownerKey ?? $this->getKeyName(),
         );
     }
 
@@ -129,7 +129,7 @@ trait HasRelationships
             $model,
             $id ?? $name . '_id',
             $type ?? $name . '_type',
-            $ownerKey ?? $this->primaryKey,
+            $ownerKey ?? $this->getKeyName(),
         );
     }
 
@@ -188,6 +188,59 @@ trait HasRelationships
     {
         return array_key_exists($name, $this->relations);
     }
+
+    /** @return array<string, mixed> */
+    public function getRelations(): array
+    {
+        return $this->relations;
+    }
+
+    /** @param array<string, mixed> $relations */
+    public function setRelations(array $relations): static
+    {
+        $this->relations = $relations;
+
+        return $this;
+    }
+
+    public function unsetRelation(string $name): static
+    {
+        unset($this->relations[$name]);
+
+        return $this;
+    }
+
+    public function unsetRelations(): static
+    {
+        $this->relations = [];
+
+        return $this;
+    }
+
+    /** A copy with every loaded relation dropped. */
+    public function withoutRelations(): static
+    {
+        $clone = clone $this;
+
+        return $clone->unsetRelations();
+    }
+
+    /** A copy with one relation dropped. */
+    public function withoutRelation(string $name): static
+    {
+        $clone = clone $this;
+
+        return $clone->unsetRelation($name);
+    }
+
+    /**
+     * Whether a method of this name defines a relation.
+     */
+    public function isRelation(string $name): bool
+    {
+        return $this->resolveRelationMethod($name) !== null;
+    }
+
 
     // ─── Key Guessing ─────────────────────────────────────
 

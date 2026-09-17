@@ -121,4 +121,10 @@ class HasOne extends Relation
             RelationLoader::load($hydrated, [$nested]);
         }
     }
+
+    /** Single-result relation: one model or null. Inherited by MorphOne and HasOneOfMany. */
+    public function getResults(): mixed
+    {
+        return $this->first();
+    }
 }

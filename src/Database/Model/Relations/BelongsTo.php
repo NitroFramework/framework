@@ -82,4 +82,10 @@ class BelongsTo extends Relation
             RelationLoader::load($hydrated, [$nested]);
         }
     }
+
+    /** Single-result relation: one model or null. */
+    public function getResults(): mixed
+    {
+        return $this->first();
+    }
 }

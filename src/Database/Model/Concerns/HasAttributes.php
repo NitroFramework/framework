@@ -2,6 +2,11 @@
 
 namespace Nitro\Database\Model\Concerns;
 
+use Nitro\Database\Model\Model;
+use Nitro\Database\Model\Relations\Relation;
+use Nitro\Support\Carbon;
+use Nitro\Support\CarbonImmutable;
+
 /**
  * Model concern: attribute storage, access, casting and dirty tracking.
  */
@@ -29,9 +34,18 @@ trait HasAttributes
         $this->setAttribute($key, $value);
     }
 
+    /**
+     * Read an attribute, accessor result or relation by name.
+     *
+     * Resolution order: an already-loaded relation, then a getXxxAttribute()
+     * accessor, then a stored column, then a relation method.
+     *
+     * The last step is what makes $post->user work without the caller having
+     * eager-loaded it: with no column of that name, the model looks for a
+     * relation method, runs it once and keeps the result.
+     */
     public function getAttribute(string $key): mixed
     {
-        // Relations take priority.
         if ($this->hasRelation($key)) {
             return $this->getRelation($key);
         }
@@ -42,12 +56,17 @@ trait HasAttributes
         }
 
         if (!array_key_exists($key, $this->attributes)) {
+            if (($relation = $this->resolveRelationMethod($key)) !== null) {
+                $this->setRelation($key, $results = $relation->getResults());
+                return $results;
+            }
+
             return null;
         }
 
         // Fast path: no cast registered → return raw value without
         // touching the cache.
-        if (!isset($this->casts[$key])) {
+        if (!isset($this->getCasts()[$key])) {
             return $this->attributes[$key];
         }
 
@@ -61,7 +80,35 @@ trait HasAttributes
 
     public function __isset(string $key): bool
     {
-        return $this->hasRelation($key) || isset($this->attributes[$key]);
+        return $this->hasRelation($key)
+            || isset($this->attributes[$key])
+            || $this->resolveRelationMethod($key) !== null;
+    }
+
+    /**
+     * The Relation a method of this name returns, or null if there isn't one.
+     *
+     * Methods declared on Model itself are excluded: property access would
+     * otherwise invoke them, so reading $model->delete would delete the row.
+     * Only methods a subclass adds are candidates, the method must take no
+     * required arguments — anything that does is not a relation and calling it
+     * would fail — and the return value must be a Relation.
+     */
+    protected function resolveRelationMethod(string $key): ?Relation
+    {
+        if ($key === '' || ! method_exists($this, $key) || method_exists(Model::class, $key)) {
+            return null;
+        }
+
+        $method = new \ReflectionMethod($this, $key);
+
+        if (! $method->isPublic() || $method->getNumberOfRequiredParameters() > 0) {
+            return null;
+        }
+
+        $result = $this->{$key}();
+
+        return $result instanceof Relation ? $result : null;
     }
 
     public function setAttribute(string $key, mixed $value): static
@@ -114,12 +161,7 @@ trait HasAttributes
 
     public function getKey(): mixed
     {
-        return $this->attributes[$this->primaryKey] ?? null;
-    }
-
-    public function getKeyName(): string
-    {
-        return $this->primaryKey;
+        return $this->attributes[$this->getKeyName()] ?? null;
     }
 
     // ─── Dirty Tracking ──────────────────────────────────
@@ -222,6 +264,291 @@ trait HasAttributes
         return $this;
     }
 
+    /**
+     * Attributes changed by the last save, keyed by name.
+     *
+     * @var array<string, mixed>
+     */
+    protected array $changes = [];
+
+    /** Record the current dirty set as what the last save changed. */
+    public function syncChanges(): static
+    {
+        $this->changes = $this->getDirty();
+
+        return $this;
+    }
+
+    /** @return array<string, mixed> */
+    public function getChanges(): array
+    {
+        return $this->changes;
+    }
+
+    /**
+     * Whether the last save changed any of the named attributes, or anything
+     * at all when none are named.
+     *
+     * @param array<int, string>|string|null $attributes
+     */
+    public function wasChanged(array|string|null $attributes = null): bool
+    {
+        if ($attributes === null) {
+            return $this->changes !== [];
+        }
+
+        foreach ((array) $attributes as $attribute) {
+            if (array_key_exists($attribute, $this->changes)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** The inverse of {@see isDirty()}. */
+    public function isClean(?string $key = null): bool
+    {
+        return ! $this->isDirty($key);
+    }
+
+    /** Throw away unsaved changes and return to the loaded values. */
+    public function discardChanges(): static
+    {
+        $this->attributes = $this->ensureOriginalSnapshot();
+        $this->castCache = [];
+
+        return $this;
+    }
+
+    /** Sync one attribute's original value to its current one. */
+    public function syncOriginalAttribute(string $attribute): static
+    {
+        return $this->syncOriginalAttributes($attribute);
+    }
+
+    /** @param array<int, string>|string $attributes */
+    public function syncOriginalAttributes(array|string $attributes): static
+    {
+        $this->ensureOriginalSnapshot();
+
+        foreach ((array) $attributes as $attribute) {
+            if (array_key_exists($attribute, $this->attributes)) {
+                $this->original[$attribute] = $this->attributes[$attribute];
+            }
+        }
+
+        return $this;
+    }
+
+    /** Whether an attribute's current value matches the one given. */
+    public function originalIsEquivalent(string $key): bool
+    {
+        $original = $this->ensureOriginalSnapshot();
+
+        if (! array_key_exists($key, $original)) {
+            return false;
+        }
+
+        return $original[$key] == ($this->attributes[$key] ?? null);
+    }
+
+    // ─── Raw attribute access ─────────────────────────────
+
+    /** @return array<string, mixed> */
+    public function getAttributes(): array
+    {
+        return $this->attributes;
+    }
+
+    /**
+     * Replace every attribute without casting or mutators.
+     *
+     * @param array<string, mixed> $attributes
+     */
+    public function setRawAttributes(array $attributes, bool $sync = false): static
+    {
+        $this->attributes = $attributes;
+        $this->castCache = [];
+
+        if ($sync) {
+            $this->syncOriginal();
+        }
+
+        return $this;
+    }
+
+    /** Whether the model carries an attribute of this name. */
+    public function hasAttribute(string $key): bool
+    {
+        return array_key_exists($key, $this->attributes);
+    }
+
+    /** Read an attribute through casts and accessors. */
+    public function getAttributeValue(string $key): mixed
+    {
+        return $this->getAttribute($key);
+    }
+
+    /** Whether a cast is declared for an attribute. */
+    public function hasCast(string $key, array|string|null $types = null): bool
+    {
+        $casts = $this->getCasts();
+
+        if (! array_key_exists($key, $casts)) {
+            return false;
+        }
+
+        return $types === null || in_array($casts[$key], (array) $types, true);
+    }
+
+    /**
+     * Add casts on top of those the model declares.
+     *
+     * @param array<string, string> $casts
+     */
+    public function mergeCasts(array $casts): static
+    {
+        $this->overrides['casts'] = array_merge($this->overrides['casts'] ?? [], $casts);
+        $this->castsResolved = null;
+        $this->castsResolved = null;
+
+        return $this;
+    }
+
+    /**
+     * Only the named attributes, cast.
+     *
+     * @param  array<int, string>|string $keys
+     * @return array<string, mixed>
+     */
+    public function only(array|string $keys): array
+    {
+        $result = [];
+
+        foreach (is_array($keys) ? $keys : func_get_args() as $key) {
+            $result[$key] = $this->getAttribute($key);
+        }
+
+        return $result;
+    }
+
+    /**
+     * Every attribute but the named ones, cast.
+     *
+     * @param  array<int, string>|string $keys
+     * @return array<string, mixed>
+     */
+    public function except(array|string $keys): array
+    {
+        $keys = is_array($keys) ? $keys : func_get_args();
+        $result = [];
+
+        foreach (array_keys($this->attributes) as $key) {
+            if (! in_array($key, $keys, true)) {
+                $result[$key] = $this->getAttribute($key);
+            }
+        }
+
+        return $result;
+    }
+
+    // ─── Mass assignment ──────────────────────────────────
+
+    /** When true, every model ignores its fillable and guarded lists. */
+    protected static bool $unguarded = false;
+
+    public function isFillable(string $key): bool
+    {
+        if (static::$unguarded) {
+            return true;
+        }
+
+        $fillable = $this->getFillable();
+
+        if ($fillable !== []) {
+            return in_array($key, $fillable, true);
+        }
+
+        return ! $this->isGuarded($key);
+    }
+
+    public function isGuarded(string $key): bool
+    {
+        $guarded = $this->getGuarded();
+
+        return $guarded === ['*'] || in_array($key, $guarded, true);
+    }
+
+    /** Whether the model guards everything and fills nothing. */
+    public function totallyGuarded(): bool
+    {
+        return $this->getFillable() === [] && $this->getGuarded() === ['*'];
+    }
+
+    /** @param array<int, string> $guarded */
+    public function guard(array $guarded): static
+    {
+        $this->overrides['guarded'] = $guarded;
+
+        return $this;
+    }
+
+    /** @param array<int, string> $fillable */
+    public function fillable(array $fillable): static
+    {
+        $this->overrides['fillable'] = $fillable;
+
+        return $this;
+    }
+
+    /** @param array<int, string> $fillable */
+    public function mergeFillable(array $fillable): static
+    {
+        $this->overrides['fillable'] = array_values(array_unique(array_merge($this->getFillable(), $fillable)));
+
+        return $this;
+    }
+
+    /** @param array<int, string> $guarded */
+    public function mergeGuarded(array $guarded): static
+    {
+        $this->overrides['guarded'] = array_values(array_unique(array_merge($this->getGuarded(), $guarded)));
+
+        return $this;
+    }
+
+    public static function unguard(bool $state = true): void
+    {
+        static::$unguarded = $state;
+    }
+
+    public static function reguard(): void
+    {
+        static::$unguarded = false;
+    }
+
+    public static function isUnguarded(): bool
+    {
+        return static::$unguarded;
+    }
+
+    /** Run a callback with mass-assignment protection switched off. */
+    public static function unguarded(callable $callback): mixed
+    {
+        if (static::$unguarded) {
+            return $callback();
+        }
+
+        static::unguard();
+
+        try {
+            return $callback();
+        } finally {
+            static::reguard();
+        }
+    }
+
     // ─── Casting ──────────────────────────────────────────
 
     /**
@@ -235,9 +562,9 @@ trait HasAttributes
 
     protected function castAttribute(string $key, mixed $value): mixed
     {
-        if (!isset($this->casts[$key]) || $value === null) return $value;
+        if (!isset($this->getCasts()[$key]) || $value === null) return $value;
 
-        $cast = $this->casts[$key];
+        $cast = $this->getCasts()[$key];
 
         // A cast naming a class is either a backed enum or a CastsAttributes
         // implementation; both are resolved by resolveClassCast().
@@ -252,13 +579,11 @@ trait HasAttributes
             'bool', 'boolean' => (bool) $value,
             'array', 'json' => is_string($value) ? json_decode($value, true) : $value,
             'object' => is_string($value) ? json_decode($value) : $value,
-            'datetime' => $value instanceof \DateTimeInterface ? $value : new \DateTime($value),
-            'immutable_datetime' => $value instanceof \DateTimeImmutable
-                ? $value
-                : new \DateTimeImmutable($value instanceof \DateTimeInterface ? $value->format('Y-m-d H:i:s') : $value),
-            'date' => $value instanceof \DateTimeInterface
-                ? $value->format('Y-m-d')
-                : (new \DateTime($value))->format('Y-m-d'),
+            'datetime' => Carbon::make($value),
+            'immutable_datetime' => CarbonImmutable::make($value),
+            // A date is a datetime at midnight, not a formatted string: callers
+            // expect ->format(), ->diffForHumans() and comparisons to work on it.
+            'date' => Carbon::make($value)?->startOfDay(),
             'timestamp' => is_numeric($value) ? (int) $value : strtotime($value),
             default => $value,
         };
@@ -293,11 +618,11 @@ trait HasAttributes
      */
     protected function castValueForStorage(string $key, mixed $value): mixed
     {
-        if ($value === null || !isset($this->casts[$key])) {
+        if ($value === null || !isset($this->getCasts()[$key])) {
             return $value;
         }
 
-        $cast = $this->casts[$key];
+        $cast = $this->getCasts()[$key];
 
         if ($this->isClassCast($cast)) {
             return $this->castFromClass($key, $cast, $value);
@@ -311,6 +636,10 @@ trait HasAttributes
         if (in_array($cast, ['datetime', 'immutable_datetime'], true)
             && $value instanceof \DateTimeInterface) {
             return $value->format('Y-m-d H:i:s');
+        }
+
+        if ($cast === 'date' && $value instanceof \DateTimeInterface) {
+            return $value->format('Y-m-d');
         }
 
         return $value;
@@ -422,18 +751,18 @@ trait HasAttributes
     protected function filterFillable(array $attributes): array
     {
         // An explicit $fillable whitelist always wins.
-        if (!empty($this->fillable)) {
-            return array_intersect_key($attributes, array_flip($this->fillable));
+        if (!empty($this->getFillable())) {
+            return array_intersect_key($attributes, array_flip($this->getFillable()));
         }
 
         // No whitelist: $guarded is the blacklist. The '*' sentinel means the
         // model is "totally guarded" — nothing is mass-assignable until the
         // developer declares $fillable (Laravel's safe default). Without this
         // the sentinel would only exclude a column literally named '*'.
-        if (in_array('*', $this->guarded, true)) {
+        if (in_array('*', $this->getGuarded(), true)) {
             return [];
         }
 
-        return array_diff_key($attributes, array_flip($this->guarded));
+        return array_diff_key($attributes, array_flip($this->getGuarded()));
     }
 }
