@@ -11,3 +11,6 @@ Thumbs.db
 
 # JS build tooling
 /node_modules/
+
+# maintainer-only benchmark harness output
+/benchmarks/results/

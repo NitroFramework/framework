@@ -73,7 +73,13 @@ trait RefreshDatabase
         try {
             $cache = $this->app?->getContainer()->createOrResolve('cache');
 
-            if ($cache !== null && method_exists($cache, 'flush')) {
+            // is_callable, not method_exists: 'cache' resolves to the manager,
+            // which forwards flush() to the default store through __call and
+            // therefore declares no such method of its own. method_exists
+            // answered false every time, so this guard flushed nothing from the
+            // day it was written — a fresh database behind the previous test's
+            // cached pages and counts.
+            if ($cache !== null && is_callable([$cache, 'flush'])) {
                 $cache->flush();
             }
         } catch (\Throwable) {

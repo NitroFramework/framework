@@ -13,6 +13,7 @@ use Nitro\View\Contracts\TagCompiler;
 use Nitro\View\Contracts\ComponentEngine;
 
 use Nitro\View\Support\Htmlable;
+use Nitro\Foundation\Contracts\ResetsBetweenRequests;
 use Nitro\View\Contracts\ViewEngine;
 use Nitro\View\Support\DebugRenderPipeline;
 use Nitro\View\Support\ViewManifest;
@@ -44,7 +45,7 @@ use RuntimeException;
  *
  * @package Nitro\View
  */
-class ViewRenderer implements ViewEngine
+class ViewRenderer implements ViewEngine, ResetsBetweenRequests
 {
     use Concerns\ManagesLayouts,
         Concerns\ManagesStacks,
@@ -182,13 +183,13 @@ class ViewRenderer implements ViewEngine
             return false;
         }
 
-        // The view streams, but HTMX partials and fragment requests never do —
-        // ask the bound Request rather than reading $_GET directly. Only paid
-        // for the rare view that actually declares @stream.
+        // The view streams, but a fragment request never does — ask the bound
+        // Request rather than reading $_GET directly. Only paid for the rare
+        // view that actually declares @stream.
         $container = app();
         if ($container->has('request')) {
             $request = $container->createOrResolve('request');
-            if ($request->isHtmx() || !empty($request->query('_fragment'))) {
+            if (! empty($request->query('_fragment'))) {
                 return false;
             }
         }
@@ -823,6 +824,17 @@ class ViewRenderer implements ViewEngine
     public function flushState(): void
     {
         $this->context = new RenderContext();
+    }
+
+    /**
+     * The renderer is a process-lived singleton because its compiled-template
+     * cache is expensive to rebuild, while sections, stacks, fragments and
+     * teleports all belong to one render. Without this, a @push from one
+     * request lands in the next request's @stack.
+     */
+    public function resetBetweenRequests(): void
+    {
+        $this->flushState();
     }
 
     public function enableRenderDebug(): void

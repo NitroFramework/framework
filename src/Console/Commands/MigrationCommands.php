@@ -277,12 +277,12 @@ class MigrationCommands implements CommandInterface
 
             if ($pretend) {
                 $log = DB::connection()->pretending(function () use ($migration) {
-                    $migration->up($this->schema);
+                    $this->invokeMigration($migration, 'up');
                 });
                 $this->output->writeln(" (would execute " . count($log) . " statements)");
                 $this->dumpPretendLog($log);
             } else {
-                $migration->up($this->schema);
+                $this->invokeMigration($migration, 'up');
                 $this->recordMigration($file, $batch);
                 $this->output->success(" DONE");
             }
@@ -291,6 +291,27 @@ class MigrationCommands implements CommandInterface
             $this->output->error("Error: " . $exception->getMessage());
             throw $exception;
         }
+    }
+
+    /**
+     * Run up() or down() on a migration, passing the schema builder only when
+     * the method asks for it.
+     *
+     * Two shapes are supported: a plain anonymous class declaring
+     * up(SchemaBuilder $schema), and one extending Migration declaring up()
+     * with no parameters and resolving the builder through the Schema facade.
+     */
+    private function invokeMigration(object $migration, string $method): void
+    {
+        if (! method_exists($migration, $method)) {
+            return;
+        }
+
+        $wantsSchema = (new \ReflectionMethod($migration, $method))->getNumberOfParameters() > 0;
+
+        $wantsSchema
+            ? $migration->{$method}($this->schema)
+            : $migration->{$method}();
     }
 
     /** Print captured SQL from a pretend pass, one statement per block. */
@@ -355,12 +376,12 @@ class MigrationCommands implements CommandInterface
 
             if ($pretend) {
                 $log = DB::connection()->pretending(function () use ($migration) {
-                    $migration->down($this->schema);
+                    $this->invokeMigration($migration, 'down');
                 });
                 $this->output->writeln(" (would execute " . count($log) . " statements)");
                 $this->dumpPretendLog($log);
             } else {
-                $migration->down($this->schema);
+                $this->invokeMigration($migration, 'down');
                 $this->removeMigration($file);
                 $this->output->success(" DONE");
             }

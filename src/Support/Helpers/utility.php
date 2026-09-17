@@ -2,26 +2,31 @@
 
 if (!function_exists('now')) {
     /**
-     * Get current timestamp
-     * 
-     * @return int
+     * The current date and time.
+     *
+     * Returns a Carbon instance, so ->addDays(), ->diffForHumans(),
+     * ->format() and comparison against other dates all work. For a Unix
+     * timestamp use now()->getTimestamp() or time().
      */
-    function now(): int
+    function now(?string $timezone = null): \Nitro\Support\Carbon
     {
-        return time();
+        return \Nitro\Support\Carbon::now($timezone);
     }
 }
 
 if (!function_exists('today')) {
-    /**
-     * Get today's date
-     * 
-     * @param string $format
-     * @return string
-     */
-    function today(string $format = 'Y-m-d'): string
+    /** The current date at midnight. */
+    function today(?string $timezone = null): \Nitro\Support\Carbon
     {
-        return date($format);
+        return \Nitro\Support\Carbon::today($timezone);
+    }
+}
+
+if (!function_exists('date_make')) {
+    /** Build a Carbon instance from anything date-like, or null. */
+    function date_make(mixed $value): ?\Nitro\Support\Carbon
+    {
+        return \Nitro\Support\Carbon::make($value);
     }
 }
 

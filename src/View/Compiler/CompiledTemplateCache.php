@@ -2,6 +2,7 @@
 
 namespace Nitro\View\Compiler;
 
+use Nitro\Foundation\Contracts\ResetsBetweenRequests;
 use Nitro\Foundation\PathRegistry;
 use Nitro\Foundation\Contracts\ConfigRepository;
 use Nitro\View\Contracts\TemplateCompiler;
@@ -12,7 +13,7 @@ use RuntimeException;
 /**
  * Stores and resolves compiled template files, recompiling when the source changes.
  */
-class CompiledTemplateCache implements TemplateCache
+class CompiledTemplateCache implements TemplateCache, ResetsBetweenRequests
 {
     private string $cachePath;
     private bool $cacheEnabled;
@@ -20,6 +21,7 @@ class CompiledTemplateCache implements TemplateCache
     private bool $useOpCache;
     private bool $useFileLocks;
     private bool $opcacheAvailable;
+    private bool $debug;
 
     public function __construct(
         private TemplateCompiler $compiler,
@@ -32,6 +34,7 @@ class CompiledTemplateCache implements TemplateCache
         $this->cacheExpiry  = (int)  $config->get('view.cache.expiry');
         $this->useOpCache   = (bool) $config->get('view.cache.use_opcache');
         $this->useFileLocks = (bool) $config->get('view.cache.use_locks');
+        $this->debug        = (bool) $config->get('app.debug', false);
 
         $this->opcacheAvailable = $this->useOpCache && function_exists('opcache_is_script_cached');
 
@@ -337,6 +340,22 @@ class CompiledTemplateCache implements TemplateCache
     public function clearFreshnessCache(): void
     {
         $this->freshnessCache = [];
+    }
+
+    /**
+     * Freshness verdicts are per-request only so that a developer editing a
+     * template mid-worker sees the change without a restart.
+     *
+     * In production a source file cannot change under a running worker — a
+     * deploy restarts them — so clearing costs a filemtime() pair per template
+     * on every render and buys nothing. The decision belongs here rather than
+     * in the worker, which has no business knowing what this cache holds.
+     */
+    public function resetBetweenRequests(): void
+    {
+        if ($this->debug) {
+            $this->clearFreshnessCache();
+        }
     }
 
     private function isLoadedInOpcache(string $cacheFile): bool

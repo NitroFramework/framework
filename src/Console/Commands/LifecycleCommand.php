@@ -112,10 +112,10 @@ class LifecycleCommand implements CommandInterface
         $this->hookStep('requestReceived', $hooks['requestReceived'] ?? []);
         $this->output->writeln('      |');
         $this->output->writeln('    ' . $this->output->color('sendRequestThroughRouter()', 'cyan', true));
-        $this->output->writeln('      |   match route -> gather middleware -> dispatch handler');
+        $this->output->writeln('      |   global stack -> match route -> route stack -> dispatch handler');
         $this->middleware();
         $this->output->writeln('      |');
-        $this->hookStep('responseReady', $hooks['responseReady'] ?? []);
+        $this->hookStep('responseReady', $hooks['responseReady'] ?? [], 'every exit, errors included');
         $this->output->writeln('      |');
         $this->output->writeln('    Response::send()');
         $this->output->writeln('      |');
@@ -129,7 +129,7 @@ class LifecycleCommand implements CommandInterface
         $groups = $this->kernel->getMiddlewareGroups();
 
         $this->output->writeln('      |');
-        $this->output->writeln('      |   global middleware (every route):');
+        $this->output->writeln('      |   global middleware (wraps matching — runs on 404s too):');
         if ($global === []) {
             $this->output->writeln('      |     (none)');
         }
@@ -148,6 +148,38 @@ class LifecycleCommand implements CommandInterface
             foreach ($members as $class) {
                 $this->output->writeln('      |     - ' . $this->shortName($class));
             }
+        }
+
+        $this->aliases();
+    }
+
+    /**
+     * Print the middleware aliases a route may name.
+     *
+     * Without this, a route declaring 'platform:admin' gives no way to see what
+     * it will actually run, and an alias that was never registered is
+     * indistinguishable by eye from one that was — the kernel now refuses the
+     * latter, and this is where to check the spelling.
+     */
+    private function aliases(): void
+    {
+        $aliases = $this->kernel->getMiddlewareAliases();
+        ksort($aliases);
+
+        $this->output->writeln('      |');
+        $this->output->writeln('      |   aliases a route may name (' . count($aliases) . '):');
+
+        if ($aliases === []) {
+            $this->output->writeln('      |     (none registered)');
+
+            return;
+        }
+
+        foreach ($aliases as $name => $class) {
+            $this->output->writeln(
+                '      |     - ' . $this->output->color($name, 'yellow', true)
+                . ' -> ' . $this->shortName($class)
+            );
         }
     }
 

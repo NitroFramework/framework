@@ -4,11 +4,10 @@ namespace Nitro\Thrust;
 
 use Nitro\Foundation\Application;
 use Nitro\Http\Kernel;
-use Nitro\PerformanceBar\PerformanceMetrics;
 use Nitro\Http\Request;
-use Nitro\PerformanceBar\PerformanceBar;
 use Nitro\Thrust\Adapters\FrankenPhpAdapter;
 use Nitro\Events\Concerns\DispatchesEvents;
+use Nitro\Support\Logger;
 use Throwable;
 
 /**
@@ -57,14 +56,23 @@ class Runner
         $kernel = $container->createOrResolve(Kernel::class);
 
         // Pre-warm services the request path always needs so even the first
-        // request after worker boot is hot.
+        // request after worker boot is hot. A service that cannot be built yet
+        // is skipped rather than fatal — some are deferred until a request
+        // supplies their dependencies — but the reason is logged, because the
+        // same silence otherwise hides a genuinely broken provider and turns it
+        // into an unexplained slow first request.
         foreach ($this->config->persistentServices as $service) {
-            if ($container->has($service)) {
-                try {
-                    $container->get($service);
-                } catch (Throwable) {
-                    // Skip — provider may defer this until a request.
-                }
+            if (! $container->has($service)) {
+                continue;
+            }
+
+            try {
+                $container->get($service);
+            } catch (Throwable $exception) {
+                Logger::debug('Skipped pre-warming a service', [
+                    'service'   => $service,
+                    'exception' => $exception->getMessage(),
+                ]);
             }
         }
 
@@ -98,10 +106,6 @@ class Runner
     private function handleRequest(Kernel $kernel): void
     {
         try {
-            // Reset the timing baseline for THIS request. start() is cheap
-            // now (always records, only collects heavy snapshots in debug).
-            PerformanceMetrics::start();
-
             $request = Request::capture();
             $container = $this->app->getContainer();
             $container->instance('request', $request);
@@ -110,15 +114,6 @@ class Runner
             $this->event(ThrustEvents::REQUEST_RECEIVED, ['request' => $request]);
 
             $response = $kernel->handle($request);
-
-            // PerformanceBar only runs if explicitly enabled — keep production silent.
-            if (PerformanceBar::isAvailable()) {
-                try {
-                    PerformanceBar::getInstance()->inject($response);
-                } catch (Throwable) {
-                    // Never let the bar break the response.
-                }
-            }
 
             $response->send();
             $kernel->terminate($request, $response);

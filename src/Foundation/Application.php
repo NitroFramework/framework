@@ -5,8 +5,8 @@ namespace Nitro\Foundation;
 use Nitro\Cache\CacheServiceProvider;
 use Nitro\Concurrency\ConcurrencyServiceProvider;
 use Nitro\Container\Container;
-use Nitro\Container\ContainerProfiler;
 use Nitro\Container\Contracts\ContainerInterface;
+use Nitro\Container\Lifetime;
 use Nitro\Cookie\CookieServiceProvider;
 use Nitro\Encryption\EncryptionServiceProvider;
 use Nitro\Events\Dispatcher as EventDispatcher;
@@ -16,7 +16,6 @@ use Nitro\Foundation\Providers\AuthServiceProvider;
 use Nitro\Foundation\Providers\ConsoleServiceProvider;
 use Nitro\Foundation\Providers\DatabaseServiceProvider;
 use Nitro\Foundation\Providers\ExceptionServiceProvider;
-use Nitro\Foundation\Providers\HtmxServiceProvider;
 use Nitro\Foundation\Providers\MailServiceProvider;
 use Nitro\Foundation\Providers\RoutingServiceProvider;
 use Nitro\Foundation\Providers\ServiceProvider;
@@ -24,9 +23,8 @@ use Nitro\Foundation\Providers\SessionServiceProvider;
 use Nitro\Foundation\Providers\ValidationServiceProvider;
 use Nitro\Foundation\Providers\ViewServiceProvider;
 use Nitro\Http\Kernel;
+use Nitro\Http\Request;
 use Nitro\Notifications\NotificationServiceProvider;
-use Nitro\PerformanceBar\PerformanceBarServiceProvider;
-use Nitro\PerformanceBar\PerformanceMetrics;
 use Nitro\Queue\QueueServiceProvider;
 use Nitro\Redis\RedisServiceProvider;
 use Nitro\Scheduling\ScheduleServiceProvider;
@@ -117,9 +115,6 @@ class Application
 
     public static function create(string $basePath): static
     {
-        // Timing baseline for the performance bar, before anything else fires.
-        PerformanceMetrics::start();
-
         $app = new static($basePath);
         $app->registerFatalHandler();
 
@@ -186,32 +181,6 @@ class Application
     }
 
     /**
-     * Finalize debug-only tooling now that config is loaded. Runs after the
-     * bootstrappers so it can read config('app.debug') rather than parsing env
-     * by hand — the single source of truth every other debug feature uses.
-     */
-    protected function applyDebugGates(): void
-    {
-        $debug = (bool) config('app.debug', false);
-
-        // Authoritative gate for the performance metrics. start() captured the
-        // baseline at t=0 from a provisional env guess; here we correct it from
-        // config so metrics track app.debug regardless of how APP_DEBUG is
-        // delivered (fixes the standard-mode .env-only case). ?performance still
-        // forces it on for an ad-hoc look in production.
-        PerformanceMetrics::setEnabled($debug || isset($_GET['performance']));
-
-        // The container profiler records a span on every resolution — useful,
-        // but not free. Make it OPT-IN (?profile / ?performance) rather than on
-        // for every debug request, so day-to-day dev isn't taxed. Still gated to
-        // debug so it can never be switched on against production.
-        if ($debug && (isset($_GET['profile']) || isset($_GET['performance']))
-            && method_exists($this->container, 'setProfiler')) {
-            $this->container->setProfiler(ContainerProfiler::getInstance());
-        }
-    }
-
-    /**
      * PHASE 1 of the lifecycle — boot. Runs ONCE per process.
      *
      * Under a classic SAPI (FPM/apache) that means once per request. Under
@@ -227,11 +196,10 @@ class Application
      *                           HandleExceptions, RegisterProviders (in that
      *                           order; the last one calls register() on every
      *                           provider from getDefaultProviders() + config)
-     *   3. applyDebugGates()  — debug-only profiling, now that config exists
-     *   4. bootProviders()    — boot() on each provider that has one, in
+     *   3. bootProviders()    — boot() on each provider that has one, in
      *                           registration order. This is where features
      *                           attach middleware, macros, and kernel hooks.
-     *   5. bootedHooks        — booted() callbacks
+     *   4. bootedHooks        — booted() callbacks
      *
      * PHASE 2 — the per-request lifecycle — is NOT here. This class is the
      * composition root: it assembles the object graph and stops. Request
@@ -249,7 +217,6 @@ class Application
 
         $this->runHooks($this->bootingHooks);
         $this->runBootstrappers();
-        $this->applyDebugGates();
         $this->bootProviders();
         $this->runHooks($this->bootedHooks);
 
@@ -298,11 +265,16 @@ class Application
         // attached to the very instance that Application::handle() runs.
         $this->container->singleton(Kernel::class, Kernel::class);
 
-        // Request is bound here as an alias placeholder; the actual instance is
-        // attached by the Kernel via container->instance() once $_SERVER is
-        // available. Binding a capture closure here AND re-capturing in the
-        // Kernel produced two Request objects per request, only one of which
-        // ever got used.
+        // Nothing binds the request here: the Kernel attaches the instance once
+        // $_SERVER is available. Binding a capture closure here AND re-capturing
+        // in the Kernel produced two Request objects per request, only one of
+        // which was ever used.
+        //
+        // Its lifetime is declared, though, because instance() alone reads as
+        // process-lived and the declaration has to be in place before anything
+        // resolved during boot can ask for one.
+        $this->container->declareLifetime('request', Lifetime::Request);
+        $this->container->declareLifetime(Request::class, Lifetime::Request);
 
         Logger::setPath($this->paths->storage('logs/nitro.log'));
     }
@@ -459,8 +431,6 @@ class Application
             NotificationServiceProvider::class,
             AuthServiceProvider::class,
             ConsoleServiceProvider::class,
-            HtmxServiceProvider::class,
-            PerformanceBarServiceProvider::class,
             CacheServiceProvider::class,
             ConcurrencyServiceProvider::class,
             FilesystemServiceProvider::class,

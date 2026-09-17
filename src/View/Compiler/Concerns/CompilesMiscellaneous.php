@@ -33,13 +33,4 @@ trait CompilesMiscellaneous
         return "<?php endif; ?>";
     }
 
-    protected function compileElapsed_time(string $args): string
-    {
-        return "<?php echo \\Nitro\\PerformanceBar\\PerformanceMetrics::elapsedTime(); ?>";
-    }
-
-    protected function compileMemory_usage(string $args): string
-    {
-        return "<?php echo \\Nitro\\PerformanceBar\\PerformanceMetrics::memoryUsage(); ?>";
-    }
 }

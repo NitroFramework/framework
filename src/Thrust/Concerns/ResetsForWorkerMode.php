@@ -2,81 +2,118 @@
 
 namespace Nitro\Thrust\Concerns;
 
-use Nitro\PerformanceBar\PerformanceMetrics;
-use Nitro\View\Compiler\CompiledTemplateCache;
-use Nitro\View\Engine\ViewRenderer;
+use Nitro\Container\Exceptions\CapturedRequestStateException;
+use Nitro\Foundation\Contracts\ResetsBetweenRequests;
+use Nitro\Support\Logger;
 use Nitro\Thrust\WorkerMode;
+use Throwable;
 
 /**
- * Resets per-request container state between worker iterations.
+ * Clears per-request state between worker iterations.
  *
- * Persistent services (router, view, config, …) survive the reset so each
- * subsequent request only pays for request-scoped work.
+ * Persistent services (router, view, config, …) survive, so every request after
+ * the first pays only for request-scoped work.
+ *
+ * Nothing here names a subsystem. A service holding request state says so by
+ * implementing ResetsBetweenRequests, and is found among the container's
+ * resolved instances — so adding one is a change to that service alone. Listing
+ * them here instead made this the single file that had to know about every
+ * layer in the framework, and a subsystem missing from the list went on serving
+ * the previous request's state with nothing to say so.
  */
 trait ResetsForWorkerMode
 {
     /**
-     * Reset request-scoped container singletons + framework statics so the
-     * next request starts from a clean slate without paying the full
-     * bootstrap cost again.
+     * Reset request-scoped container instances and per-request state, so the
+     * next request starts clean without paying for the full bootstrap again.
      */
     public function resetForWorkerMode(?WorkerMode $config = null): void
     {
         $scoped = $config?->scopedServices ?? ['request', 'auth', 'db', 'session'];
 
-        // Container::forgetScoped clears resolved instances but keeps the
-        // bindings, so the next get('request') will re-resolve from scratch.
+        // Looked for first, while what was captured is still reachable, and
+        // reported last, once the reset has finished. Raising it here instead
+        // would abandon the rest of the reset — leaving the worker part-way
+        // cleaned for the next request, and the generation never advanced, so
+        // one capture would be re-reported on every request after it. Empty
+        // unless capture detection was turned on.
+        $captured = $this->container->capturedRequestState();
+
+        // Clears the resolved instances but keeps the bindings, so the next
+        // get('request') re-resolves from scratch.
         $this->container->forgetScoped($scoped);
 
-        // Flush every binding that declared itself scoped() (e.g. the session
-        // Store). Features opt into per-request reset at bind time instead of
-        // being added to the list above — the same model as Laravel Octane.
+        // Everything that declared itself scoped() at bind time. A feature opts
+        // into per-request reset where it is registered, rather than by being
+        // added to the list above.
         $this->container->forgetScopedInstances();
 
-        // Reset PerformanceMetrics so the @elapsed_time directive measures
-        // THIS request, not the worker's uptime.
-        PerformanceMetrics::reset();
+        $this->resetStatefulServices();
 
-        // The compiler's per-source freshness verdicts are request-lifetime
-        // caches ONLY so a developer editing a template mid-worker sees the
-        // change without restarting. In production a source file cannot change
-        // under a running worker (a deploy restarts the workers), so clearing
-        // the cache every request just re-pays a filemtime() pair per template
-        // on every render. Gate the clear behind debug: prod keeps its verdicts
-        // for the process lifetime and does zero freshness stats after warmup.
-        // Read debug through the container (not the config() helper) so this is
-        // safe even when no config repository is bound, defaulting to the
-        // production behaviour of not clearing.
-        $debug = $this->container->has('config')
-            && (bool) $this->container->createOrResolve('config')->get('app.debug', false);
+        $this->container->startNewRequestGeneration();
 
-        if ($debug
-            && class_exists(CompiledTemplateCache::class)
-            && $this->container->has(CompiledTemplateCache::class)) {
-            try {
-                $this->container->createOrResolve(CompiledTemplateCache::class)
-                    ->clearFreshnessCache();
-            } catch (\Throwable) {
-                // Non-fatal — keep serving.
-            }
+        $this->reportCapturedState($captured);
+    }
+
+    /**
+     * Raise anything long-lived that was still holding an object from the
+     * request which just ended.
+     *
+     * A capture is not something to keep serving through: the holder answers
+     * every later request from that one's data, so the earlier it is heard
+     * about the less of it there is to unpick. Loud in a suite or a developer's
+     * worker, and never armed in production — see
+     * Container::detectCapturedState().
+     *
+     * @param array<int, array{holder: string, path: string, captured: string}> $captured
+     */
+    private function reportCapturedState(array $captured): void
+    {
+        if ($captured === []) {
+            return;
         }
 
-        // The view renderer is a persistent singleton (its compiled-template
-        // cache is expensive to rebuild), but its per-render state — sections,
-        // stacks, fragments, teleports — is request-lifetime. Without an
-        // explicit flush, content captured during one worker iteration leaks
-        // into the next: stale `@push` payloads land in this request's
-        // `@stack`, prior fragments answer fragment lookups they shouldn't,
-        // etc. flushState() zeros all four maps without disturbing compiler
-        // caches. We reach for ViewRenderer directly (not the 'view' alias,
-        // which points at the Blade facade) because flushState lives on the
-        // renderer itself.
-        if (class_exists(ViewRenderer::class)
-            && $this->container->has(ViewRenderer::class)) {
+        $lines = array_map(
+            static fn (array $finding): string =>
+                "  {$finding['path']} still holds a {$finding['captured']}",
+            $captured,
+        );
+
+        throw new CapturedRequestStateException(
+            "Request-scoped state outlived its request:\n" . implode("\n", $lines)
+            . "\n  Each holder answers every later request from this one's data. "
+            . 'Resolve what it needs per call rather than keeping it.'
+        );
+    }
+
+    /**
+     * Ask every resolved service that holds request state to drop it.
+     *
+     * Only resolved instances are visited: a binding nothing has asked for has
+     * no state to clear, and resolving one here would build the whole container
+     * on every request to no purpose.
+     */
+    private function resetStatefulServices(): void
+    {
+        foreach ($this->container->getResolvedInstances() as $instance) {
+            if (! $instance instanceof ResetsBetweenRequests) {
+                continue;
+            }
+
             try {
-                $this->container->createOrResolve(ViewRenderer::class)->flushState();
-            } catch (\Throwable) {
-                // Non-fatal — keep serving.
+                $instance->resetBetweenRequests();
+            } catch (Throwable $exception) {
+                // The reset continues: there is a next request to serve either
+                // way, and no request in scope here to fail. It is logged
+                // rather than swallowed because a service that failed to clear
+                // goes on answering later requests from the state of the one
+                // that just ended — the same failure CapturedRequestStateException
+                // exists to make visible, and undiagnosable without this line.
+                Logger::error('Service failed to reset between requests', [
+                    'service'   => get_class($instance),
+                    'exception' => $exception->getMessage(),
+                    'origin'    => $exception->getFile() . ':' . $exception->getLine(),
+                ]);
             }
         }
     }

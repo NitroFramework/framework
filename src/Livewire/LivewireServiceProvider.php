@@ -68,7 +68,7 @@ class LivewireServiceProvider extends ServiceProvider
         });
     }
 
-    /** Classify the incoming update commits, mirroring Request::isHtmx(). */
+    /** Add Request::isLivewire(), which reads the header the client sends. */
     protected function registerRequestMacro(): void
     {
         Request::macro('isLivewire', function (): bool {

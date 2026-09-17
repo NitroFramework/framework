@@ -9,13 +9,14 @@ use Nitro\Foundation\PathRegistry;
 /**
  * Class generators, Laravel's make:* surface.
  *
- *   make:controller <name> [--resource]   app/Controllers (App\Controllers)
+ *   make:controller <name> [--resource]   app/Http/Controllers (App\Http\Controllers)
  *   make:model <name>                      app/Models (App\Models)
- *   make:middleware <name>                 app/Middleware (App\Middleware)
- *   make:request <name>                    app/Requests (App\Requests) — FormRequest
+ *   make:middleware <name>                 app/Http/Middleware (App\Http\Middleware)
+ *   make:request <name>                    app/Http/Requests (App\Http\Requests) — FormRequest
  *
  * Names may be nested with "/" or "\" (e.g. make:controller Auth/LoginController
- * → app/Controllers/Auth/LoginController.php, namespace App\Controllers\Auth).
+ * → app/Http/Controllers/Auth/LoginController.php, namespace
+ * App\Http\Controllers\Auth).
  * A "Controller"/"Middleware" suffix is added when missing, matching Laravel.
  */
 class MakeCommands implements CommandInterface
@@ -60,10 +61,10 @@ class MakeCommands implements CommandInterface
 
     private function makeController(string $name, bool $resource): void
     {
-        [$ns, $class, $rel] = $this->resolve($name, 'App\\Controllers', 'Controller');
+        [$ns, $class, $rel] = $this->resolve($name, 'App\\Http\\Controllers', 'Controller');
         $body = $resource ? $this->resourceMethods() : "    //\n";
 
-        $this->write("app/Controllers/{$rel}", <<<PHP
+        $this->write("app/Http/Controllers/{$rel}", <<<PHP
         <?php
 
         namespace {$ns};
@@ -127,9 +128,9 @@ class MakeCommands implements CommandInterface
 
     private function makeMiddleware(string $name): void
     {
-        [$ns, $class, $rel] = $this->resolve($name, 'App\\Middleware', 'Middleware');
+        [$ns, $class, $rel] = $this->resolve($name, 'App\\Http\\Middleware', 'Middleware');
 
-        $this->write("app/Middleware/{$rel}", <<<PHP
+        $this->write("app/Http/Middleware/{$rel}", <<<PHP
         <?php
 
         namespace {$ns};
@@ -153,9 +154,9 @@ class MakeCommands implements CommandInterface
 
     private function makeRequest(string $name): void
     {
-        [$ns, $class, $rel] = $this->resolve($name, 'App\\Requests', 'Request');
+        [$ns, $class, $rel] = $this->resolve($name, 'App\\Http\\Requests', 'Request');
 
-        $this->write("app/Requests/{$rel}", <<<PHP
+        $this->write("app/Http/Requests/{$rel}", <<<PHP
         <?php
 
         namespace {$ns};

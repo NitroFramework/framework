@@ -7,3 +7,6 @@ ReleaseWorkflow.md export-ignore
 release-check.php export-ignore
 VARIABLE-CLEANUP.md export-ignore
 PACKAGE-SDK.md export-ignore
+
+# Maintainer-only benchmark harness — not needed inside an app.
+benchmarks/ export-ignore

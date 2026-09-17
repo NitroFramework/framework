@@ -7,6 +7,7 @@ use Nitro\Database\DB;
 use Nitro\Foundation\Application;
 use Nitro\Http\Kernel;
 use Nitro\Http\Request;
+use Nitro\Thrust\WorkerMode;
 use PHPUnit\Framework\Assert;
 use PHPUnit\Framework\TestCase as BaseTestCase;
 
@@ -32,6 +33,35 @@ use PHPUnit\Framework\TestCase as BaseTestCase;
 abstract class TestCase extends BaseTestCase
 {
     protected ?Application $app = null;
+
+    /**
+     * Whether this test needs an application of its own even when the suite is
+     * running worker-shaped.
+     *
+     * For tests of the boot sequence itself, which cannot run against an
+     * application that has already booted.
+     */
+    protected bool $requiresFreshApplication = false;
+
+    /**
+     * The application every test shares when the suite runs worker-shaped.
+     *
+     * Null in the ordinary mode, where each test builds and discards its own.
+     */
+    private static ?Application $sharedApplication = null;
+
+    /**
+     * The error and exception handlers the shared application installed.
+     *
+     * Captured once, because bootstrapping also registers a shutdown function
+     * and re-running it per test would stack one per test. Reinstalled at the
+     * start of each test and restored at the end of it, so no test is reported
+     * as leaving handlers behind while the application still has the pair a
+     * worker would have left in place.
+     *
+     * @var array{0: ?callable, 1: ?callable}|null
+     */
+    private static ?array $sharedHandlers = null;
 
     /** Headers sent with every request from this test. */
     protected array $defaultHeaders = [];
@@ -86,7 +116,13 @@ abstract class TestCase extends BaseTestCase
     protected function tearDown(): void
     {
         $this->app = null;
-        Container::reset();
+
+        // Worker-shaped, the application is the next test's too. Resetting the
+        // container here would discard the very state this mode exists to
+        // exercise; sharedApplication() resets it the way a worker does.
+        if (! static::runsWorkerShaped()) {
+            Container::reset();
+        }
 
         // Bootstrapping installs an error and an exception handler. PHPUnit
         // reports a test that leaves handlers behind as risky, and it is right
@@ -104,20 +140,137 @@ abstract class TestCase extends BaseTestCase
     }
 
     /**
-     * Boot a fresh application for this test.
+     * Whether the suite is running worker-shaped: one application, reused by
+     * every test, reset between them exactly as Thrust resets between requests.
      *
-     * Fresh per test, not shared: a container that survives between tests
+     * Off by default. Turn it on for a second run of the same suite:
+     *
+     *     NITRO_WORKER_TESTS=1 vendor/bin/phpunit
+     *
+     * Under FPM every request gets a new process, and a test gets a new
+     * application, so neither ever exercises the second request against warm
+     * state — which is the only place a service that outlives its request can
+     * be observed. A binding registered with the wrong lifetime, a static that
+     * survives a reset, a singleton holding last request's user: all of them
+     * pass a conventional suite and fail in a worker. This mode is what makes
+     * them reachable.
+     */
+    protected static function runsWorkerShaped(): bool
+    {
+        $flag = $_ENV['NITRO_WORKER_TESTS']
+            ?? $_SERVER['NITRO_WORKER_TESTS']
+            ?? getenv('NITRO_WORKER_TESTS');
+
+        return filter_var($flag, FILTER_VALIDATE_BOOLEAN);
+    }
+
+    /**
+     * Give this test an application.
+     *
+     * Fresh per test by default: a container that survives between tests
      * carries singletons one test mutated into the next, and the resulting
      * failure appears in whichever test happens to run second.
+     *
+     * Worker-shaped, that is precisely what is being tested — see
+     * runsWorkerShaped().
      */
     protected function refreshApplication(): void
     {
+        if (static::runsWorkerShaped() && ! $this->requiresFreshApplication) {
+            $this->app = $this->sharedApplication();
+            $this->flushSession();
+
+            return;
+        }
+
         Container::reset();
 
         $this->app = new Application($this->basePath());
         $this->app->bootstrap();
 
         $this->flushSession();
+    }
+
+    /**
+     * The shared application, booted on first use and reset thereafter.
+     *
+     * The reset is the worker's own, with the worker's own configuration, so
+     * what survives here is exactly what would survive in production. Anything
+     * this mode catches is a real leak rather than an artefact of the harness.
+     */
+    private function sharedApplication(): Application
+    {
+        if (self::$sharedApplication === null) {
+            Container::reset();
+
+            self::$sharedApplication = new Application($this->basePath());
+            self::$sharedApplication->bootstrap();
+
+            // The suite is the one place where reflecting over the whole
+            // long-lived object graph once per test is affordable, and the only
+            // place a capture made outside a constructor can be seen at all.
+            $container = self::$sharedApplication->getContainer();
+
+            if ($container instanceof Container) {
+                $container->detectCapturedState(true);
+            }
+
+            self::$sharedHandlers = [
+                self::currentErrorHandler(),
+                self::currentExceptionHandler(),
+            ];
+
+            return self::$sharedApplication;
+        }
+
+        // A test that asked for an application of its own left the static
+        // container pointing at that one.
+        $container = self::$sharedApplication->getContainer();
+
+        if ($container instanceof Container) {
+            Container::setInstance($container);
+        }
+
+        // Reinstalled before the reset, not after: the reset raises anything it
+        // found held over from the last test, and a throw between the restore
+        // in tearDown and the reinstall here would leave every test after it
+        // reported as interfering with handlers it does not own — burying the
+        // one real finding under a hundred false ones.
+        [$error, $exception] = self::$sharedHandlers ?? [null, null];
+
+        if ($error !== null) {
+            set_error_handler($error);
+        }
+
+        if ($exception !== null) {
+            set_exception_handler($exception);
+        }
+
+        self::$sharedApplication->resetForWorkerMode(new WorkerMode());
+
+        return self::$sharedApplication;
+    }
+
+    /**
+     * PHP exposes no getter for either handler. Setting one returns the handler
+     * it replaced, and restoring pops the entry that set just pushed — reading
+     * without the restore leaves the stack one deeper each time, which PHPUnit
+     * reports as a test interfering with handlers it does not own.
+     */
+    private static function currentErrorHandler(): ?callable
+    {
+        $handler = set_error_handler(null);
+        restore_error_handler();
+
+        return $handler;
+    }
+
+    private static function currentExceptionHandler(): ?callable
+    {
+        $handler = set_exception_handler(null);
+        restore_exception_handler();
+
+        return $handler;
     }
 
     /**

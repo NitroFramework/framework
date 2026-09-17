@@ -45,7 +45,10 @@ class DatabaseServiceProvider extends ServiceProvider
         // app/Queries/ in boot(); apps needn't have that directory.
         $this->container->singleton(QueryRegistry::class);
 
-        // $this->container->singleton(SchemaBuilder::class, fn() => new SchemaBuilder());
+        // SchemaBuilder's methods are static and hold no state; the instance
+        // exists so 'schema' can be resolved as a service and reached through
+        // the Schema facade.
+        $this->container->singleton(SchemaBuilder::class, fn () => new SchemaBuilder());
         $this->container->alias('schema', SchemaBuilder::class);
 
         // Migration path set, seeded with the app's default migrations directory.
@@ -72,6 +75,20 @@ class DatabaseServiceProvider extends ServiceProvider
             return $container->has('request')
                 ? $container->createOrResolve('request')->query($pageName)
                 : null;
+        });
+
+        // Same contract for the URL the paginator builds its links against.
+        Paginator::currentPathResolverUsing(static function () use ($container) {
+            if (! $container->has('request')) {
+                return ['path' => '/', 'query' => []];
+            }
+
+            $request = $container->createOrResolve('request');
+
+            return [
+                'path'  => $request->path(),
+                'query' => (array) $request->query(),
+            ];
         });
 
         // Auto-load named-query definitions from app/Queries/*.php (no-op if absent).
