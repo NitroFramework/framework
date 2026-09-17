@@ -359,7 +359,7 @@ class ExceptionHandler
 
     /**
      * Render an exception to a string.
-     * Used by Kernel::handleException() to wrap in a Response object.
+     * Used by Kernel::renderException() to wrap in a Response object.
      * Does NOT clean output buffers (Kernel manages its own output).
      */
     public function render(Throwable $exception): string
@@ -386,10 +386,6 @@ class ExceptionHandler
 
         // Give a domain exception its HTTP identity before choosing a renderer.
         $exception = $this->prepareException($exception);
-
-        if ($this->isHtmxRequest()) {
-            return $this->renderForHtmx($exception);
-        }
 
         if ($this->wantsJson($exception)) {
             return $this->renderJson($exception);
@@ -605,20 +601,29 @@ class ExceptionHandler
             $this->reportedExceptions[$exception] = true;
         }
 
-        // An exception may report itself. Returning false means "not handled,
-        // carry on"; anything else (including null) stops here.
-        if (method_exists($exception, 'report') && $exception->report($this->container) !== false) {
-            return;
-        }
+        $this->reportingDepth++;
 
-        // A registered reporter may likewise claim the exception by not
-        // returning false — that is what makes "ship it to Sentry and don't
-        // also write it to the log" expressible.
-        if ($this->runReportHandler($exception) === true) {
-            return;
-        }
+        try {
+            // An exception may report itself. Returning false means "not handled,
+            // carry on"; anything else (including null) stops here.
+            if (method_exists($exception, 'report') && $exception->report($this->container) !== false) {
+                return;
+            }
 
-        $this->logException($exception);
+            // A registered reporter may likewise claim the exception by not
+            // returning false — that is what makes "ship it to Sentry and don't
+            // also write it to the log" expressible.
+            if ($this->runReportHandler($exception) === true) {
+                return;
+            }
+
+            $this->logException($exception);
+        } finally {
+            // Balanced in a finally so a reporter that throws cannot leave the
+            // handler believing it is still reporting for the rest of the
+            // process, which would silence everything after it.
+            $this->reportingDepth--;
+        }
     }
 
     /** Whether any suppression rule silences this exception. */
@@ -849,12 +854,6 @@ class ExceptionHandler
 
     // ─── Request Detection ────────────────────────────────
 
-    private function isHtmxRequest(): bool
-    {
-        return $this->container->has('request')
-            && $this->container->createOrResolve('request')->isHtmx();
-    }
-
     /**
      * Whether this client wants JSON back.
      *
@@ -898,19 +897,6 @@ class ExceptionHandler
         return (bool) $value;
     }
 
-    // ─── HTMX Rendering ──────────────────────────────────
-
-    private function renderForHtmx(Throwable $exception): string
-    {
-        if (!headers_sent()) {
-            header('HX-Retarget: body');
-            header('HX-Reswap: innerHTML');
-        }
-
-        return $this->isDebug()
-            ? $this->renderDevelopment($exception)
-            : $this->renderProduction($exception);
-    }
 
     // ─── JSON Rendering ──────────────────────────────────
 
@@ -1455,5 +1441,176 @@ TRACE;
             }
         }
         return $filtered;
+    }
+
+    // ─── Registration ─────────────────────────────────────────────────────
+
+    /**
+     * Register a reporter for an exception type.
+     *
+     * The type is taken from the callback's first parameter, so the class is
+     * named once rather than twice:
+     *
+     *   $handler->reportable(function (PaymentFailed $exception) { … });
+     *
+     * Returning anything but false claims the exception and stops the default
+     * log write, which is what makes "send it to Sentry only" expressible.
+     */
+    public function reportable(callable $using): self
+    {
+        $type = $this->firstParameterType($using);
+
+        return $type === null
+            ? $this->dontReportWhen(static fn () => false)
+            : $this->reportUsing($type, $using);
+    }
+
+    /**
+     * Register a renderer for an exception type.
+     *
+     * As with reportable(), the type comes from the callback's signature.
+     * Returning null declines, and the next renderer — or the default page —
+     * handles it.
+     */
+    public function renderable(callable $using): self
+    {
+        $type = $this->firstParameterType($using);
+
+        return $type === null ? $this : $this->renderableResponse($type, $using);
+    }
+
+    /**
+     * Never report these exception types.
+     *
+     * The same as dontReport(), under the name Laravel uses for it.
+     */
+    public function ignore(array|string $classes): self
+    {
+        return $this->dontReport($classes);
+    }
+
+    /** Decide the throttle or sample rate for an exception. */
+    public function throttleUsing(callable $using): self
+    {
+        return $this->throttle($using);
+    }
+
+    /**
+     * The type-hint on a callback's first parameter, or null when it has none.
+     *
+     * @return class-string|null
+     */
+    private function firstParameterType(callable $callback): ?string
+    {
+        $reflection = new \ReflectionFunction(\Closure::fromCallable($callback));
+        $parameters = $reflection->getParameters();
+
+        if ($parameters === []) {
+            return null;
+        }
+
+        $type = $parameters[0]->getType();
+
+        return ($type instanceof \ReflectionNamedType && ! $type->isBuiltin())
+            ? $type->getName()
+            : null;
+    }
+
+    // ─── Reporting state ──────────────────────────────────────────────────
+
+    /** Depth of the current report() call, so a reporter can tell it is inside one. */
+    private int $reportingDepth = 0;
+
+    /**
+     * Whether a report is in progress.
+     *
+     * A reporter that itself throws would otherwise be reported, recursively.
+     * Code that logs during reporting checks this to stay out of that loop.
+     */
+    public function isReporting(): bool
+    {
+        return $this->reportingDepth > 0;
+    }
+
+    // ─── Context ──────────────────────────────────────────────────────────
+
+    /**
+     * Context for an exception, as the log line will carry it.
+     *
+     * The same as contextFor(), under the name Laravel uses for it.
+     *
+     * @return array<string, mixed>
+     */
+    public function contextForException(Throwable $exception): array
+    {
+        return $this->contextFor($exception);
+    }
+
+    /**
+     * The exception's own context, without the handler's global additions.
+     *
+     * Reads a context() method on the exception, which is how an exception
+     * carries the data that explains it.
+     *
+     * @return array<string, mixed>
+     */
+    public function buildContextForException(Throwable $exception): array
+    {
+        if (! method_exists($exception, 'context')) {
+            return [];
+        }
+
+        return (array) $exception->context();
+    }
+
+    // ─── Queue retry control ──────────────────────────────────────────────
+
+    /**
+     * Exception types that should stop a queued job retrying.
+     *
+     * A job failing because a record was deleted will fail the same way on
+     * every attempt; retrying it only delays the failure and burns the queue.
+     *
+     * @var array<int, class-string>
+     */
+    private array $dontRetry = [];
+
+    /** @var array<int, callable> */
+    private array $dontRetryCallbacks = [];
+
+    /** @param array<int, class-string>|class-string $classes */
+    public function dontRetry(array|string $classes): self
+    {
+        $this->dontRetry = array_merge($this->dontRetry, (array) $classes);
+
+        return $this;
+    }
+
+    /** Stop retrying whenever the predicate returns true. */
+    public function dontRetryWhen(callable $predicate): self
+    {
+        $this->dontRetryCallbacks[] = $predicate;
+
+        return $this;
+    }
+
+    /** Whether a failed job carrying this exception should stop retrying. */
+    public function shouldStopRetries(Throwable $exception): bool
+    {
+        $exception = $this->mapException($exception);
+
+        foreach ($this->dontRetry as $class) {
+            if ($exception instanceof $class) {
+                return true;
+            }
+        }
+
+        foreach ($this->dontRetryCallbacks as $predicate) {
+            if ($predicate($exception) === true) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

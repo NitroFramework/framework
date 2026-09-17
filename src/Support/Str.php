@@ -47,9 +47,19 @@ class Str
         return strtr(mb_strtolower($value, 'UTF-8'), self::ASCII_MAP);
     }
 
-    public static function contains(string $haystack, string|array $needles): bool
+    public static function contains(string $haystack, string|array $needles, bool $ignoreCase = false): bool
     {
+        if ($ignoreCase) {
+            $haystack = mb_strtolower($haystack);
+        }
+
         foreach ((array) $needles as $needle) {
+            $needle = (string) $needle;
+
+            if ($ignoreCase) {
+                $needle = mb_strtolower($needle);
+            }
+
             if ($needle !== '' && str_contains($haystack, $needle)) {
                 return true;
             }
@@ -321,5 +331,703 @@ class Str
         }
 
         return $plural;
+    }
+
+    /** Begin a fluent chain over $value. */
+    public static function of(string $value): Stringable
+    {
+        return new Stringable($value);
+    }
+
+    // ─── Slicing ──────────────────────────────────────────────────────────
+
+    /** Everything after the last occurrence of $search. */
+    public static function afterLast(string $subject, string $search): string
+    {
+        if ($search === '') {
+            return $subject;
+        }
+
+        $position = strrpos($subject, $search);
+
+        return $position === false ? $subject : substr($subject, $position + strlen($search));
+    }
+
+    /** Everything before the last occurrence of $search. */
+    public static function beforeLast(string $subject, string $search): string
+    {
+        if ($search === '') {
+            return $subject;
+        }
+
+        $position = strrpos($subject, $search);
+
+        return $position === false ? $subject : substr($subject, 0, $position);
+    }
+
+    /** The text between the first $from and the last $to. */
+    public static function between(string $subject, string $from, string $to): string
+    {
+        if ($from === '' || $to === '') {
+            return $subject;
+        }
+
+        return static::beforeLast(static::after($subject, $from), $to);
+    }
+
+    /** The text between the first $from and the first $to after it. */
+    public static function betweenFirst(string $subject, string $from, string $to): string
+    {
+        if ($from === '' || $to === '') {
+            return $subject;
+        }
+
+        return static::before(static::after($subject, $from), $to);
+    }
+
+    /** The character at $index, counting from the end when negative. */
+    public static function charAt(string $subject, int $index): string|false
+    {
+        $length = mb_strlen($subject);
+
+        if ($index < 0) {
+            $index += $length;
+        }
+
+        if ($index < 0 || $index >= $length) {
+            return false;
+        }
+
+        return mb_substr($subject, $index, 1);
+    }
+
+    public static function substr(string $subject, int $start, ?int $length = null): string
+    {
+        return mb_substr($subject, $start, $length);
+    }
+
+    /** The first $limit characters. */
+    public static function take(string $subject, int $limit): string
+    {
+        return $limit < 0
+            ? mb_substr($subject, $limit)
+            : mb_substr($subject, 0, $limit);
+    }
+
+    /** Remove $needle from the start, if it is there. */
+    public static function chopStart(string $subject, string|array $needle): string
+    {
+        foreach ((array) $needle as $prefix) {
+            if ($prefix !== '' && str_starts_with($subject, (string) $prefix)) {
+                return substr($subject, strlen((string) $prefix));
+            }
+        }
+
+        return $subject;
+    }
+
+    /** Remove $needle from the end, if it is there. */
+    public static function chopEnd(string $subject, string|array $needle): string
+    {
+        foreach ((array) $needle as $suffix) {
+            if ($suffix !== '' && str_ends_with($subject, (string) $suffix)) {
+                return substr($subject, 0, -strlen((string) $suffix));
+            }
+        }
+
+        return $subject;
+    }
+
+    // ─── Searching ────────────────────────────────────────────────────────
+
+    /** Whether the subject contains every one of $needles. */
+    public static function containsAll(string $haystack, array $needles, bool $ignoreCase = false): bool
+    {
+        foreach ($needles as $needle) {
+            if (! static::contains($haystack, (string) $needle, $ignoreCase)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    public static function doesntContain(string $haystack, string|array $needles, bool $ignoreCase = false): bool
+    {
+        foreach ((array) $needles as $needle) {
+            if (static::contains($haystack, (string) $needle, $ignoreCase)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    public static function doesntStartWith(string $haystack, string|array $needles): bool
+    {
+        return ! static::startsWith($haystack, $needles);
+    }
+
+    public static function doesntEndWith(string $haystack, string|array $needles): bool
+    {
+        return ! static::endsWith($haystack, $needles);
+    }
+
+    /** The byte position of the first $needle, or false. */
+    public static function position(string $haystack, string $needle, int $offset = 0): int|false
+    {
+        return mb_strpos($haystack, $needle, $offset);
+    }
+
+    public static function substrCount(string $haystack, string $needle, int $offset = 0, ?int $length = null): int
+    {
+        return $length === null
+            ? substr_count($haystack, $needle, $offset)
+            : substr_count($haystack, $needle, $offset, $length);
+    }
+
+    /**
+     * Whether the subject matches a pattern where `*` stands for any run of
+     * characters. A literal match always wins first.
+     */
+    public static function is(string|array $pattern, string $value): bool
+    {
+        foreach ((array) $pattern as $candidate) {
+            $candidate = (string) $candidate;
+
+            if ($candidate === $value) {
+                return true;
+            }
+
+            if (! str_contains($candidate, '*')) {
+                continue;
+            }
+
+            $regex = str_replace('\*', '.*', preg_quote($candidate, '#'));
+
+            if (preg_match('#^' . $regex . '\z#u', $value) === 1) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** Whether the subject matches a regular expression. */
+    public static function isMatch(string|array $pattern, string $value): bool
+    {
+        foreach ((array) $pattern as $candidate) {
+            if (preg_match((string) $candidate, $value) === 1) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** The first capture group of $pattern, or an empty string. */
+    public static function match(string $pattern, string $subject): string
+    {
+        if (preg_match($pattern, $subject, $matches) !== 1) {
+            return '';
+        }
+
+        return $matches[1] ?? $matches[0];
+    }
+
+    /**
+     * Every match of $pattern.
+     *
+     * @return array<int, string>
+     */
+    public static function matchAll(string $pattern, string $subject): array
+    {
+        if (preg_match_all($pattern, $subject, $matches) === false) {
+            return [];
+        }
+
+        return $matches[1] ?? $matches[0];
+    }
+
+    // ─── Predicates ───────────────────────────────────────────────────────
+
+    public static function isAscii(string $value): bool
+    {
+        return preg_match('/^[\x00-\x7F]*$/', $value) === 1;
+    }
+
+    public static function isJson(string $value): bool
+    {
+        if (trim($value) === '') {
+            return false;
+        }
+
+        json_decode($value);
+
+        return json_last_error() === JSON_ERROR_NONE;
+    }
+
+    public static function isUlid(string $value): bool
+    {
+        return preg_match('/^[0-7][0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{25}$/', $value) === 1;
+    }
+
+    public static function isUrl(string $value): bool
+    {
+        return filter_var($value, FILTER_VALIDATE_URL) !== false;
+    }
+
+    // ─── Case ─────────────────────────────────────────────────────────────
+
+    public static function lcfirst(string $value): string
+    {
+        return mb_strtolower(mb_substr($value, 0, 1)) . mb_substr($value, 1);
+    }
+
+    /** StudlyCase, the same shape as studly(). */
+    public static function pascal(string $value): string
+    {
+        return static::studly($value);
+    }
+
+    public static function pluralStudly(string $value, int $count = 2): string
+    {
+        return $count === 1 ? static::studly($value) : static::studly(static::plural($value));
+    }
+
+    public static function pluralPascal(string $value, int $count = 2): string
+    {
+        return static::pluralStudly($value, $count);
+    }
+
+    /** Capitalise each word, splitting on whitespace only. */
+    public static function ucwords(string $value, string $delimiters = " \t\r\n\f\v"): string
+    {
+        return ucwords($value, $delimiters);
+    }
+
+    /**
+     * Split a StudlyCase string into its words.
+     *
+     * @return array<int, string>
+     */
+    public static function ucsplit(string $value): array
+    {
+        return preg_split('/(?=\p{Lu})/u', $value, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+    }
+
+    /** Words separated by single spaces, each capitalised. */
+    public static function headline(string $value): string
+    {
+        $parts = preg_split('/[\s_-]+/u', $value, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+
+        $words = [];
+
+        foreach ($parts as $part) {
+            foreach (static::ucsplit($part) ?: [$part] as $word) {
+                $words[] = static::ucfirst($word);
+            }
+        }
+
+        return implode(' ', $words);
+    }
+
+    /** Change case with one of the MB_CASE_* modes. */
+    public static function convertCase(string $value, int $mode = MB_CASE_FOLD, string $encoding = 'UTF-8'): string
+    {
+        return mb_convert_case($value, $mode, $encoding);
+    }
+
+    /**
+     * The initials of each word, upper-cased.
+     */
+    public static function initials(string $value, string $separator = ''): string
+    {
+        $words = preg_split('/[\s_-]+/u', trim($value), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+
+        $initials = array_map(
+            static fn (string $word) => mb_strtoupper(mb_substr($word, 0, 1)),
+            $words
+        );
+
+        return implode($separator, $initials);
+    }
+
+    // ─── Rewriting ────────────────────────────────────────────────────────
+
+    public static function replaceFirst(string $search, string $replace, string $subject): string
+    {
+        if ($search === '') {
+            return $subject;
+        }
+
+        $position = strpos($subject, $search);
+
+        return $position === false
+            ? $subject
+            : substr_replace($subject, $replace, $position, strlen($search));
+    }
+
+    public static function replaceLast(string $search, string $replace, string $subject): string
+    {
+        if ($search === '') {
+            return $subject;
+        }
+
+        $position = strrpos($subject, $search);
+
+        return $position === false
+            ? $subject
+            : substr_replace($subject, $replace, $position, strlen($search));
+    }
+
+    /** Replace $search only where it begins the subject. */
+    public static function replaceStart(string $search, string $replace, string $subject): string
+    {
+        return ($search !== '' && str_starts_with($subject, $search))
+            ? static::replaceFirst($search, $replace, $subject)
+            : $subject;
+    }
+
+    /** Replace $search only where it ends the subject. */
+    public static function replaceEnd(string $search, string $replace, string $subject): string
+    {
+        return ($search !== '' && str_ends_with($subject, $search))
+            ? static::replaceLast($search, $replace, $subject)
+            : $subject;
+    }
+
+    /**
+     * Replace each occurrence of $search with the next value from $replace.
+     *
+     * @param array<int, string> $replace
+     */
+    public static function replaceArray(string $search, array $replace, string $subject): string
+    {
+        foreach ($replace as $value) {
+            $subject = static::replaceFirst($search, (string) $value, $subject);
+        }
+
+        return $subject;
+    }
+
+    /** Replace everything matching a regular expression. */
+    public static function replaceMatches(string $pattern, string|callable $replace, string $subject, int $limit = -1): string
+    {
+        if (is_callable($replace)) {
+            return preg_replace_callback($pattern, $replace, $subject, $limit) ?? $subject;
+        }
+
+        return preg_replace($pattern, $replace, $subject, $limit) ?? $subject;
+    }
+
+    /** Remove every occurrence of $search. */
+    public static function remove(string|array $search, string $subject, bool $caseSensitive = true): string
+    {
+        return $caseSensitive
+            ? str_replace($search, '', $subject)
+            : str_ireplace($search, '', $subject);
+    }
+
+    /**
+     * Swap several substrings at once.
+     *
+     * @param array<string, string> $map
+     */
+    public static function swap(array $map, string $subject): string
+    {
+        return strtr($subject, $map);
+    }
+
+    public static function substrReplace(string $subject, string $replace, int $offset = 0, ?int $length = null): string
+    {
+        return $length === null
+            ? substr_replace($subject, $replace, $offset)
+            : substr_replace($subject, $replace, $offset, $length);
+    }
+
+    public static function reverse(string $value): string
+    {
+        return implode('', array_reverse(mb_str_split($value)));
+    }
+
+    public static function repeat(string $value, int $times): string
+    {
+        return $times > 0 ? str_repeat($value, $times) : '';
+    }
+
+    /** Collapse runs of whitespace into single spaces and trim. */
+    public static function squish(string $value): string
+    {
+        return trim(preg_replace('/\s+/u', ' ', $value) ?? $value);
+    }
+
+    /** Collapse runs of $character into one. */
+    public static function deduplicate(string $value, string $character = ' '): string
+    {
+        return preg_replace('/' . preg_quote($character, '/') . '+/u', $character, $value) ?? $value;
+    }
+
+    public static function trim(string $value, ?string $characters = null): string
+    {
+        return $characters === null ? trim($value) : trim($value, $characters);
+    }
+
+    public static function ltrim(string $value, ?string $characters = null): string
+    {
+        return $characters === null ? ltrim($value) : ltrim($value, $characters);
+    }
+
+    public static function rtrim(string $value, ?string $characters = null): string
+    {
+        return $characters === null ? rtrim($value) : rtrim($value, $characters);
+    }
+
+    /** Surround the value with $before and $after. */
+    public static function wrap(string $value, string $before, ?string $after = null): string
+    {
+        return $before . $value . ($after ?? $before);
+    }
+
+    /** Remove a surrounding pair, if both sides are present. */
+    public static function unwrap(string $value, string $before, ?string $after = null): string
+    {
+        $after ??= $before;
+
+        if (str_starts_with($value, $before)) {
+            $value = substr($value, strlen($before));
+        }
+
+        if (str_ends_with($value, $after)) {
+            $value = substr($value, 0, -strlen($after));
+        }
+
+        return $value;
+    }
+
+    // ─── Padding ──────────────────────────────────────────────────────────
+
+    public static function padLeft(string $value, int $length, string $pad = ' '): string
+    {
+        return static::pad($value, $length, $pad, STR_PAD_LEFT);
+    }
+
+    public static function padRight(string $value, int $length, string $pad = ' '): string
+    {
+        return static::pad($value, $length, $pad, STR_PAD_RIGHT);
+    }
+
+    public static function padBoth(string $value, int $length, string $pad = ' '): string
+    {
+        return static::pad($value, $length, $pad, STR_PAD_BOTH);
+    }
+
+    /**
+     * Pad by character count rather than byte count, so a multi-byte string
+     * pads to the width it is displayed at.
+     */
+    private static function pad(string $value, int $length, string $pad, int $type): string
+    {
+        $short = max(0, $length - mb_strlen($value));
+
+        return match ($type) {
+            STR_PAD_LEFT  => mb_substr(str_repeat($pad, $short), 0, $short) . $value,
+            STR_PAD_RIGHT => $value . mb_substr(str_repeat($pad, $short), 0, $short),
+            default       => mb_substr(str_repeat($pad, (int) floor($short / 2)), 0, (int) floor($short / 2))
+                . $value
+                . mb_substr(str_repeat($pad, (int) ceil($short / 2)), 0, (int) ceil($short / 2)),
+        };
+    }
+
+    // ─── Words ────────────────────────────────────────────────────────────
+
+    public static function wordCount(string $value): int
+    {
+        return count(preg_split('/\s+/u', trim($value), -1, PREG_SPLIT_NO_EMPTY) ?: []);
+    }
+
+    /** Break long lines at word boundaries. */
+    public static function wordWrap(string $value, int $characters = 75, string $break = "\n", bool $cutLongWords = false): string
+    {
+        return wordwrap($value, $characters, $break, $cutLongWords);
+    }
+
+    /**
+     * A short extract around the first occurrence of a phrase.
+     *
+     * @param array{radius?: int, omission?: string} $options
+     */
+    public static function excerpt(string $text, string $phrase = '', array $options = []): ?string
+    {
+        $radius = $options['radius'] ?? 100;
+        $omission = $options['omission'] ?? '...';
+
+        $position = $phrase === '' ? 0 : mb_stripos($text, $phrase);
+
+        if ($position === false) {
+            return null;
+        }
+
+        $start = max(0, $position - $radius);
+        $length = mb_strlen($phrase) + ($radius * 2) + ($position - $start > 0 ? 0 : 0);
+
+        $extract = mb_substr($text, $start, ($position - $start) + mb_strlen($phrase) + $radius);
+
+        return ($start > 0 ? $omission : '')
+            . $extract
+            . ($start + mb_strlen($extract) < mb_strlen($text) ? $omission : '');
+    }
+
+    /** Only the digits in the value. */
+    public static function numbers(string $value): string
+    {
+        return preg_replace('/[^0-9]/', '', $value) ?? '';
+    }
+
+    // ─── Masking and encoding ─────────────────────────────────────────────
+
+    /**
+     * Replace part of the value with a repeated character.
+     *
+     * A negative $index counts from the end, so an email can be masked as
+     * mask($email, '*', 2) without knowing its length.
+     */
+    public static function mask(string $value, string $character, int $index, ?int $length = null): string
+    {
+        if ($character === '') {
+            return $value;
+        }
+
+        $segment = mb_substr($value, $index, $length);
+
+        if ($segment === '') {
+            return $value;
+        }
+
+        $start = $index < 0 ? max(0, mb_strlen($value) + $index) : $index;
+
+        return mb_substr($value, 0, $start)
+            . str_repeat(mb_substr($character, 0, 1), mb_strlen($segment))
+            . mb_substr($value, $start + mb_strlen($segment));
+    }
+
+    public static function toBase64(string $value): string
+    {
+        return base64_encode($value);
+    }
+
+    public static function fromBase64(string $value, bool $strict = false): string|false
+    {
+        return base64_decode($value, $strict);
+    }
+
+    // ─── Identifiers ──────────────────────────────────────────────────────
+
+    /**
+     * A time-ordered UUID (version 7).
+     *
+     * Sorts by creation time, which keeps a database index appending rather
+     * than fragmenting the way a random v4 does.
+     */
+    public static function uuid7(?\DateTimeInterface $time = null): string
+    {
+        $milliseconds = $time === null
+            ? (int) (microtime(true) * 1000)
+            : (int) ($time->format('U.u') * 1000);
+
+        $bytes = random_bytes(16);
+
+        // 48-bit big-endian timestamp, then the version and variant bits.
+        for ($i = 5; $i >= 0; $i--) {
+            $bytes[$i] = chr($milliseconds & 0xFF);
+            $milliseconds >>= 8;
+        }
+
+        $bytes[6] = chr((ord($bytes[6]) & 0x0F) | 0x70);
+        $bytes[8] = chr((ord($bytes[8]) & 0x3F) | 0x80);
+
+        return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($bytes), 4));
+    }
+
+    /** Alias of {@see uuid7()}, for callers that want ordering by name. */
+    public static function orderedUuid(): string
+    {
+        return static::uuid7();
+    }
+
+    /** A ULID: 48 bits of timestamp then 80 bits of randomness, base32. */
+    public static function ulid(?\DateTimeInterface $time = null): string
+    {
+        $alphabet = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+
+        $milliseconds = $time === null
+            ? (int) (microtime(true) * 1000)
+            : (int) ($time->format('U.u') * 1000);
+
+        $timePart = '';
+        for ($i = 9; $i >= 0; $i--) {
+            $timePart = $alphabet[$milliseconds % 32] . $timePart;
+            $milliseconds = intdiv($milliseconds, 32);
+        }
+
+        $randomPart = '';
+        for ($i = 0; $i < 16; $i++) {
+            $randomPart .= $alphabet[random_int(0, 31)];
+        }
+
+        return $timePart . $randomPart;
+    }
+
+    /**
+     * A random password of mixed character classes.
+     */
+    public static function password(int $length = 32, bool $letters = true, bool $numbers = true, bool $symbols = true, bool $spaces = false): string
+    {
+        $pool = [];
+
+        if ($letters) {
+            $pool = array_merge($pool, str_split('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'));
+        }
+
+        if ($numbers) {
+            $pool = array_merge($pool, str_split('0123456789'));
+        }
+
+        if ($symbols) {
+            $pool = array_merge($pool, str_split('~!#$%^&*()-_.,<>?/\\{}[]|:;'));
+        }
+
+        if ($spaces) {
+            $pool[] = ' ';
+        }
+
+        if ($pool === []) {
+            return '';
+        }
+
+        $password = '';
+        $max = count($pool) - 1;
+
+        for ($i = 0; $i < $length; $i++) {
+            $password .= $pool[random_int(0, $max)];
+        }
+
+        return $password;
+    }
+
+    /**
+     * Split a "Class@method" callback string.
+     *
+     * @return array{0: string, 1: string|null}
+     */
+    public static function parseCallback(string $callback, ?string $default = null): array
+    {
+        if (! str_contains($callback, '@')) {
+            return [$callback, $default];
+        }
+
+        [$class, $method] = explode('@', $callback, 2);
+
+        return [$class, $method];
     }
 }

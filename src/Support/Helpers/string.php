@@ -144,3 +144,22 @@ if (!function_exists('class_uses_recursive')) {
         return array_unique($results);
     }
 }
+
+if (!function_exists('str')) {
+    /**
+     * Begin a fluent string chain.
+     *
+     * Called with no argument it returns the Str class name, so
+     * str()::slug(...) and str($v)->slug() both work.
+     *
+     * @return \Nitro\Support\Stringable|class-string<\Nitro\Support\Str>
+     */
+    function str(?string $string = null)
+    {
+        if ($string === null) {
+            return \Nitro\Support\Str::class;
+        }
+
+        return new \Nitro\Support\Stringable($string);
+    }
+}
