@@ -2,12 +2,15 @@
 
 namespace Nitro\Container;
 
+use Nitro\Container\Attributes\ProcessScoped;
+use Nitro\Container\Attributes\RequestScoped;
 use Nitro\Container\Contracts\ContainerInterface;
-use Nitro\Container\Contracts\ProfilerInterface;
+use Nitro\Container\Exceptions\LifetimeException;
 use Nitro\Container\Exceptions\NotFoundException;
 use ReflectionClass;
 use ReflectionNamedType;
 use RuntimeException;
+use SplObjectStorage;
 
 /**
  * The Nitro service container — a reflection-based dependency-injection container.
@@ -16,15 +19,14 @@ use RuntimeException;
  * resolves them on demand, auto-wiring constructor dependencies via cached
  * reflection. Supports singletons, request-scoped bindings (flushed between worker
  * requests), factories, aliases, contextual and tagged bindings, lazy deferred-
- * provider registration, and route-model parameter binding. Profiling is an opt-in
- * dev concern attached via setProfiler() — the core carries no debug logic itself.
+ * provider registration, and route-model parameter binding.
  */
-class Container implements ContainerInterface
+class Container implements ContainerInterface, \ArrayAccess
 {
+    use Concerns\FiresResolutionCallbacks;
+    use Concerns\ManagesBindings;
 
-    // Attached only in debug (by the front controllers); null means no profiling
-    // and thus zero cost — the core never references a concrete profiler.
-    private ?ProfilerInterface $profiler = null;
+
     private array $tags = [];
     private array $contextualBindings = [];
     private array $building = [];
@@ -131,14 +133,23 @@ class Container implements ContainerInterface
     }
 
     /**
-     * Attach a profiler (or detach with null). The container records its activity
-     * to whatever is attached; with none attached there is no profiling cost. The
-     * front controllers attach one in debug mode. The container depends only on
-     * the ProfilerInterface — never on a concrete profiler or the dev tooling.
+     * Make this the container the helpers and facades resolve from, returning
+     * the one it replaces.
+     *
+     * For a host that owns more than one application in a process: a test
+     * harness running one test against a throwaway application and the next
+     * against a shared one, or a worker handing off between them. reset()
+     * cannot serve that purpose — it forgets the instance rather than
+     * exchanging it, leaving anything that still holds the previous
+     * application resolving from a container nothing else can reach.
      */
-    public function setProfiler(?ProfilerInterface $profiler): void
+    public static function setInstance(?self $container): ?self
     {
-        $this->profiler = $profiler;
+        $previous = self::$instance;
+
+        self::$instance = $container;
+
+        return $previous;
     }
 
     // ============================================
@@ -152,14 +163,175 @@ class Container implements ContainerInterface
     /** Resolved singleton instances */
     private array $resolved = [];
 
+    /**
+     * How long each binding lives, keyed by name.
+     *
+     * Recorded at bind time so a resolution can tell whether it is about to
+     * hand a short-lived object to a long-lived one. Aliases hold no entry:
+     * they resolve through to their target, which is the only thing with a
+     * lifetime to have an opinion about.
+     *
+     * @var array<string, Lifetime>
+     */
+    private array $lifetimes = [];
+
+    /**
+     * Answers from lifetimeOf(), which reads attributes by reflection.
+     *
+     * @var array<string, Lifetime>
+     */
+    private array $lifetimeMemo = [];
+
+    /**
+     * Record how long a name lives without binding anything to it.
+     *
+     * For a service supplied from outside the container rather than built by
+     * it — the request, which the kernel hands over with instance() once per
+     * request. Its lifetime has to be known before the first one exists, or
+     * everything resolved during boot reads it as having no lifetime at all
+     * and is free to hold on to it.
+     */
+    public function declareLifetime(string $name, Lifetime $lifetime): void
+    {
+        $this->lifetimes[$name] = $lifetime;
+        unset($this->lifetimeMemo[$name]);
+    }
+
+    /**
+     * Request-lived objects handed out since the last reset, by generation.
+     *
+     * Only populated while capture detection is on; see capturedRequestState().
+     *
+     * @var SplObjectStorage<object, int>|null
+     */
+    private ?SplObjectStorage $requestScopedInstances = null;
+
+    /** Which request is current, counted rather than named: only equality matters. */
+    private int $requestGeneration = 0;
+
+    private bool $detectsCapturedState = false;
+
+    /**
+     * Record request-lived objects so that capturedRequestState() can find any
+     * still held after the request ends.
+     *
+     * Off by default: it keeps a reference to every request-scoped object for
+     * the length of a request and the scan reflects over the whole long-lived
+     * object graph. Worth it in a test suite and on a developer's worker, not
+     * in production.
+     */
+    public function detectCapturedState(bool $detect): void
+    {
+        $this->detectsCapturedState = $detect;
+        $this->requestScopedInstances = $detect ? new SplObjectStorage() : null;
+    }
+
+    /**
+     * Request-scoped objects still reachable from something that outlives them.
+     *
+     * Call before dropping the scoped instances, or there is nothing left to
+     * find. Returns an empty array when detection is off.
+     *
+     * @return array<int, array{holder: string, path: string, captured: string}>
+     */
+    public function capturedRequestState(): array
+    {
+        if ($this->requestScopedInstances === null) {
+            return [];
+        }
+
+        $longLived = [];
+
+        foreach ($this->resolved as $name => $instance) {
+            if ($this->lifetimeOf($name) === Lifetime::Process) {
+                $longLived[$name] = $instance;
+            }
+        }
+
+        $opaque = new SplObjectStorage();
+        $opaque->attach($this);
+
+        return (new CapturedStateScanner($this->requestScopedInstances, $this->requestGeneration, $opaque))
+            ->scan($longLived);
+    }
+
+    /**
+     * Note that a request has ended, so objects built during the next one are
+     * not mistaken for the ones this scan was looking for.
+     */
+    public function startNewRequestGeneration(): void
+    {
+        $this->requestGeneration++;
+        $this->requestScopedInstances = $this->detectsCapturedState ? new SplObjectStorage() : null;
+    }
+
+    /** Tag an object as belonging to the current request, if it is one. */
+    private function noteRequestScoped(string $name, mixed $instance): void
+    {
+        if ($this->requestScopedInstances === null || ! is_object($instance)) {
+            return;
+        }
+
+        if ($this->lifetimeOf($name) === Lifetime::Request) {
+            $this->requestScopedInstances[$instance] = $this->requestGeneration;
+        }
+    }
+
+    /**
+     * How long a name lives once resolved.
+     *
+     * The class's own attribute wins over the binding, so a service cannot be
+     * registered as a singleton in one provider and as scoped in another and
+     * have the container believe both. An alias has no lifetime of its own and
+     * answers for its target.
+     */
+    public function lifetimeOf(string $name): Lifetime
+    {
+        if (isset($this->lifetimeMemo[$name])) {
+            return $this->lifetimeMemo[$name];
+        }
+
+        $target = $this->aliasTargets[$name] ?? $name;
+
+        return $this->lifetimeMemo[$name] = $this->lifetimeAttributeOf($target)
+            ?? $this->lifetimes[$target]
+            ?? Lifetime::Transient;
+    }
+
+    private function lifetimeAttributeOf(string $class): ?Lifetime
+    {
+        if (! class_exists($class)) {
+            return null;
+        }
+
+        $reflection = new ReflectionClass($class);
+
+        if ($reflection->getAttributes(RequestScoped::class) !== []) {
+            return Lifetime::Request;
+        }
+
+        if ($reflection->getAttributes(ProcessScoped::class) !== []) {
+            return Lifetime::Process;
+        }
+
+        return null;
+    }
+
     /** Bind a service or value */
     public function bind(string $name, $value, bool $singleton = true): void
     {
+        $rebinding = isset($this->services[$name]);
+
         $this->services[$name] = [
             'value'     => $value,
             'singleton' => $singleton,
         ];
-        unset($this->resolved[$name]);
+        $this->lifetimes[$name] = $singleton ? Lifetime::Process : Lifetime::Transient;
+        unset($this->resolved[$name], $this->lifetimeMemo[$name]);
+
+        if ($rebinding) {
+            $this->fireRebound($name);
+        }
     }
 
     /**
@@ -173,6 +345,11 @@ class Container implements ContainerInterface
             $this->scopedInstances[] = $name;
         }
         $this->singleton($name, $value);
+
+        // After singleton(), which binds as Process: scoped is a singleton in
+        // how it resolves and a request in how long it survives.
+        $this->lifetimes[$name] = Lifetime::Request;
+        unset($this->lifetimeMemo[$name]);
     }
 
     /**
@@ -194,19 +371,29 @@ class Container implements ContainerInterface
     {
         $this->bind($name, $value ?? $name, true);
 
-        $this->profiler?->recordRegistration($name);
     }
 
     /** Register an already-created instance */
     public function instance(string $name, mixed $instance): void
     {
+        $rebinding = isset($this->services[$name]);
+
         $this->resolved[$name] = $instance;
         $this->services[$name] = [
             'value'     => $instance,
             'singleton' => true,
         ];
+        $this->lifetimes[$name] = Lifetime::Process;
+        unset($this->lifetimeMemo[$name]);
 
-        $this->profiler?->recordInstance($name);
+        // The request arrives this way, and its lifetime is declared rather
+        // than implied by the binding — so ask, instead of assuming Process.
+        $this->noteRequestScoped($name, $instance);
+
+
+        if ($rebinding) {
+            $this->fireRebound($name, $instance);
+        }
     }
 
     /** Register a factory (non-singleton) */
@@ -250,17 +437,22 @@ class Container implements ContainerInterface
             return $this->resolved[$name];
         }
 
-        $profilerId = $this->profiler?->startResolving($name, 'get');
-
-        $resolved = $this->resolveValue($service['value']);
+        // Guarded inline rather than inside the fire methods: most applications
+        // register no hooks, and those that do register them against a handful
+        // of services. Calling a method only for it to return immediately still
+        // costs a call per resolution, once per class in an auto-wired graph.
+        if ($this->shouldFireCallbacks($name)) {
+            $this->fireBeforeResolving($name);
+            $resolved = $this->fireResolved($name, $this->resolveValue($service['value']));
+        } else {
+            $resolved = $this->resolveValue($service['value']);
+        }
 
         if ($service['singleton']) {
             $this->resolved[$name] = $resolved;
         }
 
-        if ($profilerId !== null) {
-            $this->profiler?->endResolving($profilerId, 'closure');
-        }
+        $this->noteRequestScoped($name, $resolved);
 
         return $resolved;
     }
@@ -405,9 +597,11 @@ class Container implements ContainerInterface
     }
 
     /** Build a class via reflection, resolving all constructor dependencies recursively */
-    private function build(string $abstract, array $parameters = []): mixed
+    public function build(string $abstract, array $parameters = []): mixed
     {
-        $profilerId = $this->profiler?->startResolving($abstract, 'build');
+        if ($this->shouldFireCallbacks($abstract)) {
+            $this->fireBeforeResolving($abstract, $parameters);
+        }
 
         if (isset($this->resolving[$abstract])) {
             $chain = implode(' → ', array_keys($this->resolving)) . ' → ' . $abstract;
@@ -421,13 +615,10 @@ class Container implements ContainerInterface
         }
 
         if ($meta['ctor'] === null) {
-            // Cheaper than newInstanceArgs([]) — and matches the original
-            // fast-path for parameterless classes. Close the profiler span the
-            // top of this method opened so it isn't left dangling.
-            if ($profilerId !== null) {
-                $this->profiler?->endResolving($profilerId, 'class');
-            }
-            return new $abstract();
+            // Cheaper than newInstanceArgs([]) for a parameterless class.
+            $instance = new $abstract();
+
+            return $this->shouldFireCallbacks($abstract) ? $this->fireResolved($abstract, $instance) : $instance;
         }
 
         $this->resolving[$abstract] = true;
@@ -437,13 +628,9 @@ class Container implements ContainerInterface
             $instance = $meta['class']->newInstanceArgs($dependencies);
         } finally {
             unset($this->resolving[$abstract]);
-
-            if ($profilerId !== null) {
-                $this->profiler?->endResolving($profilerId, 'class');
-            }
         }
 
-        return $instance;
+        return $this->shouldFireCallbacks($abstract) ? $this->fireResolved($abstract, $instance) : $instance;
     }
 
     /**
@@ -677,6 +864,30 @@ class Container implements ContainerInterface
         return $this->resolved;
     }
 
+    /**
+     * Every registered binding, as name => the value it was bound to.
+     *
+     * For tooling that inspects the container without resolving anything —
+     * resolving is what an audit of the bindings is trying to avoid, since a
+     * factory may open a connection or read the request.
+     *
+     * @return array<string, mixed>
+     */
+    public function registeredBindings(): array
+    {
+        return array_map(static fn (array $service): mixed => $service['value'], $this->services);
+    }
+
+    /**
+     * Alias name => the abstract it resolves to.
+     *
+     * @return array<string, string>
+     */
+    public function registeredAliases(): array
+    {
+        return $this->aliasTargets;
+    }
+
     /** Force-resolve all services and return instances */
     public function resolveAllForDebug(): array
     {
@@ -824,6 +1035,17 @@ class Container implements ContainerInterface
      * So: never a singleton, whatever the target is. The target's own binding
      * decides the lifetime, which is the only place that decision belongs.
      */
+    /**
+     * The name callbacks, extenders and instances are keyed under.
+     *
+     * An alias and its target must agree, or a hook registered against one
+     * would never fire for the other.
+     */
+    protected function normalizeAbstract(string $abstract): string
+    {
+        return $this->aliasTargets[$abstract] ?? $abstract;
+    }
+
     public function alias(string $alias, string $abstract): void
     {
         $this->aliasTargets[$alias] = $abstract;

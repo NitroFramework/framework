@@ -82,6 +82,7 @@ class CommandManager
             Commands\RouteListCommand::class,
             Commands\SessionCommands::class,
             Commands\VariableAuditCommand::class,
+            Commands\LifetimeCheckCommand::class,
             ConcurrencyInvokeCommand::class,
         ];
 

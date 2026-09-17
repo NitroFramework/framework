@@ -102,13 +102,6 @@ interface ContainerInterface
     public function forgetScopedInstances(): void;
 
     // ============================================
-    // PROFILING (dev-time, opt-in)
-    // ============================================
-
-    /** Attach a profiler to record container activity, or null to disable it. */
-    public function setProfiler(?ProfilerInterface $profiler): void;
-
-    // ============================================
     // INTROSPECTION
     // ============================================
 
