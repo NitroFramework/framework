@@ -10,8 +10,8 @@ namespace Nitro\Facades;
  *   Route::group(['middleware' => 'auth'], function () { ... });
  *
  * Every call forwards to the singleton 'router', so route groups, named routes,
- * and macros (e.g. ->htmx()) behave exactly as with the injected $router. Use
- * whichever you prefer — both drive the same router instance.
+ * and macros registered by feature layers behave exactly as with the injected
+ * $router. Use whichever you prefer — both drive the same router instance.
  *
  * The @method tags below tell IDEs/static analysers what __callStatic forwards
  * to (the router's real methods), silencing "method not defined" warnings — the
@@ -30,7 +30,6 @@ namespace Nitro\Facades;
  * @method static \Nitro\Routing\Router name(string $name)
  * @method static \Nitro\Routing\Router middleware(string|array $middleware)
  * @method static \Nitro\Routing\Router prefix(string $prefix)
- * @method static \Nitro\Routing\Router htmx(string $path, string $component, string $action = 'index')
  * @method static string route(string $name, array $parameters = [])
  */
 class Route extends Facade

@@ -27,8 +27,6 @@ class Route
     const TYPE_CLOSURE = 'closure';
     const TYPE_CALLABLE = 'callable';
     const TYPE_VIEW = 'view';
-    // add for htmx components
-    const TYPE_HTMX_COMPONENT = 'htmx_component';
 
     /**
      * Constructor
@@ -102,16 +100,18 @@ class Route
     }
 
     /**
-     * Get component name (for htmx component routes)
+     * A free-form label a feature layer may attach to a route, or null.
+     *
+     * The core does not interpret it; it exists so a layer registering routes
+     * through a Router macro can carry its own metadata on the matched route
+     * without the core knowing what that layer is.
      */
     public function getComponent(): ?string
     {
         return $this->component;
     }
 
-    /**
-     * Get action name (for htmx component routes)
-     */
+    /** A second free-form label, alongside {@see getComponent()}. */
     public function getAction(): ?string
     {
         return $this->action;
@@ -305,5 +305,136 @@ class Route
             'middleware' => $this->middleware,
             'name' => $this->name,
         ];
+    }
+
+    /**
+     * The route's bound parameters.
+     *
+     * Matching supplies both the placeholder names and their numeric positions,
+     * so positional binding still works for handlers whose argument names do
+     * not match the URL. This returns the named pairs only.
+     *
+     * @return array<string, mixed>
+     */
+    public function parameters(): array
+    {
+        return array_filter(
+            $this->parameters,
+            static fn ($key) => is_string($key),
+            ARRAY_FILTER_USE_KEY
+        );
+    }
+
+    /**
+     * One bound parameter by name.
+     */
+    public function parameter(string $name, mixed $default = null): mixed
+    {
+        return $this->parameters[$name] ?? $default;
+    }
+
+    /**
+     * Whether a parameter of this name was bound and is not null.
+     */
+    public function hasParameter(string $name): bool
+    {
+        return isset($this->parameters[$name]);
+    }
+
+    /**
+     * Whether the route binds any parameters at all.
+     */
+    public function hasParameters(): bool
+    {
+        return $this->parameters() !== [];
+    }
+
+    /**
+     * The names of the route's bound parameters.
+     *
+     * @return array<int, string>
+     */
+    public function parameterNames(): array
+    {
+        return array_keys($this->parameters());
+    }
+
+    /**
+     * Drop a bound parameter.
+     */
+    public function forgetParameter(string $name): static
+    {
+        unset($this->parameters[$name]);
+
+        return $this;
+    }
+
+    /**
+     * Bind a parameter, overwriting any existing value.
+     */
+    public function setParameter(string $name, mixed $value): static
+    {
+        $this->parameters[$name] = $value;
+
+        return $this;
+    }
+
+    /**
+     * The route's name, or null when it was never named.
+     */
+    public function name(): ?string
+    {
+        return $this->name;
+    }
+
+    /**
+     * Whether the route's name matches any of the given patterns, where `*`
+     * stands for any run of characters.
+     */
+    public function named(string ...$patterns): bool
+    {
+        if ($this->name === null) {
+            return false;
+        }
+
+        foreach ($patterns as $pattern) {
+            if ($pattern === $this->name) {
+                return true;
+            }
+
+            if (! str_contains($pattern, '*')) {
+                continue;
+            }
+
+            $regex = str_replace('\*', '.*', preg_quote($pattern, '#'));
+
+            if (preg_match('#^' . $regex . '\z#u', $this->name)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * "Controller@method" for a controller route, or null for any other type.
+     */
+    public function getActionName(): ?string
+    {
+        if (! $this->isController()) {
+            return null;
+        }
+
+        return $this->getControllerClass() . '@' . $this->getControllerMethod();
+    }
+
+    /**
+     * The middleware names the route declared.
+     *
+     * @return array<int, string>
+     */
+    public function middleware(): array
+    {
+        return $this->middleware;
     }
 }

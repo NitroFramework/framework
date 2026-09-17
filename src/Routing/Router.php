@@ -4,6 +4,7 @@ namespace Nitro\Routing;
 
 use Closure;
 use InvalidArgumentException;
+use Nitro\Exceptions\HttpException;
 use Nitro\Events\Concerns\DispatchesEvents;
 use Nitro\Events\CoreEvents;
 use Nitro\Foundation\Contracts\ConfigRepository;
@@ -27,8 +28,8 @@ use RuntimeException;
  * focused on registration and matching.
  *
  * The router is {@see Macroable}: feature layers register extra registration
- * helpers (e.g. the HTMX layer's `htmx()` page route) from their service
- * provider, so the core router depends on no feature layer.
+ * helpers from their service provider, so the core router depends on no
+ * feature layer.
  */
 class Router implements RouterInterface
 {
@@ -64,6 +65,28 @@ class Router implements RouterInterface
     protected array $currentMiddleware = [];
     protected string $currentNamespace = '';
     protected string $currentName = '';
+    protected string $currentDomain = '';
+
+    /**
+     * Routes constrained to a host, keyed by method.
+     *
+     * Held apart from the static and dynamic structures because those are keyed
+     * by path alone: two routes may share a path and differ only by domain, and
+     * the O(1) map has room for one of them. Matching consults this list first
+     * and falls through to the path-only structures when no host matches.
+     *
+     * Shape: [method => [['domain' => …, 'host_regex' => …, 'path' => …,
+     *                     'path_regex' => …|null, 'param_names' => [...],
+     *                     'handler' => [...]], ...]]
+     */
+    protected array $domainRoutes = [];
+
+    /**
+     * Routes replaced by a later registration at the same method and path,
+     * keyed by "method|path". Consulted when a route moves into the
+     * host-matched list and frees the path again.
+     */
+    protected array $displacedRoutes = [];
 
     /** Whether to log every route match (off in production by default). */
     protected bool $debugLogging = false;
@@ -108,6 +131,20 @@ class Router implements RouterInterface
     public function getMiddlewareAlias(string $name): ?string
     {
         return $this->middlewareAliases[$name] ?? null;
+    }
+
+    /**
+     * Every registered middleware alias, as [name => class].
+     *
+     * Used by the kernel to name the alternatives when a route asks for an
+     * alias that does not exist, and by `nitro lifecycle` to show what a group
+     * or a route middleware name will actually resolve to.
+     *
+     * @return array<string, class-string>
+     */
+    public function getMiddlewareAliases(): array
+    {
+        return $this->middlewareAliases;
     }
 
     /**
@@ -266,6 +303,7 @@ class Router implements RouterInterface
             'middleware' => $this->currentMiddleware,
             'namespace' => $this->currentNamespace,
             'name' => $this->currentName,
+            'domain' => $this->currentDomain,
         ];
 
         // Apply group attributes
@@ -280,6 +318,7 @@ class Router implements RouterInterface
         $this->currentMiddleware = $previous['middleware'];
         $this->currentNamespace = $previous['namespace'];
         $this->currentName = $previous['name'];
+        $this->currentDomain = $previous['domain'];
 
         return $this;
     }
@@ -348,6 +387,16 @@ class Router implements RouterInterface
         $method = $this->lastRoute['method'];
         $path = $this->lastRoute['path'];
 
+        $domainRoute = &$this->lastDomainRoute();
+
+        if ($domainRoute !== null) {
+            $domainRoute['handler'][$key] = $value;
+
+            return;
+        }
+
+        unset($domainRoute);
+
         $this->routes[$method][$path][$key] = $value;
 
         if (isset($this->staticRoutes[$method][$path])) {
@@ -380,6 +429,689 @@ class Router implements RouterInterface
         }
     }
 
+    // ─── Explicit model binding ───────────────────────────────────────────
+
+    /**
+     * Resolvers for route parameters, keyed by parameter name.
+     *
+     * @var array<string, Closure>
+     */
+    protected array $binders = [];
+
+    /**
+     * Resolve a route parameter through a callback.
+     *
+     *   Route::bind('user', fn ($value) => User::where('slug', $value)->firstOrFail());
+     *
+     * The callback receives the raw URL segment and the matched route, and its
+     * return value replaces the segment before the handler is called. Applies
+     * whether or not the handler type-hints the parameter.
+     */
+    public function bind(string $key, Closure $binder): static
+    {
+        $this->binders[$this->normalizeBindingKey($key)] = $binder;
+
+        return $this;
+    }
+
+    /**
+     * Resolve a route parameter to a model.
+     *
+     *   Route::model('user', User::class);
+     *
+     * Looks the value up by primary key. A missing record raises 404 unless
+     * $missing is given, in which case its return value is used instead.
+     *
+     * @param class-string  $class
+     * @param Closure|null  $missing Called with the value when nothing is found.
+     */
+    public function model(string $key, string $class, ?Closure $missing = null): static
+    {
+        return $this->bind($key, static function ($value) use ($class, $missing) {
+            if ($value === null) {
+                return null;
+            }
+
+            $model = $class::find($value);
+
+            if ($model !== null) {
+                return $model;
+            }
+
+            if ($missing !== null) {
+                return $missing($value);
+            }
+
+            throw new HttpException(404, "No query results for model [{$class}] {$value}.");
+        });
+    }
+
+    /** Whether a resolver is registered for a parameter name. */
+    public function hasBinding(string $key): bool
+    {
+        return isset($this->binders[$this->normalizeBindingKey($key)]);
+    }
+
+    /** The resolver registered for a parameter name, or null. */
+    public function getBindingCallback(string $key): ?Closure
+    {
+        return $this->binders[$this->normalizeBindingKey($key)] ?? null;
+    }
+
+    /** @return array<string, Closure> */
+    public function getBinders(): array
+    {
+        return $this->binders;
+    }
+
+    /**
+     * Replace a matched route's parameters with their resolved values.
+     *
+     * Only parameters with a registered resolver are touched; the rest are
+     * left as the raw URL segments, for implicit binding to handle by type
+     * when the handler's arguments are resolved.
+     */
+    public function substituteBindings(Route $route): Route
+    {
+        if ($this->binders === []) {
+            return $route;
+        }
+
+        foreach ($route->parameters() as $name => $value) {
+            $binder = $this->getBindingCallback($name);
+
+            if ($binder === null || ! is_scalar($value)) {
+                continue;
+            }
+
+            $route->setParameter($name, $binder($value, $route));
+        }
+
+        return $route;
+    }
+
+    /**
+     * Binding keys are matched on the parameter name, so snake_case and
+     * camelCase spellings of the same segment resolve to one resolver.
+     */
+    private function normalizeBindingKey(string $key): string
+    {
+        return str_replace(['-', '_'], '', strtolower($key));
+    }
+
+    // ─── Domains ──────────────────────────────────────────────────────────
+
+    /**
+     * Constrain the last registered route to a host.
+     *
+     *   Route::get('/', …)->domain('admin.example.com');
+     *   Route::get('/', …)->domain('{account}.example.com');
+     *
+     * Placeholders in the host are captured and merged into the route's
+     * parameters ahead of the path's own, so a handler can take the subdomain
+     * as an argument. The port is ignored when comparing.
+     *
+     * The route is moved out of the path-keyed structures, which cannot hold
+     * two routes that differ only by host.
+     */
+    public function domain(string $domain): static
+    {
+        $this->requireLastRoute('domain');
+
+        $method = $this->lastRoute['method'];
+        $path = $this->lastRoute['path'];
+
+        $routeData = $this->routes[$method][$path] ?? null;
+
+        if ($routeData === null) {
+            return $this;
+        }
+
+        $routeData['domain'] = $domain;
+        $this->routes[$method][$path] = $routeData;
+
+        $this->forgetPathOnlyRoute($method, $path);
+
+        $this->domainRoutes[$method][] = [
+            'domain'       => $domain,
+            'host_regex'   => $this->compileHostPattern($domain),
+            'host_params'  => $this->extractParameterNames($domain),
+            'path'         => $path,
+            'path_regex'   => $this->hasParameters($path)
+                ? $this->compilePattern($path, $routeData['wheres'] ?? [])
+                : null,
+            'param_names'  => $this->extractParameterNames($path),
+            'handler'      => $routeData,
+        ];
+
+        // Further chaining (->name(), ->where()) must follow the route into the
+        // host-matched list: the path-keyed entry is about to be handed back to
+        // whichever route this one displaced.
+        $this->lastRoute['domain_index'] = array_key_last($this->domainRoutes[$method]);
+
+        $this->restoreDisplacedRoute($method, $path);
+
+        return $this;
+    }
+
+    /**
+     * The host-matched entry the chain is currently pointing at, by reference,
+     * or null when the last route is not host-constrained.
+     */
+    protected function &lastDomainRoute(): ?array
+    {
+        $none = null;
+
+        if (! isset($this->lastRoute['domain_index'])) {
+            return $none;
+        }
+
+        $method = $this->lastRoute['method'];
+        $index = $this->lastRoute['domain_index'];
+
+        if (! isset($this->domainRoutes[$method][$index])) {
+            return $none;
+        }
+
+        return $this->domainRoutes[$method][$index];
+    }
+
+    /**
+     * Put back a route this one replaced when it was registered.
+     *
+     * Registering two routes at the same method and path overwrites the first.
+     * Once the second moves into the host-matched list the path is free again,
+     * and the original — which has no domain and is still reachable — belongs
+     * back in the path-keyed structures.
+     */
+    protected function restoreDisplacedRoute(string $method, string $path): void
+    {
+        $key = $method . '|' . $path;
+
+        if (! isset($this->displacedRoutes[$key])) {
+            return;
+        }
+
+        $displaced = $this->displacedRoutes[$key];
+        unset($this->displacedRoutes[$key]);
+
+        // storeRoute() marks what it stores as the route to chain onto, which
+        // would redirect a ->name() after ->domain() to the wrong route.
+        $lastRoute = $this->lastRoute;
+        $this->storeRoute($method, $path, $displaced);
+        $this->lastRoute = $lastRoute;
+    }
+
+    /**
+     * Compile a host pattern into an anchored, case-insensitive regex.
+     *
+     * Literal text is quoted so dots match dots; each placeholder captures one
+     * label, which cannot itself contain a dot.
+     */
+    protected function compileHostPattern(string $domain): string
+    {
+        $regex = '';
+        $offset = 0;
+
+        preg_match_all('#\{([^}]+)\}#', $domain, $matches, PREG_OFFSET_CAPTURE);
+
+        foreach ($matches[0] as [$placeholder, $position]) {
+            $regex .= preg_quote(substr($domain, $offset, $position - $offset), '#') . '([^.]+)';
+            $offset = $position + strlen($placeholder);
+        }
+
+        $regex .= preg_quote(substr($domain, $offset), '#');
+
+        return '#^' . $regex . '$#i';
+    }
+
+    /**
+     * Remove a route from the path-keyed lookup structures.
+     *
+     * Used when a route gains a domain and moves into the host-matched list.
+     */
+    protected function forgetPathOnlyRoute(string $method, string $path): void
+    {
+        unset(
+            $this->staticRoutes[$method][$path],
+            $this->compiledPatterns[$method][$path]
+        );
+
+        if (isset($this->dynamicRoutes[$method])) {
+            $this->dynamicRoutes[$method] = array_values(array_filter(
+                $this->dynamicRoutes[$method],
+                static fn (array $route) => $route['pattern'] !== $path
+            ));
+        }
+
+        if (isset($this->dynamicRoutesByPrefix[$method])) {
+            foreach ($this->dynamicRoutesByPrefix[$method] as $bucket => $routes) {
+                $this->dynamicRoutesByPrefix[$method][$bucket] = array_values(array_filter(
+                    $routes,
+                    static fn (array $route) => $route['pattern'] !== $path
+                ));
+            }
+        }
+    }
+
+    /**
+     * Resolve a request against the host-constrained routes.
+     *
+     * @return array{handler: array<string, mixed>, parameters: array<mixed>}|null
+     */
+    protected function findDomainRoute(string $method, string $path, string $host): ?array
+    {
+        if (empty($this->domainRoutes[$method])) {
+            return null;
+        }
+
+        $host = explode(':', $host)[0];
+
+        foreach ($this->domainRoutes[$method] as $route) {
+            if (! preg_match($route['host_regex'], $host, $hostMatches)) {
+                continue;
+            }
+
+            array_shift($hostMatches);
+
+            $parameters = [];
+
+            foreach ($route['host_params'] as $index => $name) {
+                if (array_key_exists($index, $hostMatches)) {
+                    $parameters[$name] = $hostMatches[$index];
+                }
+            }
+
+            if ($route['path_regex'] === null) {
+                if ($route['path'] !== $path) {
+                    continue;
+                }
+
+                return ['handler' => $route['handler'], 'parameters' => $parameters];
+            }
+
+            if (! preg_match($route['path_regex'], $path, $pathMatches)) {
+                continue;
+            }
+
+            array_shift($pathMatches);
+
+            foreach ($pathMatches as $index => $value) {
+                $parameters[$index] = $value;
+            }
+
+            foreach ($route['param_names'] as $index => $name) {
+                if (array_key_exists($index, $pathMatches)) {
+                    $parameters[$name] = $pathMatches[$index];
+                }
+            }
+
+            return ['handler' => $route['handler'], 'parameters' => $parameters];
+        }
+
+        return null;
+    }
+
+    // ─── Current route ────────────────────────────────────────────────────
+
+    protected ?Route $currentRoute = null;
+    protected ?Request $currentRequest = null;
+
+    /** The route matched for the request being handled, or null. */
+    public function current(): ?Route
+    {
+        return $this->currentRoute;
+    }
+
+    public function getCurrentRoute(): ?Route
+    {
+        return $this->currentRoute;
+    }
+
+    public function getCurrentRequest(): ?Request
+    {
+        return $this->currentRequest;
+    }
+
+    public function currentRouteName(): ?string
+    {
+        return $this->currentRoute?->getName();
+    }
+
+    /** Whether the current route's name matches any of the given patterns. */
+    public function currentRouteNamed(string ...$patterns): bool
+    {
+        $name = $this->currentRouteName();
+
+        if ($name === null) {
+            return false;
+        }
+
+        foreach ($patterns as $pattern) {
+            if ($this->nameMatches($pattern, $name)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** Alias of {@see currentRouteNamed()}. */
+    public function is(string ...$patterns): bool
+    {
+        return $this->currentRouteNamed(...$patterns);
+    }
+
+    /** "Controller@method" for the current route, or null for a closure. */
+    public function currentRouteAction(): ?string
+    {
+        $route = $this->currentRoute;
+
+        if ($route === null || ! $route->isController()) {
+            return null;
+        }
+
+        return $route->getControllerClass() . '@' . $route->getControllerMethod();
+    }
+
+    public function currentRouteUses(): ?string
+    {
+        return $this->currentRouteAction();
+    }
+
+    /** Whether a route with this name is registered. */
+    public function has(string ...$names): bool
+    {
+        foreach ($names as $name) {
+            if ($this->findRouteDataByName($name) === null) {
+                return false;
+            }
+        }
+
+        return $names !== [];
+    }
+
+    /** @return array<string, mixed>|null */
+    protected function findRouteDataByName(string $name): ?array
+    {
+        foreach ($this->routes as $paths) {
+            foreach ($paths as $routeData) {
+                if (($routeData['name'] ?? null) === $name) {
+                    return $routeData;
+                }
+            }
+        }
+
+        foreach ($this->domainRoutes as $routes) {
+            foreach ($routes as $route) {
+                if (($route['handler']['name'] ?? null) === $name) {
+                    return $route['handler'];
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private function nameMatches(string $pattern, string $name): bool
+    {
+        if ($pattern === $name) {
+            return true;
+        }
+
+        if (! str_contains($pattern, '*')) {
+            return false;
+        }
+
+        $regex = str_replace('\*', '.*', preg_quote($pattern, '#'));
+
+        return (bool) preg_match('#^' . $regex . '\z#u', $name);
+    }
+
+    // ─── Redirects and fallback ───────────────────────────────────────────
+
+    /** A route that redirects straight to another URI. */
+    public function redirect(string $from, string $to, int $status = 302): static
+    {
+        return $this->any($from, static function () use ($to, $status) {
+            return redirect($to, $status);
+        });
+    }
+
+    /** A permanent (301) redirect route. */
+    public function permanentRedirect(string $from, string $to): static
+    {
+        return $this->redirect($from, $to, 301);
+    }
+
+    /**
+     * The handler used when nothing else matches.
+     *
+     * Registered as a catch-all rather than special-cased in matching, so it
+     * participates in the ordinary middleware pipeline.
+     */
+    public function fallback($handler): static
+    {
+        $this->fallbackHandler = $handler;
+
+        return $this;
+    }
+
+    /** @var mixed */
+    protected $fallbackHandler = null;
+
+    public function getFallback()
+    {
+        return $this->fallbackHandler;
+    }
+
+    public function hasFallback(): bool
+    {
+        return $this->fallbackHandler !== null;
+    }
+
+    // ─── Resource variants ────────────────────────────────────────────────
+
+    /** A resource without the create/edit form routes. */
+    public function apiResource(string $name, string $controller, array $options = []): static
+    {
+        $options['except'] = array_merge($options['except'] ?? [], ['create', 'edit']);
+
+        return $this->resource($name, $controller, $options);
+    }
+
+    /**
+     * Register several resources at once.
+     *
+     * @param array<string, string> $resources name => controller
+     */
+    public function resources(array $resources, array $options = []): static
+    {
+        foreach ($resources as $name => $controller) {
+            $this->resource($name, $controller, $options);
+        }
+
+        return $this;
+    }
+
+    /** @param array<string, string> $resources name => controller */
+    public function apiResources(array $resources, array $options = []): static
+    {
+        foreach ($resources as $name => $controller) {
+            $this->apiResource($name, $controller, $options);
+        }
+
+        return $this;
+    }
+
+    /** Register an OPTIONS route. */
+    public function options(string $path, $handler): static
+    {
+        return $this->addRoute('OPTIONS', $path, $handler);
+    }
+
+    // ─── Parameter constraints ────────────────────────────────────────────
+
+    /**
+     * Constrain one or more of the last route's parameters.
+     *
+     *   Route::get('/posts/{id}', …)->where('id', '[0-9]+');
+     *   Route::get('/{a}/{b}', …)->where(['a' => '\d+', 'b' => '[a-z]+']);
+     *
+     * Matching reads the compiled regex rather than the constraint list, so the
+     * route is recompiled here for the change to take effect.
+     *
+     * @param string|array<string, string> $name
+     */
+    public function where(string|array $name, ?string $expression = null): static
+    {
+        $wheres = is_array($name) ? $name : [$name => (string) $expression];
+
+        $this->requireLastRoute('where');
+
+        $method = $this->lastRoute['method'];
+        $path = $this->lastRoute['path'];
+
+        $domainRoute = &$this->lastDomainRoute();
+
+        if ($domainRoute !== null) {
+            $merged = array_merge($domainRoute['handler']['wheres'] ?? [], $wheres);
+            $domainRoute['handler']['wheres'] = $merged;
+            $domainRoute['path_regex'] = $this->hasParameters($path)
+                ? $this->compilePattern($path, $merged)
+                : null;
+
+            return $this;
+        }
+
+        unset($domainRoute);
+
+        $existing = $this->routes[$method][$path]['wheres'] ?? [];
+
+        $merged = array_merge($existing, $wheres);
+        $this->setOnLastRoute('wheres', $merged);
+
+        $this->compiledPatterns[$method][$path] = $this->compilePattern($path, $merged);
+
+        return $this;
+    }
+
+    /** Constrain parameters to digits. */
+    public function whereNumber(string|array $parameters): static
+    {
+        return $this->whereEach($parameters, '[0-9]+');
+    }
+
+    /** Constrain parameters to letters. */
+    public function whereAlpha(string|array $parameters): static
+    {
+        return $this->whereEach($parameters, '[a-zA-Z]+');
+    }
+
+    /** Constrain parameters to letters and digits. */
+    public function whereAlphaNumeric(string|array $parameters): static
+    {
+        return $this->whereEach($parameters, '[a-zA-Z0-9]+');
+    }
+
+    /** Constrain parameters to a UUID. */
+    public function whereUuid(string|array $parameters): static
+    {
+        return $this->whereEach(
+            $parameters,
+            '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}'
+        );
+    }
+
+    /** Constrain parameters to a ULID. */
+    public function whereUlid(string|array $parameters): static
+    {
+        return $this->whereEach($parameters, '[0-7][0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{25}');
+    }
+
+    /**
+     * Constrain a parameter to one of a fixed set of values.
+     *
+     * @param array<int, string> $values
+     */
+    public function whereIn(string $parameter, array $values): static
+    {
+        $alternation = implode('|', array_map(
+            static fn (string $value) => preg_quote($value, '#'),
+            $values
+        ));
+
+        return $this->where($parameter, $alternation);
+    }
+
+    /** @param string|array<int, string> $parameters */
+    protected function whereEach(string|array $parameters, string $expression): static
+    {
+        $wheres = [];
+
+        foreach ((array) $parameters as $parameter) {
+            $wheres[$parameter] = $expression;
+        }
+
+        return $this->where($wheres);
+    }
+
+    /**
+     * Constrain a parameter name across every route, present and future.
+     *
+     * A route's own where() overrides this.
+     */
+    public function pattern(string $name, string $expression): static
+    {
+        $this->globalPatterns[$name] = $expression;
+        $this->recompileAllPatterns();
+
+        return $this;
+    }
+
+    /** @param array<string, string> $patterns */
+    public function patterns(array $patterns): static
+    {
+        $this->globalPatterns = array_merge($this->globalPatterns, $patterns);
+        $this->recompileAllPatterns();
+
+        return $this;
+    }
+
+    /** @return array<string, string> */
+    public function getPatterns(): array
+    {
+        return $this->globalPatterns;
+    }
+
+    /**
+     * Rebuild every compiled pattern.
+     *
+     * A global constraint can be declared after routes are registered, and the
+     * routes already compiled would otherwise keep the old regex.
+     */
+    protected function recompileAllPatterns(): void
+    {
+        foreach ($this->compiledPatterns as $method => $patterns) {
+            foreach (array_keys($patterns) as $path) {
+                $this->compiledPatterns[$method][$path] = $this->compilePattern(
+                    $path,
+                    $this->routes[$method][$path]['wheres'] ?? []
+                );
+            }
+        }
+    }
+
+    /** @throws RuntimeException When there is no route to modify. */
+    protected function requireLastRoute(string $method): void
+    {
+        if (! $this->lastRoute) {
+            throw new RuntimeException(
+                "No route to apply {$method}() to. Call it immediately after defining a route."
+            );
+        }
+    }
+
     /**
      * Set the controller namespace applied to subsequently registered routes.
      */
@@ -401,6 +1133,10 @@ class Router implements RouterInterface
 
         $this->storeRoute($method, $fullPath, $routeData);
 
+        if ($this->currentDomain !== '') {
+            $this->domain($this->currentDomain);
+        }
+
         return $this;
     }
 
@@ -413,6 +1149,14 @@ class Router implements RouterInterface
      */
     protected function storeRoute(string $method, string $fullPath, array $routeData): void
     {
+        // A second route at the same method and path replaces the first here,
+        // but the two may differ only by host. Keep the displaced one so that
+        // domain(), which runs after registration, can put it back once the
+        // new route moves into the host-matched list.
+        if (isset($this->routes[$method][$fullPath])) {
+            $this->displacedRoutes[$method . '|' . $fullPath] = $this->routes[$method][$fullPath];
+        }
+
         // Store in original unified array (backward compatibility)
         $this->routes[$method][$fullPath] = $routeData;
 
@@ -441,7 +1185,10 @@ class Router implements RouterInterface
             $this->dynamicRoutesByPrefix[$method][$bucket][] = $route;
 
             // Pre-compile regex pattern for this route
-            $this->compiledPatterns[$method][$fullPath] = $this->compilePattern($fullPath);
+            $this->compiledPatterns[$method][$fullPath] = $this->compilePattern(
+                $fullPath,
+                $routeData['wheres'] ?? []
+            );
         } else {
             // Static route - store for O(1) lookup
             if (!isset($this->staticRoutes[$method])) {
@@ -530,6 +1277,10 @@ class Router implements RouterInterface
             $this->currentNamespace = $this->buildNamespace($this->currentNamespace, $attributes['namespace']);
         }
 
+        if (isset($attributes['domain'])) {
+            $this->currentDomain = (string) $attributes['domain'];
+        }
+
         if (isset($attributes['name'])) {
             $this->currentName = $this->currentName . $attributes['name'];
         }
@@ -596,11 +1347,18 @@ class Router implements RouterInterface
      * Tries the O(1) static lookup first, then falls back to the bucketed
      * dynamic-route scan. Route lifecycle events are fired lazily so they cost
      * nothing when no listener is bound.
+     *
+     * The match is recorded for {@see current()}, and cleared on entry: the
+     * router is a long-lived singleton, so a previous request's match must not
+     * answer for one that matches nothing.
      */
     public function findMatchingRoute(Request $request): ?Route
     {
         $method = $request->method();
         $path = $request->path();
+
+        $this->currentRoute = null;
+        $this->currentRequest = $request;
 
         // HTTP requires HEAD to be served wherever GET is. Fall back to the GET
         // table for a HEAD request unless the app registered explicit HEAD routes
@@ -617,6 +1375,20 @@ class Router implements RouterInterface
             'method' => $method,
             'path'   => $path,
         ]);
+
+        // Host-constrained routes are more specific than path-only ones, so
+        // they are consulted first. The list is empty in apps that never call
+        // domain(), which is the common case.
+        if (! empty($this->domainRoutes[$method])) {
+            $domainMatch = $this->findDomainRoute($method, $path, $request->httpHost());
+
+            if ($domainMatch !== null) {
+                return $this->currentRoute = $this->createRoute(
+                    $domainMatch['handler'],
+                    $domainMatch['parameters']
+                );
+            }
+        }
 
         // FAST PATH: O(1) static route lookup
         if (isset($this->staticRoutes[$method][$path])) {
@@ -637,7 +1409,7 @@ class Router implements RouterInterface
                 ]);
             }
 
-            return $resolved;
+            return $this->currentRoute = $resolved;
         }
 
         // OPTIMIZED PATH: Only check dynamic routes with pre-compiled patterns
@@ -651,7 +1423,7 @@ class Router implements RouterInterface
                 'handler'    => $resolved->getType(),
             ]);
 
-            return $resolved;
+            return $this->currentRoute = $resolved;
         }
 
         return null;
