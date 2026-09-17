@@ -4,30 +4,6 @@ namespace Nitro\Validation;
 
 use Nitro\Validation\Exceptions\UnknownValidationRuleException;
 use Nitro\Validation\Rules\AbstractRule;
-use Nitro\Validation\Rules\Required;
-use Nitro\Validation\Rules\Nullable;
-use Nitro\Validation\Rules\StringRule;
-use Nitro\Validation\Rules\Numeric;
-use Nitro\Validation\Rules\Integer;
-use Nitro\Validation\Rules\Email;
-use Nitro\Validation\Rules\Date;
-use Nitro\Validation\Rules\Max;
-use Nitro\Validation\Rules\Min;
-use Nitro\Validation\Rules\In;
-use Nitro\Validation\Rules\Regex;
-use Nitro\Validation\Rules\Url;
-use Nitro\Validation\Rules\Confirmed;
-use Nitro\Validation\Rules\Unique;
-use Nitro\Validation\Rules\Exists;
-use Nitro\Validation\Rules\ArrayRule;
-use Nitro\Validation\Rules\BooleanRule;
-use Nitro\Validation\Rules\Between;
-use Nitro\Validation\Rules\Same;
-use Nitro\Validation\Rules\Different;
-use Nitro\Validation\Rules\RequiredIf;
-use Nitro\Validation\Rules\RequiredWith;
-use Nitro\Validation\Rules\After;
-use Nitro\Validation\Rules\Before;
 
 
 /**
@@ -49,34 +25,142 @@ class RuleFactory
     }
 
     /**
+     * Built-in rules, as the name used in a rule string mapped to the class
+     * that implements it.
+     *
+     * Held as a map rather than a list of register() calls so the set can be
+     * read at a glance and the class names need no import apiece.
+     *
+     * @var array<string, string>
+     */
+    protected const DEFAULT_RULES = [
+        // Presence and absence
+        'required'             => 'Required',
+        'required_if'          => 'RequiredIf',
+        'required_if_accepted' => 'RequiredIfAccepted',
+        'required_if_declined' => 'RequiredIfDeclined',
+        'required_unless'      => 'RequiredUnless',
+        'required_with'        => 'RequiredWith',
+        'required_with_all'    => 'RequiredWithAll',
+        'required_without'     => 'RequiredWithout',
+        'required_without_all' => 'RequiredWithoutAll',
+        'required_array_keys'  => 'RequiredArrayKeys',
+        'filled'               => 'Filled',
+        'present'              => 'Present',
+        'present_if'           => 'PresentIf',
+        'present_unless'       => 'PresentUnless',
+        'present_with'         => 'PresentWith',
+        'present_with_all'     => 'PresentWithAll',
+        'missing'              => 'Missing',
+        'missing_if'           => 'MissingIf',
+        'missing_unless'       => 'MissingUnless',
+        'missing_with'         => 'MissingWith',
+        'missing_with_all'     => 'MissingWithAll',
+        'prohibited'           => 'Prohibited',
+        'prohibited_if'        => 'ProhibitedIf',
+        'prohibited_unless'    => 'ProhibitedUnless',
+        'prohibits'            => 'Prohibits',
+        'nullable'             => 'Nullable',
+
+        // Types
+        'string'  => 'StringRule',
+        'numeric' => 'Numeric',
+        'integer' => 'Integer',
+        'boolean' => 'BooleanRule',
+        'array'   => 'ArrayRule',
+        'list'    => 'ListRule',
+        'json'    => 'Json',
+        'file'    => 'FileRule',
+        'image'   => 'ImageRule',
+
+        // Size and comparison
+        'size'           => 'Size',
+        'max'            => 'Max',
+        'min'            => 'Min',
+        'between'        => 'Between',
+        'gt'             => 'Gt',
+        'gte'            => 'Gte',
+        'lt'             => 'Lt',
+        'lte'            => 'Lte',
+        'digits'         => 'Digits',
+        'digits_between' => 'DigitsBetween',
+        'max_digits'     => 'MaxDigits',
+        'min_digits'     => 'MinDigits',
+        'multiple_of'    => 'MultipleOf',
+        'decimal'        => 'Decimal',
+
+        // String format
+        'alpha'       => 'Alpha',
+        'alpha_dash'  => 'AlphaDash',
+        'alpha_num'   => 'AlphaNum',
+        'ascii'       => 'Ascii',
+        'lowercase'   => 'Lowercase',
+        'uppercase'   => 'Uppercase',
+        'email'       => 'Email',
+        'url'         => 'Url',
+        'active_url'  => 'ActiveUrl',
+        'ip'          => 'Ip',
+        'ipv4'        => 'Ipv4',
+        'ipv6'        => 'Ipv6',
+        'mac_address' => 'MacAddress',
+        'uuid'        => 'Uuid',
+        'ulid'        => 'Ulid',
+        'hex_color'   => 'HexColor',
+        'timezone'    => 'Timezone',
+
+        // String content
+        'regex'              => 'Regex',
+        'not_regex'          => 'NotRegex',
+        'starts_with'        => 'StartsWith',
+        'ends_with'          => 'EndsWith',
+        'doesnt_start_with'  => 'DoesntStartWith',
+        'doesnt_end_with'    => 'DoesntEndWith',
+        'contains'           => 'Contains',
+        'doesnt_contain'     => 'DoesntContain',
+
+        // Sets and other fields
+        'in'       => 'In',
+        'not_in'   => 'NotIn',
+        'in_array' => 'InArray',
+        'distinct' => 'Distinct',
+        'same'     => 'Same',
+        'different' => 'Different',
+        'confirmed' => 'Confirmed',
+
+        // Acceptance
+        'accepted'    => 'Accepted',
+        'accepted_if' => 'AcceptedIf',
+        'declined'    => 'Declined',
+        'declined_if' => 'DeclinedIf',
+
+        // Dates
+        'date'             => 'Date',
+        'date_format'      => 'DateFormat',
+        'date_equals'      => 'DateEquals',
+        'after'            => 'After',
+        'after_or_equal'   => 'AfterOrEqual',
+        'before'           => 'Before',
+        'before_or_equal'  => 'BeforeOrEqual',
+
+        // Uploads
+        'mimes'      => 'Mimes',
+        'mimetypes'  => 'Mimetypes',
+        'extensions' => 'Extensions',
+        'dimensions' => 'Dimensions',
+
+        // Database
+        'unique' => 'Unique',
+        'exists' => 'Exists',
+    ];
+
+    /**
      * Register all default built-in rules
      */
     protected function registerDefaultRules(): void
     {
-        $this->register('required', Required::class);
-        $this->register('nullable', Nullable::class);
-        $this->register('string', StringRule::class);
-        $this->register('numeric', Numeric::class);
-        $this->register('integer', Integer::class);
-        $this->register('email', Email::class);
-        $this->register('date', Date::class);
-        $this->register('max', Max::class);
-        $this->register('min', Min::class);
-        $this->register('in', In::class);
-        $this->register('regex', Regex::class);
-        $this->register('url', Url::class);
-        $this->register('confirmed', Confirmed::class);
-        $this->register('unique', Unique::class);
-        $this->register('exists', Exists::class);
-        $this->register('array', ArrayRule::class);
-        $this->register('boolean', BooleanRule::class);
-        $this->register('between', Between::class);
-        $this->register('same', Same::class);
-        $this->register('different', Different::class);
-        $this->register('required_if', RequiredIf::class);
-        $this->register('required_with', RequiredWith::class);
-        $this->register('after', After::class);
-        $this->register('before', Before::class);
+        foreach (self::DEFAULT_RULES as $name => $class) {
+            $this->register($name, __NAMESPACE__ . '\\Rules\\' . $class);
+        }
     }
 
     /**

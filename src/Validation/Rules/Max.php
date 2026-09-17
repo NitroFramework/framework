@@ -4,9 +4,9 @@ namespace Nitro\Validation\Rules;
 
 /**
  * Max Rule
- * 
- * Validates maximum value (for numbers) or maximum length (for strings)
- * Intelligently detects if value is numeric or string
+ *
+ * Upper bound on the value's size: a number's value, a string's length, an
+ * array's count, or an upload's size in kilobytes.
  */
 class Max extends AbstractRule
 {
@@ -16,29 +16,25 @@ class Max extends AbstractRule
             return true;
         }
 
-        $maxValue = (float)$this->getParameter(0);
+        $size = $this->sizeOf($this->value);
 
-        // Check if value is a string first
-        if (is_string($this->value)) {
-            return strlen($this->value) <= $maxValue;
+        // Nothing measurable — leave it to the type rules to reject.
+        if ($size === null) {
+            return true;
         }
 
-        // Otherwise check as numeric
-        if (is_numeric($this->value)) {
-            return (float)$this->value <= $maxValue;
-        }
-
-        return true;
+        return $size <= (float) $this->getParameter(0);
     }
 
     public function message(): string
     {
-        $max = $this->getParameter(0);
-        
-        if (is_string($this->value)) {
-            return $this->replaceMessage("The {attribute} may not exceed {$max} characters.");
-        }
+        $max  = $this->getParameter(0);
+        $unit = $this->sizeUnit($this->value);
 
-        return $this->replaceMessage("The {attribute} may not be greater than {$max}.");
+        return $this->replaceMessage(
+            $unit === ''
+                ? "The {attribute} may not be greater than {$max}."
+                : "The {attribute} may not exceed {$max} {$unit}."
+        );
     }
 }

@@ -57,11 +57,39 @@ class Validator
      * presence). Any other rule is skipped for an optional empty field.
      * Mirrors Laravel's "implicit rules" set.
      */
+    /**
+     * Rule names that steer the validator rather than test a value, and so have
+     * no rule class behind them.
+     */
+    private const FLAG_RULES = ['nullable', 'sometimes', 'bail'];
+
+    /** The conditional forms that drop a field from the validated data. */
+    private const EXCLUDE_RULES = [
+        'exclude', 'exclude_if', 'exclude_unless', 'exclude_with', 'exclude_without',
+    ];
+
+    /** Fields dropped by an exclude rule, as [field => true]. */
+    protected array $excluded = [];
+
+    /**
+     * Rules that must run even when the value is absent or empty.
+     *
+     * Everything else is skipped for an empty optional field, so `email` alone
+     * does not reject a blank input. These rules exist precisely to have an
+     * opinion about emptiness, so skipping them would make them no-ops.
+     */
     private const IMPLICIT_RULES = [
         'required', 'required_if', 'required_unless',
         'required_with', 'required_with_all',
         'required_without', 'required_without_all',
-        'present', 'filled', 'accepted', 'accepted_if',
+        'required_if_accepted', 'required_if_declined',
+        'required_array_keys',
+        'present', 'present_if', 'present_unless',
+        'present_with', 'present_with_all',
+        'missing', 'missing_if', 'missing_unless',
+        'missing_with', 'missing_with_all',
+        'prohibited', 'prohibited_if', 'prohibited_unless', 'prohibits',
+        'filled', 'accepted', 'accepted_if', 'declined', 'declined_if',
     ];
 
     /**
@@ -129,11 +157,35 @@ class Validator
             return;
         }
 
+        // 'sometimes' validates a field only when it was submitted, so an
+        // update that sends a subset of a form does not fail on the fields it
+        // left out.
+        if (in_array('sometimes', $baseNames, true) && !Arr::has($this->data, $field)) {
+            return;
+        }
+
+        if ($this->shouldExclude($field, $ruleNames, $baseNames)) {
+            $this->excluded[$field] = true;
+            return;
+        }
+
+        // 'bail' on the field stops it at its first failure, whatever the
+        // validator-wide setting is.
+        $bail = $this->bail || in_array('bail', $baseNames, true);
+
         foreach ($ruleNames as $ruleName) {
             $ruleName = trim($ruleName);
 
-            // Skip empty rule names
-            if (empty($ruleName) || $ruleName === 'nullable') {
+            if ($ruleName === '') {
+                continue;
+            }
+
+            // Flags and exclude conditions steer the validator and were handled
+            // above; there is no rule class to create for them.
+            $baseName = strtolower(trim(explode(':', $ruleName, 2)[0]));
+
+            if (in_array($baseName, self::FLAG_RULES, true)
+                || in_array($baseName, self::EXCLUDE_RULES, true)) {
                 continue;
             }
 
@@ -147,12 +199,99 @@ class Validator
                 $message = $rule->message();
                 $this->errors->add($field, $message);
 
-                // Stop at first error for this field if bail is enabled
-                if ($this->bail) {
+                if ($bail) {
                     break;
                 }
             }
         }
+    }
+
+    /**
+     * Whether a field is dropped from the validated data.
+     *
+     * 'exclude' always drops it; the conditional forms drop it when another
+     * field holds a given value, or is (not) present. An excluded field is not
+     * validated either — the rules after it never run.
+     *
+     * @param array<int, string> $ruleNames Full rule tokens, parameters included.
+     * @param array<int, string> $baseNames The same tokens with parameters stripped.
+     */
+    protected function shouldExclude(string $field, array $ruleNames, array $baseNames): bool
+    {
+        foreach (self::EXCLUDE_RULES as $exclude) {
+            if (!in_array($exclude, $baseNames, true)) {
+                continue;
+            }
+
+            if ($exclude === 'exclude') {
+                return true;
+            }
+
+            $parameters = $this->parametersFor($exclude, $ruleNames);
+            $other = (string) ($parameters[0] ?? '');
+
+            if ($other === '') {
+                continue;
+            }
+
+            $matches = match ($exclude) {
+                'exclude_if'      => $this->otherHasValue($other, array_slice($parameters, 1)),
+                'exclude_unless'  => !$this->otherHasValue($other, array_slice($parameters, 1)),
+                'exclude_with'    => Arr::has($this->data, $other),
+                'exclude_without' => !Arr::has($this->data, $other),
+                default           => false,
+            };
+
+            if ($matches) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * The parameters given to one rule in a field's rule list.
+     *
+     * @param array<int, string> $ruleNames
+     * @return array<int, string>
+     */
+    protected function parametersFor(string $wanted, array $ruleNames): array
+    {
+        foreach ($ruleNames as $ruleName) {
+            $parts = explode(':', trim($ruleName), 2);
+
+            if (strtolower(trim($parts[0])) !== $wanted) {
+                continue;
+            }
+
+            return isset($parts[1]) ? explode(',', $parts[1]) : [];
+        }
+
+        return [];
+    }
+
+    /**
+     * Whether another field holds any of the given values, or is filled when
+     * none are given.
+     *
+     * @param array<int, string> $expected
+     */
+    protected function otherHasValue(string $field, array $expected): bool
+    {
+        $actual = Arr::get($this->data, $field);
+
+        if ($expected === []) {
+            return $actual !== null && $actual !== '' && $actual !== [];
+        }
+
+        foreach ($expected as $candidate) {
+            if ((string) $candidate === (string) $actual) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -220,7 +359,10 @@ class Validator
             throw new ValidationException($this->errors);
         }
 
-        return array_intersect_key($this->data, $this->rules);
+        return array_diff_key(
+            array_intersect_key($this->data, $this->rules),
+            $this->excluded
+        );
     }
 
     /**

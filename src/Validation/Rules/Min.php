@@ -4,9 +4,9 @@ namespace Nitro\Validation\Rules;
 
 /**
  * Min Rule
- * 
- * Validates minimum value (for numbers) or minimum length (for strings)
- * Intelligently detects if value is numeric or string
+ *
+ * Lower bound on the value's size: a number's value, a string's length, an
+ * array's count, or an upload's size in kilobytes.
  */
 class Min extends AbstractRule
 {
@@ -16,29 +16,24 @@ class Min extends AbstractRule
             return true;
         }
 
-        $minValue = (float)$this->getParameter(0);
+        $size = $this->sizeOf($this->value);
 
-        // Check if value is a string first
-        if (is_string($this->value)) {
-            return strlen($this->value) >= $minValue;
+        if ($size === null) {
+            return true;
         }
 
-        // Otherwise check as numeric
-        if (is_numeric($this->value)) {
-            return (float)$this->value >= $minValue;
-        }
-
-        return true;
+        return $size >= (float) $this->getParameter(0);
     }
 
     public function message(): string
     {
-        $min = $this->getParameter(0);
+        $min  = $this->getParameter(0);
+        $unit = $this->sizeUnit($this->value);
 
-        if (is_string($this->value)) {
-            return $this->replaceMessage("The {attribute} must be at least {$min} characters.");
-        }
-
-        return $this->replaceMessage("The {attribute} must be at least {$min}.");
+        return $this->replaceMessage(
+            $unit === ''
+                ? "The {attribute} must be at least {$min}."
+                : "The {attribute} must be at least {$min} {$unit}."
+        );
     }
 }
