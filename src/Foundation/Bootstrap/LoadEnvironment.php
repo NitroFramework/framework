@@ -2,8 +2,8 @@
 
 namespace Nitro\Foundation\Bootstrap;
 
-use Dotenv\Dotenv;
 use Nitro\Foundation\Application;
+use Nitro\Foundation\Env;
 
 /**
  * Bootstrapper: loads the .env environment file.
@@ -13,8 +13,8 @@ class LoadEnvironment implements BootstrapperInterface
     /**
      * Sentinel env var that, when already set in the process environment,
      * signals env vars are coming from the platform (Docker, FrankenPHP worker,
-     * cloud env) rather than from .env. Skipping Dotenv in that case removes a
-     * file open + parse per request in worker mode.
+     * cloud env) rather than from .env. Skipping the read in that case removes
+     * a file open and parse per request in worker mode.
      */
     private const SKIP_SENTINEL = 'APP_ENV_LOADED';
 
@@ -26,7 +26,6 @@ class LoadEnvironment implements BootstrapperInterface
             return;
         }
 
-        $dotenv = Dotenv::createImmutable($app->paths()->base());
-        $dotenv->safeLoad();
+        Env::load($app->paths()->base());
     }
 }
