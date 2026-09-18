@@ -1211,6 +1211,12 @@ class Router implements RouterInterface
             return ['type' => 'closure', 'handler' => $handler];
         }
 
+        // A named component rather than a closure, so the route survives being
+        // cached. See Route::livewire().
+        if (is_array($handler) && isset($handler['livewire'])) {
+            return ['type' => 'livewire', 'component' => (string) $handler['livewire']];
+        }
+
         if (is_string($handler) && str_contains($handler, '@')) {
             [$controller, $method] = explode('@', $handler, 2);
 
@@ -1538,6 +1544,12 @@ class Router implements RouterInterface
             ),
             'callable' => Route::callable(
                 $routeData['handler'],
+                $parameters,
+                $routeData['middleware'] ?? [],
+                $routeData['name'] ?? null
+            ),
+            'livewire' => Route::livewire(
+                $routeData['component'],
                 $parameters,
                 $routeData['middleware'] ?? [],
                 $routeData['name'] ?? null

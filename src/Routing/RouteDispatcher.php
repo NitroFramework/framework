@@ -7,6 +7,7 @@ use Nitro\Actions\Action;
 use Nitro\Container\Contracts\ContainerInterface;
 use Nitro\Http\ViewResponse;
 use Nitro\Http\Request;
+use Nitro\Http\Response;
 use RuntimeException;
 
 /**
@@ -40,6 +41,7 @@ class RouteDispatcher
             Route::TYPE_CLOSURE    => $this->executeClosure($route),
             Route::TYPE_CALLABLE   => $this->executeCallable($route),
             Route::TYPE_VIEW       => $this->renderView($route),
+            Route::TYPE_LIVEWIRE   => $this->renderComponent($route),
             default => throw new RuntimeException("Unknown route type: {$route->getType()}")
         };
     }
@@ -56,6 +58,19 @@ class RouteDispatcher
         return new ViewResponse(
             $route->getViewName(),
             $route->getData()
+        );
+    }
+
+    /**
+     * Render a full-page Livewire component named by the route.
+     *
+     * Named rather than closed over so the route can be cached; a closure route
+     * disables route caching for the whole application.
+     */
+    protected function renderComponent(Route $route): Response
+    {
+        return Response::html(
+            $this->container->createOrResolve('livewire')->page($route->getComponentName())
         );
     }
 

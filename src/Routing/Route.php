@@ -27,6 +27,7 @@ class Route
     const TYPE_CLOSURE = 'closure';
     const TYPE_CALLABLE = 'callable';
     const TYPE_VIEW = 'view';
+    const TYPE_LIVEWIRE = 'livewire';
 
     /**
      * Constructor
@@ -181,6 +182,11 @@ class Route
         return $this->type === self::TYPE_VIEW;
     }
 
+    public function isLivewire(): bool
+    {
+        return $this->type === self::TYPE_LIVEWIRE;
+    }
+
     /**
      * Create controller route match
      */
@@ -257,6 +263,35 @@ class Route
             $middleware,
             $name
         );
+    }
+
+    /**
+     * Create a route that renders a full-page Livewire component.
+     *
+     * The component is named rather than closed over, which is the whole point:
+     * a closure cannot be serialized, and one closure route turns off route
+     * caching for the entire application.
+     */
+    public static function livewire(
+        string $component,
+        array $parameters = [],
+        array $middleware = [],
+        ?string $name = null
+    ): self {
+        return new self(
+            self::TYPE_LIVEWIRE,
+            $component,
+            $parameters,
+            [],
+            $middleware,
+            $name
+        );
+    }
+
+    /** The component this route renders (for livewire routes). */
+    public function getComponentName(): ?string
+    {
+        return $this->isLivewire() && is_string($this->handler) ? $this->handler : null;
     }
 
     /**

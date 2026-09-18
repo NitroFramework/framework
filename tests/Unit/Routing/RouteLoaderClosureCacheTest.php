@@ -87,4 +87,32 @@ class RouteLoaderClosureCacheTest extends TestCase
         $this->assertIsArray($data);
         $this->assertArrayHasKey('static_routes', $data);
     }
+
+    /**
+     * A full-page Livewire route must not cost the application its route cache.
+     *
+     * Route::livewire() used to register a closure that captured the container,
+     * which made every route in the application uncacheable — one component on
+     * one page was enough. The component is named instead, so the route is data
+     * and survives being written out.
+     */
+    public function test_a_livewire_route_is_cacheable(): void
+    {
+        $router = $this->router();
+        $router->get('/users', 'UserController@index');
+
+        // The shape Route::livewire() registers, without needing the Livewire
+        // provider booted to register its macro.
+        $router->get('/basket', ['livewire' => 'basket']);
+
+        $skipped = $this->loader()->cache($router);
+
+        $this->assertSame(0, $skipped, 'a named component route must not block caching');
+        $this->assertFileExists($this->cacheFile());
+
+        $data = require $this->cacheFile();
+
+        $this->assertSame('livewire', $data['routes']['GET']['/basket']['type']);
+        $this->assertSame('basket', $data['routes']['GET']['/basket']['component']);
+    }
 }

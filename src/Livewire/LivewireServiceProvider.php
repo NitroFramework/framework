@@ -56,15 +56,18 @@ class LivewireServiceProvider extends ServiceProvider
         $engine->addNamespace('livewire-sfc', $sfcDir);
     }
 
-    /** Route::livewire('/path', 'component-name') — a routed full-page component. */
+    /**
+     * Route::livewire('/path', 'component-name') — a routed full-page component.
+     *
+     * The component is registered by name rather than in a closure. A closure
+     * cannot be serialized, and the route cache is all-or-nothing: one closure
+     * route turns caching off for every route in the application, so a single
+     * full-page component used to cost an app its route cache entirely.
+     */
     protected function registerRouterMacro(): void
     {
-        $container = $this->container;
-
-        Router::macro('livewire', function (string $path, string $name) use ($container) {
-            return $this->addRoute('GET', $path, function () use ($container, $name): Response {
-                return Response::html($container->createOrResolve('livewire')->page($name));
-            });
+        Router::macro('livewire', function (string $path, string $name) {
+            return $this->addRoute('GET', $path, ['livewire' => $name]);
         });
     }
 
