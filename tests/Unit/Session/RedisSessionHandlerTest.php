@@ -2,7 +2,7 @@
 
 namespace Tests\Unit\Session;
 
-use Nitro\Session\Handlers\RedisSessionHandler;
+use Nitro\Session\RedisSessionHandler;
 use PHPUnit\Framework\TestCase;
 
 /**

@@ -13,7 +13,7 @@ use Nitro\Livewire\Properties\InteractsWithProperties;
 use Nitro\Livewire\Support\ErrorBag;
 use Nitro\Livewire\Support\Slot;
 use Nitro\Livewire\Support\SlotBag;
-use Nitro\View\Contracts\ViewEngine;
+use Nitro\View\Contracts\Engine;
 use ReflectionMethod;
 use ReflectionObject;
 use RuntimeException;
@@ -96,7 +96,7 @@ abstract class Component
      */
     protected function view(string $view, array $data = []): string
     {
-        $engine = app(ViewEngine::class);
+        $engine = app(Engine::class);
         $data = array_merge($this->all(), [
             'errors' => $this->errors(),
             'slot'   => $this->__slots['default'] ?? new Slot(''),
@@ -331,7 +331,7 @@ abstract class Component
      */
     public function __call(string $method, array $arguments): mixed
     {
-        return app(ViewEngine::class)->{$method}(...$arguments);
+        return app(Engine::class)->{$method}(...$arguments);
     }
 
     // ─── Identity ───────────────────────────────────────────────────────────

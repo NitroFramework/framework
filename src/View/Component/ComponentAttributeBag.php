@@ -9,8 +9,10 @@ use Nitro\View\Support\Htmlable;
  */
 class ComponentAttributeBag implements Htmlable, \Stringable
 {
+    /** @param array<string, mixed> $attributes */
     public function __construct(private array $attributes = []) {}
 
+    /** Get the markup. */
     public function toHtml(): string
     {
         return $this->__toString();
@@ -50,16 +52,23 @@ class ComponentAttributeBag implements Htmlable, \Stringable
         return new self(array_diff_key($this->attributes, array_flip($keys)));
     }
 
+    /** Determine whether an attribute is present. */
     public function has(string $key): bool
     {
         return array_key_exists($key, $this->attributes);
     }
 
+    /** Get an attribute's value. */
     public function get(string $key, mixed $default = null): mixed
     {
         return $this->attributes[$key] ?? $default;
     }
 
+    /**
+     * Get every attribute.
+     *
+     * @return array<string, mixed>
+     */
     public function all(): array
     {
         return $this->attributes;

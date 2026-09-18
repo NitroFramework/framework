@@ -10,7 +10,7 @@ namespace Nitro\Session\Contracts;
  * explicit start()/save() lifecycle, which is what makes it safe in long-running
  * workers (FrankenPHP/RoadRunner) where PHP's native session machinery is not.
  */
-interface SessionInterface
+interface Session
 {
     /** Start the session: load persisted data and ensure a CSRF token exists. */
     public function start(): bool;
@@ -98,4 +98,19 @@ interface SessionInterface
 
     /** Generate a new CSRF token. */
     public function regenerateToken(): void;
+
+    /** The URL the user was last at, if one was recorded. */
+    public function previousUrl(): ?string;
+
+    /** Record the URL the user is at. */
+    public function setPreviousUrl(string $url): void;
+
+    /** The handler backing this session. */
+    public function getHandler(): \SessionHandlerInterface;
+
+    /** Whether the handler needs the request to do its job. */
+    public function handlerNeedsRequest(): bool;
+
+    /** Give the handler the current request, when it needs one. */
+    public function setRequestOnHandler(mixed $request): void;
 }

@@ -7,6 +7,7 @@ namespace Nitro\View\Compiler\Concerns;
  */
 trait CompilesComments
 {
+    /** Strip `{{-- --}}` comments, which never reach the output. */
     protected function compileComments(string $content): string
     {
         $content = preg_replace('/\{\{--.*?--\}\}/su', '', $content);

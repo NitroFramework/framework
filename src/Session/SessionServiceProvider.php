@@ -1,17 +1,18 @@
 <?php
 
-namespace Nitro\Foundation\Providers;
+namespace Nitro\Session;
 
-use Nitro\Thrust\WorkerMode;
+use Nitro\Cache\Repository;
+use Nitro\Cookie\CookieJar;
+use Nitro\Encryption\Contracts\Encrypter;
+use Nitro\Foundation\Providers\ServiceProvider;
 use Nitro\Http\Kernel;
-use Nitro\Http\Middleware\StartSession;
 use Nitro\Http\Request;
 use Nitro\Http\Response;
-use Nitro\Session\Contracts\SessionInterface;
-use Nitro\Session\NativeSession;
-use Nitro\Session\SessionManager;
-use Nitro\Session\Store;
+use Nitro\Session\Contracts\Session;
+use Nitro\Session\Middleware\StartSession;
 use Nitro\Support\Logger;
+use Nitro\Thrust\WorkerMode;
 
 /**
  * Wires the session layer into the container.
@@ -47,11 +48,20 @@ class SessionServiceProvider extends ServiceProvider
             $config['cookie']   ??= 'nitro_session';
             $config['lifetime'] ??= 120;
             $config['files']    ??= $container->get('paths')->storage('framework/sessions');
-            // Resolved lazily: only the redis driver needs a connection, and
-            // the Redis layer may not be registered at all.
+            // Resolved lazily: a driver only reaches for its backing layer when
+            // it is the one selected, and that layer may not be registered.
             $redis = fn (?string $connection): object => $container->get('redis')->connection($connection);
+            $cookie = fn (): CookieJar => $container->get('cookie');
+            $cache = fn (string $store): Repository => $container->get('cache')->driver($store);
+            $encrypter = fn (): Encrypter => $container->get('encrypter');
 
-            return new SessionManager($config, $redis);
+            return new SessionManager(
+                $config,
+                $container->has('redis') ? $redis : null,
+                $container->has('cookie') ? $cookie : null,
+                $container->has('cache') ? $cache : null,
+                $container->has('encrypter') ? $encrypter : null,
+            );
         });
 
         // The kernel resolves route middleware fresh on every request. Bind
@@ -64,7 +74,7 @@ class SessionServiceProvider extends ServiceProvider
         // Scoped: one Store per worker request; the binding declares its own
         // lifecycle rather than relying on a central reset list.
         $this->container->scoped('session', fn($container) => $container->createOrResolve(SessionManager::class)->driver());
-        $this->container->alias(SessionInterface::class, 'session');
+        $this->container->alias(Session::class, 'session');
         $this->container->alias(Store::class, 'session');
 
         $this->configureNativeSessionPath();
@@ -104,7 +114,7 @@ class SessionServiceProvider extends ServiceProvider
      * session after it has been.
      *
      * The opening half — seeding the id from the cookie and start() — is NOT
-     * here. It lives in {@see \Nitro\Http\Middleware\StartSession}, a member of
+     * here. It lives in {@see \Nitro\Session\Middleware\StartSession}, a member of
      * the 'web' middleware group, so only routes that actually want a session
      * build one. A global requestReceived hook could never do that: it fires in
      * Kernel::handle() one line *before* the router matches, so there is no
@@ -169,7 +179,7 @@ class SessionServiceProvider extends ServiceProvider
      * worker, and every request queued behind it, for as long as the directory
      * took to read.
      */
-    protected function sweepExpiredSessions(SessionInterface $session): void
+    protected function sweepExpiredSessions(Session $session): void
     {
         $config = (array) config('session');
         [$chances, $outOf] = $config['lottery'] ?? [2, 100];

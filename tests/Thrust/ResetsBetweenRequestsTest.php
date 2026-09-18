@@ -13,7 +13,7 @@ use RuntimeException;
  * The worker clears per-request state without knowing which services hold any.
  *
  * The reset used to name PerformanceMetrics, CompiledTemplateCache and
- * ViewRenderer directly, which made it the one file that had to know about
+ * CompilerEngine directly, which made it the one file that had to know about
  * every layer in the framework. A subsystem missing from that list kept serving
  * the previous request's state and said nothing — the failure mode these tests
  * exist to keep closed.
@@ -90,7 +90,7 @@ class ResetsBetweenRequestsTest extends TestCase
         // The two the reset used to name by hand. If either stops implementing
         // the contract, the worker silently stops clearing it.
         $this->assertTrue(
-            is_subclass_of(\Nitro\View\Engine\ViewRenderer::class, ResetsBetweenRequests::class),
+            is_subclass_of(\Nitro\View\Engines\CompilerEngine::class, ResetsBetweenRequests::class),
         );
 
         $this->assertTrue(

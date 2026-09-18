@@ -18,6 +18,7 @@ class ViewManifest
 
     /** @var array<string, array<string, mixed>>|null */
     private static ?array $manifest = null;
+    /** Whether the manifest file has been looked for yet. */
     private static bool $loadAttempted = false;
 
     /**
@@ -32,6 +33,7 @@ class ViewManifest
         return self::load()[$view] ?? null;
     }
 
+    /** Whether a view declares `@stream`, or null when the manifest says nothing. */
     public static function isStream(string $view): ?bool
     {
         $flags = self::flags($view);
@@ -74,6 +76,7 @@ class ViewManifest
         self::$loadAttempted = true;
     }
 
+    /** Discard the loaded manifest so the next read reloads it. */
     public static function clear(): void
     {
         self::$manifest = null;
@@ -85,8 +88,10 @@ class ViewManifest
     }
 
     /**
-     * Write the manifest to disk. Called by the optimize command; tests
-     * can call it directly to round-trip.
+     * Write the manifest to disk.
+     *
+     * Called by the optimize command. The in-memory copy is dropped so the
+     * next reader picks up what was just written.
      *
      * @param array<string, array<string, mixed>> $manifest
      */
@@ -101,7 +106,6 @@ class ViewManifest
         if (@file_put_contents($path, $contents) === false) {
             return false;
         }
-        // Reset memo so next caller sees fresh data.
         self::$manifest = null;
         self::$loadAttempted = false;
         return true;
@@ -125,6 +129,7 @@ class ViewManifest
         return self::$manifest = is_array($data) ? $data : [];
     }
 
+    /** Path to the manifest file, or null when there is no application to ask. */
     private static function path(): ?string
     {
         try {

@@ -1,110 +1,102 @@
 <?php
 
-namespace Nitro\View\Engine;
+namespace Nitro\View\Engines;
 
 use Nitro\Foundation\Contracts\ConfigRepository;
+use Nitro\Foundation\Contracts\ResetsBetweenRequests;
 use Nitro\Foundation\PathRegistry;
 use Nitro\Support\Arr;
-
-// These 4 use statements change:
+use Nitro\View\Concerns\ManagesFragments;
+use Nitro\View\Concerns\ManagesLayouts;
+use Nitro\View\Concerns\ManagesLoops;
+use Nitro\View\Concerns\ManagesStacks;
+use Nitro\View\Concerns\ManagesStream;
+use Nitro\View\Contracts\ComponentEngine;
+use Nitro\View\Contracts\Engine as EngineContract;
+use Nitro\View\Contracts\TagCompiler;
 use Nitro\View\Contracts\TemplateCache;
 use Nitro\View\Contracts\TemplateCompiler;
-use Nitro\View\Contracts\TagCompiler;
-use Nitro\View\Contracts\ComponentEngine;
-
-use Nitro\View\Support\Htmlable;
-use Nitro\Foundation\Contracts\ResetsBetweenRequests;
-use Nitro\View\Contracts\ViewEngine;
+use Nitro\View\Contracts\ViewFinder;
+use Nitro\View\FileViewFinder;
 use Nitro\View\Support\DebugRenderPipeline;
+use Nitro\View\Support\Htmlable;
 use Nitro\View\Support\ViewManifest;
-
 use RuntimeException;
 
 /**
- * Blade template view renderer.
+ * Renders Blade templates: resolves a name to a file, executes its compiled
+ * form, and resolves the layout, sections and stacks it declared.
  *
- * Resolves view names to template files, delegates compilation and caching
- * to CompiledTemplateCache, and executes compiled templates with
- * section/layout inheritance.
- *
- * Compiled templates run in this instance's scope so $this->render(),
- * $this->getSection(), etc. are available inside Blade files.
- *
- * RESPONSIBILITIES:
- * - Resolve view name (dot notation) to filesystem path; cache paths in memory
- * - Ask CompiledTemplateCache for the compiled file path
- * - Execute compiled file via include with extract($data)
- * - Handle @extends by re-rendering the parent with stored sections
- * - Delegate section/stack/slot state to SectionManager
- * - Expose template-context methods for compiled Blade directives
- *
- * NOT RESPONSIBLE FOR:
- * - Compiling Blade source to PHP (BladeCompiler, owned by the cache)
- * - Writing, locking, or invalidating cache files (CompiledTemplateCache)
- * - Opcache integration (CompiledTemplateCache)
- *
- * @package Nitro\View
+ * A compiled template runs in this object's scope, so most of this class exists
+ * to be called from inside a template rather than from outside.
  */
-class ViewRenderer implements ViewEngine, ResetsBetweenRequests
+class CompilerEngine implements EngineContract, ResetsBetweenRequests
 {
-    use Concerns\ManagesLayouts,
-        Concerns\ManagesStacks,
-        Concerns\ManagesFragments,
-        Concerns\ManagesLoops,
-        Concerns\ManagesStream;
+    use ManagesLayouts;
+    use ManagesStacks;
+    use ManagesFragments;
+    use ManagesLoops;
+    use ManagesStream;
 
-    protected string $viewsPath;
+    /** Template file extension, without the dot. */
     protected string $extension;
+
+    /** Whether the application is in debug mode. */
     protected bool $debug;
 
-    /** In-memory cache of resolved view paths (process-lifetime, not per-render). */
-    protected array $resolvedPaths = [];
+    /** Resolves view names to template files. */
+    protected ViewFinder $finder;
 
-    /** Registered view namespaces: [namespace => absolute base directory]. */
-    protected array $viewHints = [];
-
+    /** Whether to append the inline render diagnostic to top-level output. */
     protected bool $debugRender = false;
 
-    /** Cache of which views use @stream (process-lifetime, not per-render). */
+    /**
+     * Whether each view declares `@stream`, remembered for the process rather
+     * than the render, since a template's own text cannot change beneath it.
+     *
+     * @var array<string, bool>
+     */
     protected array $streamViewCache = [];
 
     /**
-     * All per-render transient state — sections, stacks, fragments, teleports,
-     * loops, stream flags, render depth, @once ids. Replaced with a fresh
-     * instance per top-level render, so render state never leaks between
-     * renders or (in worker mode) between requests. This is what makes the
-     * renderer safe to share as a singleton.
+     * All per-render transient state, replaced per top-level render so nothing
+     * leaks between renders or between worker requests.
      */
     protected RenderContext $context;
 
-
-
-
+    /**
+     * @param TemplateCache    $templateCache Compiled templates and their freshness.
+     * @param ComponentEngine  $components    Renders `<x-…>` components.
+     * @param TemplateCompiler $compiler      Blade source to PHP.
+     * @param TagCompiler      $tagCompiler   Component tags to directives.
+     */
     public function __construct(
         protected readonly TemplateCache $templateCache,
         protected readonly ComponentEngine $components,
         protected readonly TemplateCompiler $compiler,
         protected readonly TagCompiler $tagCompiler,
         PathRegistry $paths,
-        ConfigRepository $config
+        ConfigRepository $config,
+        ?ViewFinder $finder = null,
     ) {
-        // Now the class pulls what it needs from the objects
-        $this->viewsPath = $paths->views();
         $this->extension = $config->get('view.extension');
         $this->debug     = (bool) $config->get('app.debug');
         $this->context   = new RenderContext();
+        $this->finder    = $finder ?? new FileViewFinder($paths->views(), $this->extension);
+
         if ($config->get('view.debug_render')) {
             $this->debugRender = true;
             DebugRenderPipeline::enable();
         }
     }
 
-    // -----------------------------------------------------------------------
-    // Public rendering API
-    // -----------------------------------------------------------------------
+    // ─── Public rendering API ─────────────────────────────────
 
     /**
      * Render a view to HTML with optional layout inheritance.
+     *
+     * Every diagnostic below is gated at its call site, so a request with
+     * debugging off pays one bool read rather than building the payloads.
      *
      * @param string               $view View name in dot notation (e.g. 'pages.home')
      * @param array<string, mixed> $data Variables to pass to the template
@@ -115,10 +107,6 @@ class ViewRenderer implements ViewEngine, ResetsBetweenRequests
     {
         $isTopLevel = ($this->context->renderCount === 0);
 
-        // Debug instrumentation is gated at the call site so the array
-        // literals + method-call frames aren't even built when debug is off.
-        // For non-debug requests this collapses to a single isEnabled()
-        // bool read.
         if (DebugRenderPipeline::isEnabled()) {
             DebugRenderPipeline::enter('render', [
                 'view'         => $view,
@@ -143,9 +131,6 @@ class ViewRenderer implements ViewEngine, ResetsBetweenRequests
             }
         }
 
-        // The inline <!-- BLADE DEBUG --> annotation is a view-render diagnostic,
-        // so it honours the dedicated view.debug_render flag rather than the broad
-        // app.debug — otherwise every dev request pollutes its HTML with it.
         $result = ($this->debugRender && $isTopLevel)
             ? $this->debugRender($view, $data)
             : $this->renderFromFile($view, $data);
@@ -162,30 +147,20 @@ class ViewRenderer implements ViewEngine, ResetsBetweenRequests
     }
 
     /**
-     * Detect whether a view uses @stream.
+     * Determine whether a view uses `@stream`.
      *
-     * Lookup order:
-     *   1. Per-request in-memory cache (fastest — return on second hit).
-     *   2. Optimize-time manifest (one autoload, no file stat per view).
-     *   3. Live probe of the first 256 bytes of the source — only when
-     *      the manifest hasn't been generated yet (dev mode).
-     *
-     * Streaming is always skipped for HTMX partial requests and fragment
-     * requests regardless of what the view declares.
+     * Answered from the in-memory cache, then the build-time manifest, then a
+     * live probe of the source. A fragment request never streams, so the
+     * per-view verdict is cached and the request is only consulted for the
+     * few views that declare it.
      */
     protected function isStreamView(string $view): bool
     {
-        // Inherent, per-view verdict (does the template declare @stream?) — this
-        // is what's cacheable. The overwhelming majority of views don't stream,
-        // so this returns early WITHOUT the container/Request probe below.
         $isStream = $this->streamViewCache[$view] ??= $this->computeStreamView($view);
         if (! $isStream) {
             return false;
         }
 
-        // The view streams, but a fragment request never does — ask the bound
-        // Request rather than reading $_GET directly. Only paid for the rare
-        // view that actually declares @stream.
         $container = app();
         if ($container->has('request')) {
             $request = $container->createOrResolve('request');
@@ -197,14 +172,16 @@ class ViewRenderer implements ViewEngine, ResetsBetweenRequests
         return true;
     }
 
-    /** The view's declared streaming status, ignoring the per-request override. */
+    /**
+     * The view's declared streaming status, ignoring the per-request override.
+     *
+     * The manifest is trusted only while it is at least as new as the source,
+     * so a view edited after `optimize` is probed rather than misrouted.
+     */
     private function computeStreamView(string $view): bool
     {
         $templateFile = $this->getTemplatePath($view);
 
-        // Trust the manifest only when it's at least as new as the source view.
-        // A view edited after `optimize` (e.g. @stream added/removed) would
-        // otherwise be misrouted; when stale, fall through to the live probe.
         $manifestVerdict = ViewManifest::isStream($view);
         if ($manifestVerdict !== null && ViewManifest::isFresh($templateFile)) {
             return $manifestVerdict;
@@ -233,7 +210,6 @@ class ViewRenderer implements ViewEngine, ResetsBetweenRequests
         try {
             include $compiledFile;
         } catch (\Throwable $templateError) {
-            // Clean up any dangling fill buffer
             if ($this->context->currentFill !== null) {
                 if (ob_get_level() > 0) {
                     ob_end_clean();
@@ -268,7 +244,6 @@ class ViewRenderer implements ViewEngine, ResetsBetweenRequests
             $compiledFile = $this->templateCache->resolve($templateFile, $view);
             return $this->executeTemplate($compiledFile, $data);
         } finally {
-            // Balance depth even on a template exception — see renderFromFile().
             $this->context->renderCount--;
         }
     }
@@ -284,9 +259,7 @@ class ViewRenderer implements ViewEngine, ResetsBetweenRequests
         $this->templateCache->compile($templateFile, $view);
     }
 
-    // -----------------------------------------------------------------------
-    // Cache delegation
-    // -----------------------------------------------------------------------
+    // ─── Cache delegation ─────────────────────────────────────
 
     /** Delete all compiled template files. */
     public function clearCache(): void
@@ -294,10 +267,19 @@ class ViewRenderer implements ViewEngine, ResetsBetweenRequests
         $this->templateCache->clear();
     }
 
-    /** Delete the compiled file for a single view. */
+    /**
+     * Delete the compiled file for a single view.
+     *
+     * Resolves the name first, because the compiled form is keyed by the
+     * template's path — clearing by name would miss it. A name that resolves
+     * to nothing has nothing compiled, so it is not an error.
+     */
     public function clearViewCache(string $view): void
     {
-        $this->templateCache->clearView($view);
+        try {
+            $this->templateCache->clearView($this->getTemplatePath($view));
+        } catch (RuntimeException) {
+        }
     }
 
     /**
@@ -312,12 +294,14 @@ class ViewRenderer implements ViewEngine, ResetsBetweenRequests
 
    
    
-    // -----------------------------------------------------------------------
-    // Internal rendering
-    // -----------------------------------------------------------------------
+    // ─── Internal rendering ───────────────────────────────────
 
     /**
      * Resolve view path, get compiled file, execute, and optionally render parent layout.
+     *
+     * The render depth and parent view are restored in a `finally` because this
+     * object outlives the request: a leaked depth would make the next top-level
+     * render look nested, skip {@see flushState()} and carry sections across.
      */
     protected function renderFromFile(string $view, array $data = []): string
     {
@@ -355,12 +339,6 @@ class ViewRenderer implements ViewEngine, ResetsBetweenRequests
 
             return $output;
         } finally {
-            // Always balance render depth + parentView, even if the template
-            // throws. The renderer is a long-lived singleton, so a leaked
-            // renderCount would make the NEXT request's top-level render look
-            // nested and skip flushState() — leaking sections/stacks across
-            // requests. This keeps the "safe by construction" guarantee under
-            // exceptions.
             $this->context->parentView = $previousParentView;
             $this->context->renderCount--;
         }
@@ -370,7 +348,7 @@ class ViewRenderer implements ViewEngine, ResetsBetweenRequests
      * Run a compiled PHP file with data as variables; return captured output.
      *
      * Uses extract(EXTR_SKIP) and include so $this inside the template resolves
-     * to this ViewRenderer instance — making all directive methods available.
+     * to this CompilerEngine instance — making all directive methods available.
      *
      * @param string               $compiledFile Absolute path to the compiled .php file
      * @param array<string, mixed> $data         Variables to extract into template scope
@@ -399,76 +377,72 @@ class ViewRenderer implements ViewEngine, ResetsBetweenRequests
     }
 
     /**
-     * Register a view namespace so `namespace::view` resolves under $path.
+     * Register directories a namespace resolves against, searched in order.
      *
-     * Used by module providers (via ServiceProvider::loadViewsFrom) to expose a
-     * module's views, e.g. addNamespace('blog', '/app/Modules/Blog/views') makes
-     * view('blog::dashboard') resolve to that directory. The compiled-cache key
-     * is an md5 of the full view name, so namespaced views never collide with
-     * root views of the same name.
-     *
-     * @param string $namespace Namespace hint, without the '::' (e.g. 'blog').
-     * @param string $path      Absolute directory the namespace's views live in.
+     * @param string|array<int, string> $paths
      */
-    public function addNamespace(string $namespace, string $path): void
+    public function addNamespace(string $namespace, string|array $paths): void
     {
-        $this->viewHints[$namespace] = rtrim($path, '/\\');
+        $this->finder->addNamespace($namespace, $paths);
+    }
+
+    /**
+     * Register directories ahead of a namespace's existing ones.
+     *
+     * @param string|array<int, string> $paths
+     */
+    public function prependNamespace(string $namespace, string|array $paths): void
+    {
+        $this->finder->prependNamespace($namespace, $paths);
+    }
+
+    /**
+     * Replace the directories a namespace resolves against.
+     *
+     * @param string|array<int, string> $paths
+     */
+    public function replaceNamespace(string $namespace, string|array $paths): void
+    {
+        $this->finder->replaceNamespace($namespace, $paths);
+    }
+
+    /**
+     * Add a directory searched for views naming no namespace.
+     */
+    public function addLocation(string $path): void
+    {
+        $this->finder->addLocation($path);
+    }
+
+    /**
+     * Add a directory searched before those already registered.
+     */
+    public function prependLocation(string $path): void
+    {
+        $this->finder->prependLocation($path);
+    }
+
+    /**
+     * Get the directories searched for views naming no namespace, in order.
+     *
+     * @return array<int, string>
+     */
+    public function getLocations(): array
+    {
+        return $this->finder->getLocations();
     }
 
     /**
      * Resolve a view name to its absolute filesystem path.
      *
-     * Converts dot notation to directory separators, appends the extension, and
-     * caches the result in memory for the duration of the request. A view name
-     * of the form `namespace::view` resolves under that namespace's registered
-     * directory instead of the application views path.
-     *
-     * @throws RuntimeException If no file exists at the resolved path, or the
-     *                          view's namespace has not been registered.
+     * @throws RuntimeException When nothing matches, or the namespace is unknown.
      */
     protected function getTemplatePath(string $view): string
     {
-        if (isset($this->resolvedPaths[$view])) {
-            return $this->resolvedPaths[$view];
-        }
-
-        $basePath = $this->viewsPath;
-        $name     = $view;
-
-        $separator = strpos($view, '::');
-        if ($separator !== false) {
-            $namespace = substr($view, 0, $separator);
-            $name      = substr($view, $separator + 2);
-
-            if (!isset($this->viewHints[$namespace])) {
-                throw new RuntimeException(
-                    "View namespace '{$namespace}::' is not registered (view '{$view}')."
-                );
-            }
-
-            $basePath = $this->viewHints[$namespace];
-        }
-
-        $relative     = str_replace('.', DIRECTORY_SEPARATOR, $name);
-        $templateFile = rtrim($basePath, '/\\')
-            . DIRECTORY_SEPARATOR
-            . $relative
-            . '.'
-            . $this->extension;
-
-        if (!file_exists($templateFile)) {
-            throw new RuntimeException(
-                "Template not found: {$view}\n" .
-                    "Searched paths:\n- {$templateFile}"
-            );
-        }
-
-        return $this->resolvedPaths[$view] = $templateFile;
+        return $this->finder->find($view);
     }
 
-    // -----------------------------------------------------------------------
-    // Debug
-    // -----------------------------------------------------------------------
+    // ─── Debug ────────────────────────────────────────────────
 
     /**
      * Render and append an HTML comment with timing and cache metadata.
@@ -479,7 +453,7 @@ class ViewRenderer implements ViewEngine, ResetsBetweenRequests
         $output       = $this->renderFromFile($view, $data);
         $elapsed      = round((microtime(true) - $startTime) * 1000, 2);
         $templateFile = $this->getTemplatePath($view);
-        $compiledFile = $this->templateCache->getCacheFilePath($view);
+        $compiledFile = $this->templateCache->getCacheFilePath($templateFile);
 
         $debugInfo = [
             'view'           => $view,
@@ -499,40 +473,70 @@ class ViewRenderer implements ViewEngine, ResetsBetweenRequests
 
 
 
-    // -----------------------------------------------------------------------
-    // Component rendering — delegates to ComponentRenderer
-    // -----------------------------------------------------------------------
+    // ─── Component rendering — delegates to ComponentRenderer ───
 
+    /**
+     * Render a self-closing component tag.
+     *
+     * @param array<string, mixed> $attributes
+     */
     public function renderComponent(string $name, array $attributes = [], string $slot = ''): void
     {
         $this->components->renderSelfClosing($name, $attributes, $slot);
     }
 
+    /**
+     * Open a component and begin capturing its slot.
+     *
+     * @param array<string, mixed> $attributes
+     */
     public function startComponent(string $name, array $attributes = []): void
     {
         $this->components->start($name, $attributes);
     }
 
+    /**
+     * Close the open component and return its rendered output.
+     */
     public function endComponent(): string
     {
         return $this->components->end();
     }
 
+    /**
+     * Begin capturing a named slot on the open component.
+     */
     public function startNamedSlot(string $name): void
     {
         $this->components->startNamedSlot($name);
     }
 
+    /**
+     * Close the open named slot.
+     */
     public function endNamedSlot(): void
     {
         $this->components->endNamedSlot();
     }
 
+    /**
+     * Get the values an `@aware` component inherits from its parent.
+     *
+     * @param  array<int, string> $keys
+     * @return array<string, mixed>
+     */
     public function getAwareData(array $keys): array
     {
         return $this->components->getAwareData($keys);
     }
 
+    /**
+     * Merge a component's declared props with the data it was given.
+     *
+     * @param  array<string, mixed> $propDefaults
+     * @param  array<string, mixed> $componentData
+     * @return array<string, mixed>
+     */
     public function resolveComponentProps(array $propDefaults, array $componentData): array
     {
         return $this->components->resolveComponentProps($propDefaults, $componentData);
@@ -550,6 +554,12 @@ class ViewRenderer implements ViewEngine, ResetsBetweenRequests
 
 
 
+    /**
+     * Render one `@fragment` of a view.
+     *
+     * @param  array<string, mixed> $data
+     * @throws \RuntimeException When the view declares no such fragment.
+     */
     public function renderFragment(string $view, string $fragment, array $data = []): string
     {
         $this->flushFragments();
@@ -564,6 +574,16 @@ class ViewRenderer implements ViewEngine, ResetsBetweenRequests
         return $result;
     }
 
+    /**
+     * Render several fragments of a view as one response.
+     *
+     * Every fragment after the first is marked for out-of-band swapping, so a
+     * single response can update more than one region of the page.
+     *
+     * @param  array<int, string>   $fragments
+     * @param  array<string, mixed> $data
+     * @throws \RuntimeException When the view declares no such fragment.
+     */
     public function renderFragments(string $view, array $fragments, array $data = []): string
     {
         $this->flushFragments();
@@ -593,17 +613,19 @@ class ViewRenderer implements ViewEngine, ResetsBetweenRequests
 
 
 
+    /**
+     * Render a {@see View} value object.
+     */
     public function renderView(View $view): string
     {
-        return $this->render($view->template(), $view->getData());
+        return $this->render($view->name(), $view->getData());
     }
 
     /**
-     * Legacy entry point for compiled templates that still reference
-     * $this->e(). New compilations emit \nitro_e() directly. Kept here so
-     * cached compiled templates from a previous compiler version don't
-     * break before they're regenerated, and so external code that calls
-     * $renderer->e(...) continues to work.
+     * Escape a value for output.
+     *
+     * @deprecated Compiled templates now emit \nitro_e() directly. Kept so
+     *             previously compiled templates keep working.
      */
     public function e(mixed $value): string
     {
@@ -612,23 +634,18 @@ class ViewRenderer implements ViewEngine, ResetsBetweenRequests
 
 
     /**
-     * Compile and render a raw Blade string with the given data.
-     * Used primarily for testing without filesystem involvement.
-     * A temp file is used so $this context works inside compiled templates.
+     * Compile and render Blade source that has no file behind it.
      *
-     * @param string               $blade Raw Blade template string
-     * @param array<string, mixed> $data  Variables to pass to the template
-     * @return string Rendered HTML
+     * Goes through a temp file so `$this` inside the template is this renderer.
+     *
+     * @param  array<string, mixed> $data
+     * @return string
      */
     public function renderString(string $blade, array $data = []): string
     {
-        // Step 1: Compile component tags first
-        $compiled = $this->tagCompiler->compile($blade);      // ← was: new ComponentTagCompiler()
+        $compiled = $this->tagCompiler->compile($blade);
+        $compiled = $this->compiler->compile($compiled);
 
-        // Step 2: Compile Blade directives
-        $compiled = $this->compiler->compile($compiled);       // ← was: new BladeCompiler()
-
-        // Step 3: Write to temp file so $this resolves correctly via include
         $tempFile = tempnam(sys_get_temp_dir(), 'nitro_blade_') . '.php';
         file_put_contents($tempFile, $compiled);
 
@@ -641,22 +658,34 @@ class ViewRenderer implements ViewEngine, ResetsBetweenRequests
         }
     }
 
+    /**
+     * Determine whether an `@once` block with this id has already run.
+     */
     public function hasRenderedOnce(string $id): bool
     {
         return isset($this->context->renderedOnce[$id]);
     }
 
+    /**
+     * Record that an `@once` block with this id has run.
+     */
     public function markRenderedOnce(string $id): void
     {
         $this->context->renderedOnce[$id] = true;
     }
 
+    /**
+     * Begin capturing output destined for a teleport target.
+     */
     public function startTeleport(string $target): void
     {
         $this->context->currentTeleport = $target;
         ob_start();
     }
 
+    /**
+     * Stop capturing and append what was captured to its target's buffer.
+     */
     public function endTeleport(): void
     {
         $content = ob_get_clean();
@@ -670,34 +699,37 @@ class ViewRenderer implements ViewEngine, ResetsBetweenRequests
         $this->context->currentTeleport = null;
     }
 
+    /**
+     * Get everything teleported to a target.
+     */
     public function yieldTeleport(string $target): string
     {
         return $this->context->teleportBuffers[$target] ?? '';
     }
 
+    /**
+     * Discard every teleport buffer.
+     */
     public function clearTeleports(): void
     {
         $this->context->teleportBuffers = [];
         $this->context->currentTeleport = null;
     }
 
-    // -----------------------------------------------------------------------
-// Include runtime methods (called by compiled @include directives)
-// -----------------------------------------------------------------------
+    // ─── What compiled @include directives call ───────────
 
     /**
-     * Render an included view, merging parent scope variables.
+     * Render an included view with the including template's variables in scope.
      *
-     * @param string $view  View name
-     * @param array  $data  Optional extra data
-     * @param array  $vars  Parent scope vars from get_defined_vars()
+     * Told apart by argument count: `@include('v')` passes the scope as $data,
+     * `@include('v', [...])` passes data then scope.
+     *
+     * @param array<string, mixed> $data Extra data from the call site.
+     * @param array<string, mixed> $vars The including template's scope.
      */
     public function renderInclude(string $view, array $data = [], array $vars = []): string
     {
-        // If called with 2 args: renderInclude('view', get_defined_vars())
-        // If called with 3 args: renderInclude('view', ['key' => 'val'], get_defined_vars())
-        if (func_num_args() === 2 && !empty($data)) {
-            // $data is actually get_defined_vars() — no extra merge data
+        if (func_num_args() === 2 && ! empty($data)) {
             return $this->renderPartial($view, $data);
         }
 
@@ -705,8 +737,10 @@ class ViewRenderer implements ViewEngine, ResetsBetweenRequests
     }
 
     /**
-     * Conditionally render a view when the condition is true.
-     * Signature: renderIncludeWhen($condition, $view, $data, $vars)
+     * Render an included view only when the condition holds.
+     *
+     * @param array<string, mixed> $data Extra data given at the call site.
+     * @param array<string, mixed> $vars The including template's scope.
      */
     public function renderIncludeWhen(bool $condition, string $view, array $data = [], array $vars = []): string
     {
@@ -747,15 +781,13 @@ class ViewRenderer implements ViewEngine, ResetsBetweenRequests
     /**
      * Render a view for each item in a collection.
      *
-     * Empty-detection is deferred to the first foreach step so non-countable
-     * iterators (generators, lazy collections) aren't exhausted before the
-     * loop starts — the previous version called iterator_count() which walks
-     * to the end, leaving foreach with nothing to iterate.
+     * Emptiness is detected on the first foreach step, so a generator is not
+     * exhausted before the loop starts.
      *
-     * @param string $view     View to render per item
-     * @param iterable $data   Items to iterate
-     * @param string $itemVar  Variable name for each item in the view
-     * @param string $empty    View to render if collection is empty
+     * @param string   $view    View to render per item.
+     * @param iterable $data    Items to iterate.
+     * @param string   $itemVar Variable name for each item.
+     * @param string   $empty   View to render when there are none.
      */
     public function renderEach(string $view, iterable $data, string $itemVar, string $empty = ''): string
     {
@@ -793,9 +825,7 @@ class ViewRenderer implements ViewEngine, ResetsBetweenRequests
     /**
      * Convert an array of class conditions to a CSS class string.
      *
-     * Numeric keys are always included. String keys are included when value is truthy.
-     *   ['font-bold', 'text-red' => $isError, 'hidden' => false]
-     *   → "font-bold text-red"
+     * @param array<int|string, mixed> $classes
      */
     public function toCssClasses(array $classes): string
     {
@@ -805,9 +835,7 @@ class ViewRenderer implements ViewEngine, ResetsBetweenRequests
     /**
      * Convert an array of style conditions to a CSS style string.
      *
-     * Numeric keys are always included. String keys are included when value is truthy.
-     *   ['color: red', 'font-weight: bold' => $isBold, 'display: none' => false]
-     *   → "color: red; font-weight: bold;"
+     * @param array<int|string, mixed> $styles
      */
     public function toCssStyles(array $styles): string
     {
@@ -815,11 +843,10 @@ class ViewRenderer implements ViewEngine, ResetsBetweenRequests
     }
 
     /**
-     * Reset all per-render state by swapping in a fresh context. Called at the
-     * start of every top-level render (and by the worker reset). Because every
-     * top-level render starts from a clean context, render state cannot leak
-     * between renders or between worker requests — the renderer is safe to
-     * share as a singleton without manual per-field clearing.
+     * Reset all per-render state by swapping in a fresh context.
+     *
+     * Called at the start of every top-level render, which is what makes the
+     * renderer safe to share as a singleton.
      */
     public function flushState(): void
     {
@@ -827,22 +854,27 @@ class ViewRenderer implements ViewEngine, ResetsBetweenRequests
     }
 
     /**
-     * The renderer is a process-lived singleton because its compiled-template
-     * cache is expensive to rebuild, while sections, stacks, fragments and
-     * teleports all belong to one render. Without this, a @push from one
-     * request lands in the next request's @stack.
+     * Discard per-render state between worker requests.
+     *
+     * Without this a `@push` from one request lands in the next one's `@stack`.
      */
     public function resetBetweenRequests(): void
     {
         $this->flushState();
     }
 
+    /**
+     * Turn the inline render diagnostic on for this process.
+     */
     public function enableRenderDebug(): void
     {
         $this->debugRender = true;
         DebugRenderPipeline::enable();
     }
 
+    /**
+     * Turn the inline render diagnostic off again.
+     */
     public function disableRenderDebug(): void
     {
         $this->debugRender = false;
@@ -850,11 +882,13 @@ class ViewRenderer implements ViewEngine, ResetsBetweenRequests
     }
 
     /**
-     * Render a compiled template with $this bound to a custom context object.
-     * Used by reactive component layers so $this in component templates refers to the Component instance.
+     * Render a compiled template with `$this` bound to another object.
      *
-     * Directive methods ($this->startSection, etc.) are forwarded via __call
-     * on the ComponentContext wrapper.
+     * A component's template refers to the component's own properties, so the
+     * include happens inside a closure bound to it.
+     *
+     * @param array<string, mixed> $data
+     * @param object               $context What `$this` will be in the template.
      */
     public function renderWithContext(string $view, array $data, object $context): string
     {
@@ -864,7 +898,6 @@ class ViewRenderer implements ViewEngine, ResetsBetweenRequests
             $templateFile = $this->getTemplatePath($view);
             $compiledFile = $this->templateCache->resolve($templateFile, $view);
 
-            // Create a closure that does the include, then bind it to the context object
             $executor = function (string $__compiledFile, array $__data) {
                 extract($__data, EXTR_SKIP);
                 ob_start();
@@ -882,12 +915,10 @@ class ViewRenderer implements ViewEngine, ResetsBetweenRequests
                 return (string) ob_get_clean();
             };
 
-            // Bind the closure so $this inside the include is the context object
             $bound = \Closure::bind($executor, $context, get_class($context));
 
             return $bound($compiledFile, $data);
         } finally {
-            // Balance depth even on a template exception — see renderFromFile().
             $this->context->renderCount--;
         }
     }

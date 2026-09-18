@@ -8,28 +8,18 @@ namespace Nitro\View\Compiler\Concerns;
 trait CompilesEchos
 {
     /**
-     * Compile both escaped ({{ }}) and raw ({!! !!}) echoes in a single
-     * template walk.
+     * Compile escaped `{{ }}` and raw `{!! !!}` echoes in one pass.
      *
-     * Two perf shifts vs the old two-pass version:
-     *  - one regex sweep instead of two over the same content;
-     *  - escaped echoes emit `\nitro_e(...)` (free function) instead of
-     *    `$this->e(...)` (method call), which is materially cheaper inside
-     *    a page that does hundreds of {{ }} renders. Method dispatch
-     *    requires a vtable lookup; free functions are a direct call that
-     *    opcache can specialize.
-     *
-     * Escape syntax `@{{ … }}` / `@{!! … !!}` is preserved — leading `@`
-     * strips the directive marker, leaving the literal braces in the
-     * output.
+     * Escaped echoes emit the free function \nitro_e() rather than a method
+     * call, which matters on a page doing hundreds of them. A leading `@`
+     * escapes the braces into literal output.
      */
     protected function compileEchos(string $content): string
     {
         return preg_replace_callback(
             '/(@)?(\{!!|\{\{)\s*(.+?)\s*(!!\}|\}\})/s',
             static function (array $matches): string {
-                if (($matches[1] ?? '') === '@') {
-                    // @{{ … }} → literal {{ … }} in HTML.
+                if (($matches[1] ?? '') === '@') {
                     return substr($matches[0], 1);
                 }
                 return $matches[2] === '{!!'

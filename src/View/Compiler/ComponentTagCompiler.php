@@ -5,28 +5,27 @@ namespace Nitro\View\Compiler;
 use Nitro\View\Contracts\TagCompiler;
 
 /**
- * ComponentTagCompiler — adapted from Laravel's Illuminate\View\Compilers\ComponentTagCompiler.
+ * Rewrites component tags into the directives that render them.
  *
- * Uses Laravel's proven regex patterns for parsing <x-component> tags, <x-slot> tags,
- * and all attribute variations (:bind, @class, @style, {{ $attributes }}, :$shorthand).
- *
- * Output is wired to Nitro's ComponentRenderer lifecycle:
- *   - $this->startComponent($name, $attributes)
- *   - $this->endComponent()
- *   - $this->renderComponent($name, $attributes)  [self-closing]
- *   - $this->startNamedSlot($name)
- *   - $this->endNamedSlot()
+ * Runs before the Blade compiler, so that compiler only ever sees directives.
+ * Emits calls the renderer answers: startComponent, endComponent,
+ * renderComponent, startNamedSlot, endNamedSlot.
  */
 class ComponentTagCompiler implements TagCompiler
 {
     /**
-     * The "bind:" attributes compiled for the current component.
+     * Attributes bound by expression rather than literal value, for the tag
+     * currently being compiled.
+     *
+     * @var array<string, bool>
      */
     protected array $boundAttributes = [];
 
     /**
-     * Entry point — loop-until-clean strategy for infinite nesting.
-     * Each pass peels one layer of <x-*> tags from the outside in.
+     * Rewrite every component tag in the source.
+     *
+     * Repeats until a pass changes nothing, since nesting cannot be matched in
+     * one pass.
      */
     public function compile(string $value): string
     {
@@ -48,12 +47,13 @@ class ComponentTagCompiler implements TagCompiler
         return $value;
     }
 
-    // ──────────────────────────────────────────────────────────────
-    //  Tag Compilation (regex from Laravel)
-    // ──────────────────────────────────────────────────────────────
+    // ─── Tag compilation ──────────────────────────────────
 
     /**
-     * Compile opening <x-component> tags.
+     * `<x-alert type="error">` — open a component and begin capturing its body.
+     *
+     * The negative lookbehind is what keeps this from claiming a self-closing
+     * tag, which {@see compileSelfClosingTags()} owns.
      */
     protected function compileOpeningTags(string $value): string
     {
@@ -71,7 +71,10 @@ class ComponentTagCompiler implements TagCompiler
     }
 
     /**
-     * Compile self-closing <x-component /> tags.
+     * `<x-icon name="check" />` — render a component with no body.
+     *
+     * Compiled before opening tags, so a self-closing tag is never mistaken for
+     * one that opens a block it will never close.
      */
     protected function compileSelfClosingTags(string $value): string
     {
@@ -89,7 +92,7 @@ class ComponentTagCompiler implements TagCompiler
     }
 
     /**
-     * Compile closing </x-component> tags.
+     * `</x-alert>` — close a component and emit what it rendered.
      */
     protected function compileClosingTags(string $value): string
     {
@@ -101,7 +104,11 @@ class ComponentTagCompiler implements TagCompiler
     }
 
     /**
-     * Compile <x-slot> tags (opening + closing).
+     * `<x-slot:title>`, `<x-slot name="title">` or `<x-slot :name="$key">`.
+     *
+     * An inline name is a literal and is quoted; a bound one is an expression
+     * and is emitted raw. A template reads a slot as a variable, and
+     * `$page-header` is not one, so an inline kebab-case name becomes camelCase.
      */
     public function compileSlots(string $value): string
     {
@@ -115,28 +122,21 @@ class ComponentTagCompiler implements TagCompiler
             if ($name === '') {
                 $name = 'slot';
             }
-
-            // kebab-case → camelCase for inline names
-            if (str_contains($name, '-') && !empty($matches['inlineName'])) {
+            if (str_contains($name, '-') && ! empty($matches['inlineName'])) {
                 $name = $this->kebabToCamel($name);
             }
 
-            // Inline name = static string, wrap in quotes
-            // Bound name (:name="$var") = PHP expression, leave raw
-            if (!empty($matches['inlineName']) || !empty($matches['name'])) {
+            if (! empty($matches['inlineName']) || ! empty($matches['name'])) {
                 return "<?php \$this->startNamedSlot('{$name}'); ?>";
             }
 
-            // Bound name — dynamic (rare, but supported)
             return "<?php \$this->startNamedSlot({$name}); ?>";
         }, $value);
 
         return preg_replace('/<\/\s*x[\-\:]slot[^>]*>/', '<?php $this->endNamedSlot(); ?>', $value);
     }
 
-    // ──────────────────────────────────────────────────────────────
-    //  Attribute Parsing (from Laravel, zero Illuminate deps)
-    // ──────────────────────────────────────────────────────────────
+    // ─── Attribute parsing ────────────────────────────────
 
     /**
      * Parse an attribute string into key => value pairs.
@@ -268,19 +268,19 @@ class ComponentTagCompiler implements TagCompiler
     }
 
     /**
-     * Compile Blade echo statements {{ }} inside attribute values
-     * into string concatenation for PHP.
+     * Compile Blade echoes inside an attribute value into concatenation.
+     *
+     * `{!! … !!}` interpolates raw, `{{ … }}` escapes, matching what the same
+     * syntax does in a template body.
      */
     protected function compileAttributeEchos(string $attributeString): string
     {
-        // {!! $var !!} → raw echo
         $value = preg_replace(
             '/\{\!!\s*(.+?)\s*!!\}/',
             "' . (\$1) . '",
             $attributeString
         );
 
-        // {{ $var }} → escaped echo
         $value = preg_replace(
             '/\{\{\s*(.+?)\s*\}\}/',
             "' . e(\$1) . '",
@@ -290,9 +290,7 @@ class ComponentTagCompiler implements TagCompiler
         return $value;
     }
 
-    // ──────────────────────────────────────────────────────────────
-    //  Output Helpers
-    // ──────────────────────────────────────────────────────────────
+    // ─── Output helpers ───────────────────────────────────
 
     /**
      * Convert parsed attributes to a PHP array string.
@@ -316,10 +314,13 @@ class ComponentTagCompiler implements TagCompiler
         return '[' . implode(', ', $parts) . ']';
     }
 
-    // ──────────────────────────────────────────────────────────────
-    //  Validation
-    // ──────────────────────────────────────────────────────────────
+    // ─── Validation ───────────────────────────────────────
 
+    /**
+     * Fail loudly when a compilation pass leaves brackets unbalanced.
+     *
+     * @throws \RuntimeException When the pass produced malformed output.
+     */
     protected function assertBalanced(string $value, string $phase): void
     {
         $stack = [];
@@ -360,10 +361,9 @@ class ComponentTagCompiler implements TagCompiler
         }
     }
 
-    // ──────────────────────────────────────────────────────────────
-    //  String Helpers (inlined, no Illuminate\Support\Str needed)
-    // ──────────────────────────────────────────────────────────────
+    // ─── String helpers ───────────────────────────────────
 
+    /** Strip one layer of matching quotes from an attribute value. */
     protected function stripQuotes(string $value): string
     {
         if (strlen($value) >= 2) {

@@ -1,14 +1,15 @@
 <?php
 
-namespace Nitro\View\Engine\Concerns;
+namespace Nitro\View\Concerns;
 
 /**
  * View engine concern: streamed rendering.
+ *
+ * Stream state lives on the render context, so it resets with every
+ * top-level render.
  */
 trait ManagesStream
 {
-    // Stream state (streamingMode, currentFill) lives on
-    // {@see \Nitro\View\Engine\RenderContext} via $this->context.
 
     /**
      * Begin streaming mode.
@@ -33,6 +34,7 @@ trait ManagesStream
         header('Cache-Control: no-cache');
     }
 
+    /** Close the stream, flushing whatever is still buffered. */
     public function endStream(): void
     {
         $this->context->streamingMode = false;

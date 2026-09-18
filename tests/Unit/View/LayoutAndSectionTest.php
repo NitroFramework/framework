@@ -3,7 +3,7 @@
 namespace Tests\Unit\View;
 
 use PHPUnit\Framework\TestCase;
-use Nitro\View\Engine\ViewRenderer;
+use Nitro\View\Engines\CompilerEngine;
 use Nitro\View\Compiler\CompiledTemplateCache;
 use Nitro\View\Compiler\BladeCompiler;
 use Nitro\Foundation\PathRegistry;
@@ -11,7 +11,7 @@ use Nitro\Foundation\Config;
 
 class LayoutAndSectionTest extends TestCase
 {
-    private ViewRenderer $engine;
+    private CompilerEngine $engine;
     private string $storageDir;
     private string $viewsDir;
     private string $cacheDir;
@@ -35,7 +35,7 @@ class LayoutAndSectionTest extends TestCase
         $this->deleteDir($this->storageDir);
     }
 
-    private function buildEngine(): ViewRenderer
+    private function buildEngine(): CompilerEngine
     {
         $tagCompiler = new \Nitro\View\Compiler\ComponentTagCompiler();
         $compiler = new BladeCompiler($tagCompiler);
@@ -58,7 +58,7 @@ class LayoutAndSectionTest extends TestCase
             fn() => $this->engine,
         );
 
-        return new ViewRenderer(
+        return new CompilerEngine(
             $templateCache,
             $components,
             $compiler,

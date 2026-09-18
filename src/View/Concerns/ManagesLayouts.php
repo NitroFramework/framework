@@ -1,29 +1,31 @@
 <?php
 
-namespace Nitro\View\Engine\Concerns;
+namespace Nitro\View\Concerns;
 
 use InvalidArgumentException;
 use Nitro\View\Support\DebugRenderPipeline;
 
 /**
  * View engine concern: layout inheritance and section resolution.
+ *
+ * Sections, the in-progress stack and the `@extends` parent live on the render
+ * context, so they reset with every top-level render rather than accumulating
+ * on the engine.
  */
 trait ManagesLayouts
 {
     /**
-     * Section/layout state (sections, in-progress stack, @extends parent) now
-     * lives on {@see \Nitro\View\Engine\RenderContext} via $this->context, so
-     * it resets per top-level render instead of accumulating on the renderer.
+     * Placeholder token standing in for each section's parent content.
+     *
+     * @var array<string, string>
      */
-
-    /** @var array<string, string> Parent placeholder tokens per section */
     protected static array $parentPlaceholders = [];
 
-    /** @var string|null Random salt per request */
+    /** Per-process salt making the placeholder tokens unguessable. */
     protected static ?string $parentPlaceholderSalt = null;
 
     /**
-     * Start a section. Supports inline form: @section('title', 'My Page')
+     * Start a section, or set it outright in the inline form.
      */
     public function startSection(string $section, ?string $content = null): void
     {
@@ -41,8 +43,11 @@ trait ManagesLayouts
     }
 
     /**
-     * Stop the current section.
-     * Default behavior is EXTEND (like Laravel), not overwrite.
+     * Stop the open section, extending what is already there unless told to
+     * overwrite it.
+     *
+     * @return string The section that was closed.
+     * @throws InvalidArgumentException When no section is open.
      */
     public function stopSection(bool $overwrite = false): string
     {
@@ -62,7 +67,7 @@ trait ManagesLayouts
     }
 
     /**
-     * Alias — compiled @endsection calls this.
+     * Close the open section; what compiled `@endsection` calls.
      */
     public function endSection(bool $overwrite = false): void
     {
@@ -75,7 +80,7 @@ trait ManagesLayouts
     }
 
     /**
-     * Stop section and immediately echo its content (@show).
+     * Close the open section and return its content; what `@show` calls.
      */
     public function yieldSection(): string
     {
@@ -87,7 +92,12 @@ trait ManagesLayouts
     }
 
     /**
-     * Stop section and append to existing content (@append).
+     * Close the open section and append it to what is already there.
+     *
+     * The parent placeholder goes in front of the appended content, so the
+     * parent's own default lands before it when the section is extended.
+     *
+     * @throws InvalidArgumentException When no section is open.
      */
     public function appendSection(): void
     {
@@ -98,23 +108,20 @@ trait ManagesLayouts
         $last = array_pop($this->context->sectionStack);
         $content = ob_get_clean();
 
-        // Prepend the parent placeholder so the parent's default content
-        // gets inserted before the appended content during extendSection
         $this->context->sections[$last] = ($this->context->sections[$last] ?? '')
             . static::parentPlaceholder($last)
             . $content;
     }
 
     /**
-     * Extend (merge) a section — handles @parent placeholder replacement.
-     * This is the core of Laravel's section inheritance.
+     * Merge a section's content into what a child already defined.
+     *
+     * The child is held first, so the incoming parent content is substituted
+     * into the child's `@parent` placeholder rather than replacing it.
      */
     protected function extendSection(string $section, string $content): void
     {
         if (isset($this->context->sections[$section])) {
-            // Child content is in $this->context->sections[$section]
-            // $content is the new (parent) content
-            // Replace @parent placeholders in child's content with the parent content
             $content = str_replace(
                 static::parentPlaceholder($section),
                 $content,
@@ -126,13 +133,12 @@ trait ManagesLayouts
     }
 
     /**
-     * Get section content for @yield, replacing any remaining @parent placeholders.
+     * Get a section's content, dropping any placeholder never resolved.
      */
     public function yieldContent(string $section, string $default = ''): string
     {
         $content = $this->context->sections[$section] ?? $default;
 
-        // Strip any unresolved @parent placeholders
         $content = str_replace(
             '--parent--holder--',
             '',
@@ -142,15 +148,17 @@ trait ManagesLayouts
         return $content;
     }
 
-    // Keep getSection as alias for compiled @yield
+    /** Alias of {@see yieldContent()}; what compiled `@yield` calls. */
     public function getSection(string $name, string $default = ''): string
     {
         return $this->yieldContent($name, $default);
     }
 
     /**
-     * Generate a unique parent placeholder token for a section.
-     * Randomized per-request so users can't inject fake placeholders.
+     * Get the placeholder token standing in for a section's parent content.
+     *
+     * Salted per process, so a template cannot emit a placeholder of its own
+     * and have the engine substitute content into it.
      */
     public static function parentPlaceholder(string $section = ''): string
     {
@@ -162,6 +170,9 @@ trait ManagesLayouts
         return static::$parentPlaceholders[$section];
     }
 
+    /**
+     * Get the per-process salt, minting it on first use.
+     */
     protected static function parentPlaceholderSalt(): string
     {
         if (static::$parentPlaceholderSalt === null) {
@@ -172,7 +183,7 @@ trait ManagesLayouts
     }
 
     /**
-     * Get the parent content placeholder — compiled @parent outputs this.
+     * Get the placeholder for the open section; what compiled `@parent` emits.
      */
     public function getParentContent(): string
     {
@@ -184,39 +195,58 @@ trait ManagesLayouts
         return '';
     }
 
-    /** @extends */
+    /**
+     * Record the layout this view extends; what compiled `@extends` calls.
+     */
     public function setParentView(string $parentView): void
     {
         $this->context->parentView = $parentView;
     }
 
+    /**
+     * Get the layout this view extends, if any.
+     */
     public function getParentView(): ?string
     {
         return $this->context->parentView;
     }
 
+    /**
+     * Forget the layout this view extends.
+     */
     public function clearParentView(): void
     {
         $this->context->parentView = null;
     }
 
+    /**
+     * Determine whether a section has content.
+     */
     public function hasSection(string $name): bool
     {
         return isset($this->context->sections[$name]);
     }
 
+    /**
+     * Get every section's content.
+     *
+     * @return array<string, string>
+     */
     public function getAllSections(): array
     {
         return $this->context->sections;
     }
 
+    /**
+     * Set a section's content, overriding whatever the template yields.
+     */
     public function forceSection(string $name, string $content): void
     {
         $this->context->sections[$name] = $content;
     }
 
     /**
-     * Reset all layout state between root renders.
+     * Discard all layout state between root renders.
      */
     public function flushSections(): void
     {
@@ -225,6 +255,9 @@ trait ManagesLayouts
         $this->context->parentView = null;
     }
 
+    /**
+     * Determine whether a section or stack is currently capturing output.
+     */
     public function isCapturing(): bool
     {
         return !empty($this->context->sectionStack) || !empty($this->context->pushStack);

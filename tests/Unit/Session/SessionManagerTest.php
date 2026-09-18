@@ -3,11 +3,19 @@
 namespace Tests\Unit\Session;
 
 use InvalidArgumentException;
-use Nitro\Session\Handlers\ArraySessionHandler;
-use Nitro\Session\Handlers\DatabaseSessionHandler;
-use Nitro\Session\Handlers\FileSessionHandler;
-use Nitro\Session\Handlers\RedisSessionHandler;
+use Nitro\Cache\Drivers\ArrayStore;
+use Nitro\Cache\Repository;
+use Nitro\Cookie\CookieJar;
+use Nitro\Encryption\Encrypter;
+use Nitro\Session\ArraySessionHandler;
+use Nitro\Session\CacheBasedSessionHandler;
+use Nitro\Session\CookieSessionHandler;
+use Nitro\Session\DatabaseSessionHandler;
+use Nitro\Session\EncryptedStore;
+use Nitro\Session\FileSessionHandler;
 use Nitro\Session\NativeSession;
+use Nitro\Session\NullSessionHandler;
+use Nitro\Session\RedisSessionHandler;
 use Nitro\Session\SessionManager;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
@@ -29,6 +37,66 @@ class SessionManagerTest extends TestCase
     public function test_the_native_driver_has_no_handler(): void
     {
         $this->assertInstanceOf(NativeSession::class, $this->manager(['driver' => 'native'])->driver());
+    }
+
+    public function test_the_null_driver(): void
+    {
+        $this->assertInstanceOf(
+            NullSessionHandler::class,
+            $this->manager(['driver' => 'null'])->driver()->getHandler(),
+        );
+    }
+
+    /**
+     * Laravel's own default is 'cookie', and a platform that assumes Laravel
+     * will inject it — so the driver has to exist, not just be rejected well.
+     */
+    public function test_the_cookie_driver(): void
+    {
+        $manager = new SessionManager(
+            ['driver' => 'cookie', 'cookie' => 'nitro_session', 'lifetime' => 120],
+            null,
+            fn (): CookieJar => new CookieJar(),
+        );
+
+        $this->assertInstanceOf(CookieSessionHandler::class, $manager->driver()->getHandler());
+    }
+
+    public function test_the_cache_driver_is_handed_the_configured_store(): void
+    {
+        $asked = null;
+
+        $manager = new SessionManager(
+            ['driver' => 'cache', 'store' => 'redis', 'cookie' => 'nitro_session', 'lifetime' => 120],
+            null,
+            null,
+            function (string $store) use (&$asked): Repository {
+                $asked = $store;
+
+                return new Repository(new ArrayStore());
+            },
+        );
+
+        $this->assertInstanceOf(CacheBasedSessionHandler::class, $manager->driver()->getHandler());
+        $this->assertSame('redis', $asked);
+    }
+
+    public function test_encrypt_wraps_the_store(): void
+    {
+        $manager = new SessionManager(
+            ['driver' => 'array', 'encrypt' => true, 'cookie' => 'nitro_session', 'lifetime' => 120],
+            null,
+            null,
+            null,
+            fn (): Encrypter => new Encrypter(str_repeat('a', 32)),
+        );
+
+        $this->assertInstanceOf(EncryptedStore::class, $manager->driver());
+    }
+
+    public function test_a_store_is_plain_unless_encryption_is_asked_for(): void
+    {
+        $this->assertNotInstanceOf(EncryptedStore::class, $this->manager(['driver' => 'array'])->driver());
     }
 
     public function test_the_file_driver(): void
@@ -77,9 +145,25 @@ class SessionManagerTest extends TestCase
     public function test_the_redis_driver_without_a_resolver_explains_itself(): void
     {
         $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('Redis connection resolver');
+        $this->expectExceptionMessage('The redis session driver needs the Redis service provider');
 
         $this->manager(['driver' => 'redis'])->driver();
+    }
+
+    /** Every driver with a backing layer names the provider it is missing. */
+    public function test_each_backed_driver_without_a_resolver_explains_itself(): void
+    {
+        foreach (['cookie' => 'Cookie', 'cache' => 'Cache'] as $driver => $provider) {
+            try {
+                $this->manager(['driver' => $driver])->driver();
+                $this->fail("expected [{$driver}] to raise without its resolver");
+            } catch (RuntimeException $exception) {
+                $this->assertStringContainsString(
+                    "The {$driver} session driver needs the {$provider} service provider",
+                    $exception->getMessage()
+                );
+            }
+        }
     }
 
     public function test_an_unknown_driver_is_rejected(): void

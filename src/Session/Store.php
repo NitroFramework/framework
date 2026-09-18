@@ -3,7 +3,7 @@
 namespace Nitro\Session;
 
 use Closure;
-use Nitro\Session\Contracts\SessionInterface;
+use Nitro\Session\Contracts\Session;
 use SessionHandlerInterface;
 
 /**
@@ -15,16 +15,24 @@ use SessionHandlerInterface;
  * regeneration. No reliance on PHP's $_SESSION or session_start(), so a fresh
  * Store per request makes sessions worker-safe by construction.
  */
-class Store implements SessionInterface
+class Store implements Session
 {
+    /** Length of a generated session id, in characters. */
+    protected const SESSION_ID_LENGTH = 40;
+
     protected string $id;
     protected array $attributes = [];
     protected bool $started = false;
 
+    /**
+     * @param string $name          Name of the cookie carrying the session id.
+     * @param string $serialization 'php' or 'json'.
+     */
     public function __construct(
         protected string $name,
         protected SessionHandlerInterface $handler,
         ?string $id = null,
+        protected string $serialization = 'php',
     ) {
         $this->setId($id);
     }
@@ -45,8 +53,32 @@ class Store implements SessionInterface
     public function save(): void
     {
         $this->ageFlashData();
-        $this->handler->write($this->id, serialize($this->attributes));
+
+        $this->handler->write($this->id, $this->prepareForStorage(
+            $this->serialization === 'json'
+                ? json_encode($this->attributes)
+                : serialize($this->attributes)
+        ));
+
         $this->started = false;
+    }
+
+    /**
+     * Prepare the serialized payload for the handler.
+     *
+     * A seam for subclasses; {@see EncryptedStore} encrypts here.
+     */
+    protected function prepareForStorage(string $data): string
+    {
+        return $data;
+    }
+
+    /**
+     * Prepare the handler's raw payload for unserialization.
+     */
+    protected function prepareForUnserialize(string $data): string
+    {
+        return $data;
     }
 
     public function isStarted(): bool
@@ -73,7 +105,11 @@ class Store implements SessionInterface
         if ($data === '' || $data === false) {
             return [];
         }
-        $decoded = @unserialize($data);
+
+        $decoded = $this->serialization === 'json'
+            ? json_decode($this->prepareForUnserialize($data), true)
+            : @unserialize($this->prepareForUnserialize($data));
+
         return is_array($decoded) ? $decoded : [];
     }
 
@@ -84,19 +120,34 @@ class Store implements SessionInterface
         return $this->id;
     }
 
+    /** Alias of {@see getId()}. */
+    public function id(): string
+    {
+        return $this->getId();
+    }
+
     public function setId(?string $id): void
     {
         $this->id = $this->isValidId($id) ? $id : $this->generateSessionId();
     }
 
-    protected function isValidId(?string $id): bool
+    /** Determine whether a string is a well-formed session id. */
+    public function isValidId(?string $id): bool
     {
-        return is_string($id) && ctype_alnum($id) && strlen($id) === 40;
+        return is_string($id) && ctype_alnum($id) && strlen($id) === self::SESSION_ID_LENGTH;
     }
 
     protected function generateSessionId(): string
     {
-        return bin2hex(random_bytes(20)); // 40 hex chars
+        return bin2hex(random_bytes(self::SESSION_ID_LENGTH / 2));
+    }
+
+    /** Tell an existence-aware handler whether this session is already persisted. */
+    public function setExists(bool $value): void
+    {
+        if ($this->handler instanceof ExistenceAwareInterface) {
+            $this->handler->setExists($value);
+        }
     }
 
     public function getName(): string
@@ -126,9 +177,53 @@ class Store implements SessionInterface
         return $this->get($key) !== null;
     }
 
+    /**
+     * Determine whether any of the given keys is present and not null.
+     *
+     * @param array<int, string>|string $keys
+     */
+    public function hasAny(array|string $keys): bool
+    {
+        foreach ((array) $keys as $key) {
+            if ($this->get($key) !== null) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** Determine whether a key is absent from the session. */
+    public function missing(string $key): bool
+    {
+        return ! $this->exists($key);
+    }
+
     public function get(string $key, mixed $default = null): mixed
     {
         return $this->dotGet($this->attributes, $key, $default);
+    }
+
+    /**
+     * Get only the given keys.
+     *
+     * @param  array<int, string> $keys
+     * @return array<string, mixed>
+     */
+    public function only(array $keys): array
+    {
+        return array_intersect_key($this->attributes, array_flip($keys));
+    }
+
+    /**
+     * Get everything except the given keys.
+     *
+     * @param  array<int, string> $keys
+     * @return array<string, mixed>
+     */
+    public function except(array $keys): array
+    {
+        return array_diff_key($this->attributes, array_flip($keys));
     }
 
     public function pull(string $key, mixed $default = null): mixed
@@ -136,6 +231,12 @@ class Store implements SessionInterface
         $value = $this->get($key, $default);
         $this->forget($key);
         return $value;
+    }
+
+    /** Get a key's value and remove it from the session. */
+    public function remove(string $key): mixed
+    {
+        return $this->pull($key);
     }
 
     // ─── Writing ──────────────────────────────────────────────────────────
@@ -146,6 +247,16 @@ class Store implements SessionInterface
         foreach ($pairs as $attributeKey => $attributeValue) {
             $this->dotSet($this->attributes, $attributeKey, $attributeValue);
         }
+    }
+
+    /**
+     * Put the given key/value pairs into the session.
+     *
+     * @param array<string, mixed> $attributes
+     */
+    public function replace(array $attributes): void
+    {
+        $this->put($attributes);
     }
 
     public function push(string $key, mixed $value): void
@@ -205,6 +316,40 @@ class Store implements SessionInterface
         $keys = $keys === null ? $this->get('_flash.old', []) : (array) $keys;
         $this->mergeNewFlashes($keys);
         $this->removeFromOldFlashData($keys);
+    }
+
+    /**
+     * Flash an input array to the session for the next request.
+     *
+     * @param array<string, mixed> $value
+     */
+    public function flashInput(array $value): void
+    {
+        $this->flash('_old_input', $value);
+    }
+
+    /**
+     * Get an item from the flashed input, or all of it when no key is given.
+     */
+    public function getOldInput(?string $key = null, mixed $default = null): mixed
+    {
+        $old = $this->get('_old_input', []);
+
+        if ($key === null) {
+            return $old;
+        }
+
+        return is_array($old) ? $this->dotGet($old, $key, $default) : $default;
+    }
+
+    /**
+     * Determine whether flashed input exists, optionally for one key.
+     */
+    public function hasOldInput(?string $key = null): bool
+    {
+        $old = $this->getOldInput($key);
+
+        return $key === null ? count((array) $old) > 0 : $old !== null;
     }
 
     public function ageFlashData(): void
@@ -278,9 +423,65 @@ class Store implements SessionInterface
         $this->put('_csrf', bin2hex(random_bytes(20)));
     }
 
+    // ─── Previous request ─────────────────────────────────────────────────
+
+    /** Get the URL the user was last at, if one was recorded. */
+    public function previousUrl(): ?string
+    {
+        return $this->get('_previous.url');
+    }
+
+    public function setPreviousUrl(string $url): void
+    {
+        $this->put('_previous.url', $url);
+    }
+
+    /** Get the name of the route the user was last at, if one was recorded. */
+    public function previousRoute(): ?string
+    {
+        return $this->get('_previous.route');
+    }
+
+    public function setPreviousRoute(string $route): void
+    {
+        $this->put('_previous.route', $route);
+    }
+
+    public function hasPreviousUri(): bool
+    {
+        return $this->previousUrl() !== null;
+    }
+
+    /** Record that the user confirmed their password just now. */
+    public function passwordConfirmed(): void
+    {
+        $this->put('auth.password_confirmed_at', time());
+    }
+
+    // ─── Handler ──────────────────────────────────────────────────────────
+
     public function getHandler(): SessionHandlerInterface
     {
         return $this->handler;
+    }
+
+    public function setHandler(SessionHandlerInterface $handler): SessionHandlerInterface
+    {
+        return $this->handler = $handler;
+    }
+
+    /** Determine whether the handler needs the request to do its job. */
+    public function handlerNeedsRequest(): bool
+    {
+        return $this->handler instanceof CookieSessionHandler;
+    }
+
+    /** Give the handler the current request, when it needs one. */
+    public function setRequestOnHandler(mixed $request): void
+    {
+        if ($this->handlerNeedsRequest()) {
+            $this->handler->setRequest($request);
+        }
     }
 
     // ─── Dot-notation helpers ─────────────────────────────────────────────

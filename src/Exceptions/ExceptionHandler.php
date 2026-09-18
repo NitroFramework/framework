@@ -955,11 +955,11 @@ class ExceptionHandler
     private function errorView(int $code): ?string
     {
         try {
-            if (! $this->container->has(\Nitro\View\Contracts\ViewEngine::class)) {
+            if (! $this->container->has(\Nitro\View\Contracts\Engine::class)) {
                 return null;
             }
 
-            $engine = $this->container->createOrResolve(\Nitro\View\Contracts\ViewEngine::class);
+            $engine = $this->container->createOrResolve(\Nitro\View\Contracts\Engine::class);
 
             $candidates = [
                 "errors.{$code}",

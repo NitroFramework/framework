@@ -27,6 +27,7 @@ abstract class Component
      */
     public ComponentAttributeBag $attributes;
 
+    /** Start with an empty slot and attribute bag until the tag supplies them. */
     public function __construct()
     {
         $this->slot       = new HtmlString();

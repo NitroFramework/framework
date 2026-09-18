@@ -3,7 +3,7 @@
 namespace Nitro\Blaze;
 
 use Nitro\View\Component\ComponentAttributeBag;
-use Nitro\View\Contracts\ViewEngine;
+use Nitro\View\Contracts\Engine;
 use Nitro\View\Support\HtmlString;
 
 /**
@@ -20,7 +20,7 @@ use Nitro\View\Support\HtmlString;
 class BlazeRuntime
 {
     /** Resolved view engine, memoized so each helper forward skips app(). */
-    private ?ViewEngine $engine = null;
+    private ?Engine $engine = null;
 
     public function __construct(protected BlazeManager $manager) {}
 
@@ -86,8 +86,8 @@ class BlazeRuntime
         return $this->engine()->{$method}(...$arguments);
     }
 
-    protected function engine(): ViewEngine
+    protected function engine(): Engine
     {
-        return $this->engine ??= app(ViewEngine::class);
+        return $this->engine ??= app(Engine::class);
     }
 }

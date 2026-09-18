@@ -7,5 +7,6 @@ namespace Nitro\View\Support;
  */
 interface Htmlable
 {
+    /** Get the object's HTML representation. */
     public function toHtml(): string;
 }

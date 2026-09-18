@@ -1,6 +1,6 @@
 <?php
 
-namespace Nitro\View\Engine;
+namespace Nitro\View\Engines;
 
 /**
  * Per-render state for the view engine.
@@ -8,7 +8,7 @@ namespace Nitro\View\Engine;
  * Holds ALL transient state of a single top-level render: sections/layout,
  * stacks, fragments, teleports, loops, stream flags, render depth and @once
  * ids. The renderer composes one of these and replaces it per top-level render
- * (ViewRenderer::flushState() = `new RenderContext()`), so render state never
+ * (CompilerEngine::flushState() = `new RenderContext()`), so render state never
  * accumulates on the long-lived (singleton) renderer — making rendering
  * worker-safe by construction rather than relying on per-field clearing.
  */

@@ -7,5 +7,6 @@ namespace Nitro\View\Support;
  */
 interface Renderable
 {
+    /** Render the object to a string. */
     public function render(): string;
 }

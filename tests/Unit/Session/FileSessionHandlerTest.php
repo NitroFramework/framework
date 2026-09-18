@@ -2,7 +2,7 @@
 
 namespace Tests\Unit\Session;
 
-use Nitro\Session\Handlers\FileSessionHandler;
+use Nitro\Session\FileSessionHandler;
 use PHPUnit\Framework\TestCase;
 
 class FileSessionHandlerTest extends TestCase

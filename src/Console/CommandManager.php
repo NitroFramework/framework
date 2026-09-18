@@ -4,6 +4,7 @@ namespace Nitro\Console;
 
 use Nitro\Concurrency\Console\ConcurrencyInvokeCommand;
 use Nitro\Container\Contracts\ContainerInterface;
+use Nitro\Session\Console\SessionTableCommand;
 use Nitro\Thrust\Commands\ThrustCommands;
 
 /**
@@ -83,6 +84,7 @@ class CommandManager
             Commands\VariableAuditCommand::class,
             Commands\LifetimeCheckCommand::class,
             ConcurrencyInvokeCommand::class,
+            SessionTableCommand::class,
         ];
 
         foreach ($builtIns as $class) {

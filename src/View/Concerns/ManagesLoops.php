@@ -1,6 +1,6 @@
 <?php
 
-namespace Nitro\View\Engine\Concerns;
+namespace Nitro\View\Concerns;
 
 /**
  * View engine concern: the $loop variable and loop stack.
@@ -14,7 +14,7 @@ trait ManagesLoops
      * frame to `$loop` once per iteration; subsequent reads of
      * `$loop->index` / `$loop->first` / etc. are direct property reads.
      *
-     * Loop state lives on {@see \Nitro\View\Engine\RenderContext} via
+     * Loop state lives on {@see \Nitro\View\Engines\RenderContext} via
      * $this->context->loopsStack so it resets per top-level render.
      *
      * @var array<int, \stdClass>
@@ -88,6 +88,11 @@ trait ManagesLoops
         return $count === 0 ? null : $this->context->loopsStack[$count - 1];
     }
 
+    /**
+     * Get the open loops, innermost last.
+     *
+     * @return array<int, object>
+     */
     public function getLoopStack(): array
     {
         return $this->context->loopsStack;

@@ -5,7 +5,7 @@ namespace Tests\Unit\Session;
 use Nitro\Container\Container;
 use Nitro\Foundation\Config;
 use Nitro\Foundation\PathRegistry;
-use Nitro\Foundation\Providers\SessionServiceProvider;
+use Nitro\Session\SessionServiceProvider;
 use Nitro\Session\NativeSession;
 use Nitro\Session\Store;
 use Nitro\Thrust\WorkerMode;

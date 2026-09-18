@@ -3,7 +3,7 @@
 namespace Tests\Unit\View;
 
 use PHPUnit\Framework\TestCase;
-use Nitro\View\Engine\ViewRenderer;
+use Nitro\View\Engines\CompilerEngine;
 use Nitro\View\Compiler\CompiledTemplateCache;
 use Nitro\View\Compiler\BladeCompiler;
 use Nitro\Foundation\PathRegistry;
@@ -11,7 +11,7 @@ use Nitro\Foundation\Config;
 
 class ComponentRenderingTest extends TestCase
 {
-    private ViewRenderer $engine;
+    private CompilerEngine $engine;
     private string $storageDir;
     private string $viewsDir;
     private string $cacheDir;
@@ -38,7 +38,7 @@ class ComponentRenderingTest extends TestCase
     // Engine factory
     // -----------------------------------------------------------------------
 
-    private function buildEngine(): ViewRenderer
+    private function buildEngine(): CompilerEngine
     {
         // 1. Core logic dependencies
         $tagCompiler = new \Nitro\View\Compiler\ComponentTagCompiler();
@@ -71,7 +71,7 @@ class ComponentRenderingTest extends TestCase
         );
 
         // 5. Renderer — no more SectionManager
-        return new ViewRenderer(
+        return new CompilerEngine(
             $templateCache,
             $components,
             $compiler,

@@ -2,44 +2,80 @@
 
 namespace Nitro\View\Compiler;
 
+use Nitro\Foundation\Contracts\ConfigRepository;
 use Nitro\Foundation\Contracts\ResetsBetweenRequests;
 use Nitro\Foundation\PathRegistry;
-use Nitro\Foundation\Contracts\ConfigRepository;
-use Nitro\View\Contracts\TemplateCompiler;
 use Nitro\View\Contracts\TemplateCache;
-
+use Nitro\View\Contracts\TemplateCompiler;
 use RuntimeException;
 
 /**
- * Stores and resolves compiled template files, recompiling when the source changes.
+ * Stores the compiled form of each template and decides when it is stale.
+ *
+ * Artefacts are keyed by the template's own path, never by the view name: one
+ * name can resolve to different files.
  */
 class CompiledTemplateCache implements TemplateCache, ResetsBetweenRequests
 {
+    /** Directory holding every compiled template. */
     private string $cachePath;
+
+    /** Whether compiled templates are kept at all, or recompiled every render. */
     private bool $cacheEnabled;
+
+    /**
+     * Treat a compiled template older than this many seconds as stale
+     * regardless of its source's timestamp. Zero disables the check.
+     */
     private int $cacheExpiry;
+
+    /** Whether compiled templates are primed into opcache as they are written. */
     private bool $useOpCache;
+
+    /**
+     * Whether writes are guarded by a lock file. Only worth its cost where many
+     * processes may compile the same template at once.
+     */
     private bool $useFileLocks;
+
+    /** Whether opcache priming is both wanted and actually available. */
     private bool $opcacheAvailable;
+
+    /** Whether the application is in debug, which changes what may be memoized. */
     private bool $debug;
 
+    /**
+     * Cache directories already verified this process.
+     *
+     * @var array<string, bool>
+     */
+    private static array $verifiedDirs = [];
+
+    /**
+     * Memoized freshness verdicts, so a view rendered several times in one
+     * request — a layout, a partial, a component — is stat'd once.
+     *
+     * @var array<string, bool>
+     */
+    private array $freshnessCache = [];
+
+    /**
+     * A null `view.cache.use_opcache` means decide from the environment: prime
+     * compiled views into opcache in production, and leave it alone in debug,
+     * where invalidating a template just edited is what matters. An explicit
+     * true or false still wins.
+     */
     public function __construct(
         private TemplateCompiler $compiler,
         PathRegistry $paths,
         ConfigRepository $config
     ) {
-        // Pull everything from the objects the container provided
         $this->cachePath    = $paths->cache('views');
         $this->cacheEnabled = (bool) $config->get('view.cache.enabled');
-        $this->cacheExpiry  = (int)  $config->get('view.cache.expiry');
+        $this->cacheExpiry  = (int) $config->get('view.cache.expiry');
         $this->useFileLocks = (bool) $config->get('view.cache.use_locks');
         $this->debug        = (bool) $config->get('app.debug', false);
 
-        // Null means "decide from the environment": prime compiled views into
-        // opcache in production, leave it alone in debug, where invalidating a
-        // template the developer just edited is the behaviour that matters. An
-        // explicit true or false still wins — this only removes the need for
-        // every application to remember to turn it on for production.
         $configured = $config->get('view.cache.use_opcache');
 
         $this->useOpCache = $configured === null ? ! $this->debug : (bool) $configured;
@@ -51,24 +87,30 @@ class CompiledTemplateCache implements TemplateCache, ResetsBetweenRequests
         }
     }
 
-    // =========================================================================
-    // PUBLIC API
-    // =========================================================================
+    // ─── The cache's surface ──────────────────────────────
 
+    /**
+     * The path of the compiled template, compiling it first if what is on disk
+     * is missing or older than its source.
+     *
+     * With caching off the compiled PHP still has to live somewhere a
+     * `require` can reach, so it goes to a temp file removed at shutdown.
+     *
+     * @param  string $templateFile Absolute path to the source template.
+     * @param  string $view         The name it was requested under, for diagnostics.
+     * @return string Absolute path to a PHP file ready to include.
+     */
     public function resolve(string $templateFile, string $view): string
     {
-        $cacheFile = $this->getCacheFilePath($view);
+        $cacheFile = $this->getCacheFilePath($templateFile);
 
-        // Concern 3 — is what we already have still valid?
         if ($this->isFresh($templateFile, $cacheFile)) {
             return $cacheFile;
         }
 
-        // Concern 1 — compile source to PHP
         $compiled = $this->compileSourceToPhp($templateFile);
 
-        // Concern 2 — persist it
-        if (!$this->cacheEnabled) {
+        if (! $this->cacheEnabled) {
             return $this->persistToTempFile($compiled);
         }
 
@@ -81,19 +123,29 @@ class CompiledTemplateCache implements TemplateCache, ResetsBetweenRequests
         return $cacheFile;
     }
 
+    /**
+     * Compile a template without returning anything to include.
+     *
+     * @param string $templateFile Absolute path to the source template.
+     * @param string $view         The name it is known by.
+     */
     public function compile(string $templateFile, string $view): void
     {
-        $cacheFile = $this->getCacheFilePath($view);
+        $cacheFile = $this->getCacheFilePath($templateFile);
 
-        if (!$this->isFresh($templateFile, $cacheFile)) {
+        if (! $this->isFresh($templateFile, $cacheFile)) {
             $compiled = $this->compileSourceToPhp($templateFile);
             $this->persistToCacheWithLock($compiled, $templateFile, $cacheFile);
         }
     }
 
+    /**
+     * Discard every compiled template, removing each from opcache first so a
+     * long-running worker does not keep serving bytecode for a deleted file.
+     */
     public function clear(): void
     {
-        if (!is_dir($this->cachePath)) {
+        if (! is_dir($this->cachePath)) {
             return;
         }
 
@@ -105,9 +157,14 @@ class CompiledTemplateCache implements TemplateCache, ResetsBetweenRequests
         }
     }
 
-    public function clearView(string $view): void
+    /**
+     * Discard the compiled form of one template.
+     *
+     * @param string $templateFile Absolute path to the source template.
+     */
+    public function clearView(string $templateFile): void
     {
-        $cacheFile = $this->getCacheFilePath($view);
+        $cacheFile = $this->getCacheFilePath($templateFile);
 
         if (file_exists($cacheFile)) {
             $this->removeFromOpcache($cacheFile);
@@ -115,14 +172,24 @@ class CompiledTemplateCache implements TemplateCache, ResetsBetweenRequests
         }
     }
 
-    public function getCacheFilePath(string $view): string
+    /**
+     * Get where the compiled form of a template is kept.
+     *
+     * @param string $templateFile Absolute path to the source template.
+     */
+    public function getCacheFilePath(string $templateFile): string
     {
-        return $this->cachePath . DIRECTORY_SEPARATOR . md5($view . $this->cachePath) . '.php';
+        return $this->cachePath . DIRECTORY_SEPARATOR . md5($templateFile . $this->cachePath) . '.php';
     }
 
+    /**
+     * Counts and sizes describing what the cache currently holds.
+     *
+     * @return array<string, mixed>
+     */
     public function getStats(): array
     {
-        if (!is_dir($this->cachePath)) {
+        if (! is_dir($this->cachePath)) {
             return [
                 'enabled'              => $this->cacheEnabled,
                 'path'                 => $this->cachePath,
@@ -157,22 +224,30 @@ class CompiledTemplateCache implements TemplateCache, ResetsBetweenRequests
         ];
     }
 
+    /**
+     * Turn caching on or off, so a template is recompiled on every render.
+     */
     public function setCacheEnabled(bool $enabled): void
     {
         $this->cacheEnabled = $enabled;
     }
 
+    /**
+     * Treat a compiled template older than this as stale regardless of its
+     * source's timestamp. Zero disables the check.
+     */
     public function setCacheExpiry(int $seconds): void
     {
         $this->cacheExpiry = $seconds;
     }
 
-    // =========================================================================
-    // CONCERN 1 — COMPILATION
-    // Blade source → executable PHP string.
-    // No knowledge of files, paths, or caching.
-    // =========================================================================
+    // ─── Compilation ──────────────────────────────────────
 
+    /**
+     * Read a template and hand its source to the compiler.
+     *
+     * @throws RuntimeException When the template cannot be read.
+     */
     private function compileSourceToPhp(string $templateFile): string
     {
         $source = file_get_contents($templateFile);
@@ -184,43 +259,44 @@ class CompiledTemplateCache implements TemplateCache, ResetsBetweenRequests
         return $this->compiler->compile($source, $templateFile);
     }
 
-    // =========================================================================
-    // CONCERN 2 — PERSISTENCE
-    // Where does the compiled PHP live and how does it get written there.
-    // Two strategies: permanent cache file, or temp file cleaned at shutdown.
-    // =========================================================================
+    // ─── Persistence ──────────────────────────────────────
 
+    /**
+     * Put compiled PHP somewhere includable when caching is off.
+     *
+     * @throws RuntimeException When no temporary file can be created.
+     */
     private function persistToCache(string $compiled, string $templateFile, string $cacheFile): void
     {
         $this->writeFileAtomically($compiled, $cacheFile);
-        // Do NOT align mtime to the source. The natural "now" timestamp
-        // from writing the file makes apache/FPM opcache invalidate
-        // reliably across long-running workers — without it, a re-compile
-        // can leave the cache file's mtime in the past, opcache never
-        // notices the change, and serves stale bytecode until a server
-        // restart. (Framework freshness checks still pass because they
-        // ask cacheTime >= sourceTime, which always holds when the cache
-        // was written after the source was read.)
         $this->primeOpcache($cacheFile);
     }
 
+    /**
+     * Write to a unique temporary name and move it into place.
+     *
+     * A rename is atomic, so a concurrent reader never sees a half-written
+     * template. A lost rename race is a success, not an error.
+     *
+     * @throws RuntimeException When the compiled template cannot be written.
+     */
     private function persistToCacheWithLock(string $compiled, string $templateFile, string $cacheFile): string
     {
         $lockFile = $cacheFile . '.lock';
         $lock     = @fopen($lockFile, 'c+');
 
         if ($lock === false) {
-            // Cannot open lock file — fall back to writing without lock
             $this->persistToCache($compiled, $templateFile, $cacheFile);
+
             return $cacheFile;
         }
 
         try {
             if (flock($lock, LOCK_EX)) {
-                // Re-check inside lock — another process may have written while we waited
-                if (!$this->isFresh($templateFile, $cacheFile)) {
+                if (! $this->isFresh($templateFile, $cacheFile)) {
                     $this->persistToCache($compiled, $templateFile, $cacheFile);
                 }
+
                 flock($lock, LOCK_UN);
             }
         } finally {
@@ -231,12 +307,19 @@ class CompiledTemplateCache implements TemplateCache, ResetsBetweenRequests
         return $cacheFile;
     }
 
+    /**
+     * Put compiled PHP somewhere a require can reach when caching is off.
+     *
+     * The file is removed at shutdown, so nothing accumulates.
+     *
+     * @throws RuntimeException When no temporary file can be created.
+     */
     private function persistToTempFile(string $compiled): string
     {
         $tempFile = tempnam(sys_get_temp_dir(), 'nitro_blade_');
 
         if ($tempFile === false) {
-            throw new RuntimeException("Failed to create temporary file for template compilation");
+            throw new RuntimeException('Failed to create temporary file for template compilation');
         }
 
         file_put_contents($tempFile, $compiled);
@@ -245,6 +328,12 @@ class CompiledTemplateCache implements TemplateCache, ResetsBetweenRequests
         return $tempFile;
     }
 
+    /**
+     * Determine whether the compiled file may still be used.
+     *
+     * Memoized, since one request renders the same layout and partials
+     * repeatedly and each verdict costs a pair of stats.
+     */
     private function writeFileAtomically(string $compiled, string $cacheFile): void
     {
         $tmp = $cacheFile . '.tmp.' . uniqid((string) getmypid() . '_', true);
@@ -253,18 +342,21 @@ class CompiledTemplateCache implements TemplateCache, ResetsBetweenRequests
             throw new RuntimeException("Failed to write compiled template to: {$tmp}");
         }
 
-        if (!@rename($tmp, $cacheFile)) {
+        if (! @rename($tmp, $cacheFile)) {
             @unlink($tmp);
 
-            if (!file_exists($cacheFile)) {
+            if (! file_exists($cacheFile)) {
                 throw new RuntimeException(
-                    "Failed to move compiled template into place. " .
-                        "Check permissions for: {$cacheFile}"
+                    'Failed to move compiled template into place. '
+                        . "Check permissions for: {$cacheFile}"
                 );
             }
         }
     }
 
+    /**
+     * Remove a temporary compiled file once the process ends.
+     */
     private function registerTempFileCleanup(string $tempFile): void
     {
         register_shutdown_function(static function () use ($tempFile): void {
@@ -275,64 +367,53 @@ class CompiledTemplateCache implements TemplateCache, ResetsBetweenRequests
     }
 
     /**
-     * Track which cache directories have already been validated this process.
-     * In worker mode the constructor runs once anyway; in classic mode each
-     * request still only pays one stat instead of an is_dir + is_writable pair.
+     * Create the cache directory if it is missing, and confirm it is writable.
+     *
+     * @throws RuntimeException When the directory cannot be created or written to.
      */
-    private static array $verifiedDirs = [];
-
     private function ensureCacheDirectoryExists(): void
     {
         if (isset(self::$verifiedDirs[$this->cachePath])) {
             return;
         }
 
-        if (!is_dir($this->cachePath)) {
-            if (!mkdir($this->cachePath, 0755, true) && !is_dir($this->cachePath)) {
+        if (! is_dir($this->cachePath)) {
+            if (! mkdir($this->cachePath, 0755, true) && ! is_dir($this->cachePath)) {
                 throw new RuntimeException("Failed to create cache directory: {$this->cachePath}");
             }
         }
 
-        if (!is_writable($this->cachePath)) {
+        if (! is_writable($this->cachePath)) {
             throw new RuntimeException("Cache directory is not writable: {$this->cachePath}");
         }
 
         self::$verifiedDirs[$this->cachePath] = true;
     }
 
-    // =========================================================================
-    // CONCERN 3 — FRESHNESS
-    // Is what is already persisted still valid?
-    // Three independent checks composed into one answer.
-    // =========================================================================
+    // ─── Freshness ────────────────────────────────────────
 
     /**
-     * Memoize freshness verdicts for the lifetime of the request so views
-     * rendered multiple times (partials, layouts, included components) only
-     * pay the stat cost once.
+     * Forget freshness verdicts between requests, in debug only.
      *
-     * @var array<string, bool>
-     */
-    private array $freshnessCache = [];
-
-    /**
-     * Issue a single pair of stats per template+cache combo instead of three
-     * independent calls (file_exists + 2× filemtime). Verdict is then cached
-     * for the request lifetime.
+     * In production a source cannot change beneath a worker, so clearing would
+     * cost a stat per template per render and buy nothing.
      */
     private function isFresh(string $templateFile, string $cacheFile): bool
     {
         $key = $cacheFile . '|' . $templateFile;
+
         if (isset($this->freshnessCache[$key])) {
             return $this->freshnessCache[$key];
         }
 
         $cacheTime = @filemtime($cacheFile);
+
         if ($cacheTime === false) {
-            return $this->freshnessCache[$key] = false; // cache file missing
+            return $this->freshnessCache[$key] = false;
         }
 
         $sourceTime = @filemtime($templateFile);
+
         if ($sourceTime === false || $cacheTime < $sourceTime) {
             return $this->freshnessCache[$key] = false;
         }
@@ -344,20 +425,17 @@ class CompiledTemplateCache implements TemplateCache, ResetsBetweenRequests
         return $this->freshnessCache[$key] = true;
     }
 
-    /** Drop memoized freshness verdicts (test harnesses, long-running workers). */
+    /**
+     * Drop memoized freshness verdicts, for test harnesses and long-running
+     * workers that need the next render to look at the filesystem again.
+     */
     public function clearFreshnessCache(): void
     {
         $this->freshnessCache = [];
     }
 
     /**
-     * Freshness verdicts are per-request only so that a developer editing a
-     * template mid-worker sees the change without a restart.
-     *
-     * In production a source file cannot change under a running worker — a
-     * deploy restarts them — so clearing costs a filemtime() pair per template
-     * on every render and buys nothing. The decision belongs here rather than
-     * in the worker, which has no business knowing what this cache holds.
+     * Compile a template into opcache as it is written.
      */
     public function resetBetweenRequests(): void
     {
@@ -366,11 +444,20 @@ class CompiledTemplateCache implements TemplateCache, ResetsBetweenRequests
         }
     }
 
+    // ─── Opcache ──────────────────────────────────────────
+
+    /**
+     * Whether opcache already holds bytecode for a compiled template.
+     */
     private function isLoadedInOpcache(string $cacheFile): bool
     {
         return $this->opcacheAvailable && (bool) @opcache_is_script_cached($cacheFile);
     }
 
+    /**
+     * Compile a template into opcache as soon as it is written, so the request
+     * that triggered the compilation is the only one that pays to parse it.
+     */
     private function primeOpcache(string $cacheFile): void
     {
         if ($this->opcacheAvailable && function_exists('opcache_compile_file')) {
@@ -378,6 +465,10 @@ class CompiledTemplateCache implements TemplateCache, ResetsBetweenRequests
         }
     }
 
+    /**
+     * Drop a compiled template's bytecode, so a deleted or replaced file is not
+     * still served from memory.
+     */
     private function removeFromOpcache(string $cacheFile): void
     {
         if ($this->opcacheAvailable && function_exists('opcache_invalidate')) {
@@ -385,20 +476,21 @@ class CompiledTemplateCache implements TemplateCache, ResetsBetweenRequests
         }
     }
 
-    // =========================================================================
-    // FORMATTING
-    // =========================================================================
+    // ─── Formatting ───────────────────────────────────────
 
+    /**
+     * A byte count in the largest unit that leaves it readable.
+     */
     private function formatBytes(int $bytes): string
     {
         $units = ['B', 'KB', 'MB', 'GB'];
-        $i     = 0;
+        $index = 0;
 
-        while ($bytes >= 1024 && $i < count($units) - 1) {
+        while ($bytes >= 1024 && $index < count($units) - 1) {
             $bytes /= 1024;
-            $i++;
+            $index++;
         }
 
-        return round($bytes, 2) . ' ' . $units[$i];
+        return round($bytes, 2) . ' ' . $units[$index];
     }
 }

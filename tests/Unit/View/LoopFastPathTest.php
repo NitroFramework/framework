@@ -3,8 +3,8 @@
 namespace Tests\Unit\View;
 
 use PHPUnit\Framework\TestCase;
-use Nitro\View\Engine\Concerns\ManagesLoops;
-use Nitro\View\Engine\RenderContext;
+use Nitro\View\Concerns\ManagesLoops;
+use Nitro\View\Engines\RenderContext;
 
 /**
  * Verifies the loop hot-path: the same stdClass frame is mutated in place
@@ -12,7 +12,7 @@ use Nitro\View\Engine\RenderContext;
  *
  * Uses an anonymous class that pulls in ManagesLoops so the trait can be
  * exercised in isolation. Loop state now lives on the RenderContext, so the
- * double exposes one (as the real ViewRenderer does).
+ * double exposes one (as the real CompilerEngine does).
  */
 class LoopFastPathTest extends TestCase
 {

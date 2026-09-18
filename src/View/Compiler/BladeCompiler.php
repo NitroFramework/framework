@@ -26,11 +26,21 @@ class BladeCompiler implements TemplateCompiler
         Concerns\CompilesMiscellaneous,
         Concerns\CompilesStream;
 
+    /**
+     * Directives registered at runtime, by name.
+     *
+     * @var array<string, callable>
+     */
     protected static array $customDirectives = [];
 
     /** Callbacks that transform raw template source before any compilation pass. */
     protected static array $precompilers = [];
 
+    /**
+     * Bodies of `@verbatim` blocks, lifted out so nothing inside them compiles.
+     *
+     * @var array<string, string>
+     */
     protected array $verbatimBlocks = [];
 
     /**
@@ -40,12 +50,26 @@ class BladeCompiler implements TemplateCompiler
      * @var array<string, string>
      */
     protected array $rawPhpBlocks = [];
+    /**
+     * Lines appended after the compiled body.
+     *
+     * @var array<int, string>
+     */
     protected array $footer = [];
 
+    /**
+     * @param TagCompiler $tagCompiler Expands component tags before compilation.
+     */
     public function __construct(
         private readonly TagCompiler $tagCompiler,
     ) {}
 
+    /**
+     * Compile Blade source to PHP.
+     *
+     * Precompilers run first, then the source is walked as PHP tokens so only the
+     * inline HTML between real PHP blocks is treated as a template.
+     */
     public function compile(string $content): string
     {
         $this->footer = [];
@@ -63,8 +87,6 @@ class BladeCompiler implements TemplateCompiler
         }
 
         $result = $this->restoreVerbatimBlocks($result);
-
-        // Append footer if anything was pushed (future use)
         if (!empty($this->footer)) {
             $result .= implode("\n", $this->footer);
         }
@@ -72,6 +94,11 @@ class BladeCompiler implements TemplateCompiler
         return $result;
     }
 
+    /**
+     * Compile one PHP token, leaving anything that is already PHP alone.
+     *
+     * @param array{0: int, 1: string} $token
+     */
     protected function parseToken(array $token): string
     {
         [$id, $content] = $token;
@@ -83,6 +110,7 @@ class BladeCompiler implements TemplateCompiler
         return $content;
     }
 
+    /** Compile a run of template text. */
     protected function compileInlineHtml(string $content): string
     {
         $content = $this->storeVerbatimBlocks($content);
@@ -126,6 +154,7 @@ class BladeCompiler implements TemplateCompiler
         ) ?? $content;
     }
 
+    /** Put the lifted `@php` block bodies back, wrapped as PHP. */
     protected function restoreRawPhpBlocks(string $content): string
     {
         foreach ($this->rawPhpBlocks as $placeholder => $original) {
@@ -137,6 +166,7 @@ class BladeCompiler implements TemplateCompiler
         return $content;
     }
 
+    /** Lift `@verbatim` bodies out behind placeholders. */
     protected function storeVerbatimBlocks(string $content): string
     {
         return preg_replace_callback(
@@ -150,6 +180,7 @@ class BladeCompiler implements TemplateCompiler
         );
     }
 
+    /** Put the lifted `@verbatim` bodies back untouched. */
     protected function restoreVerbatimBlocks(string $content): string
     {
         foreach ($this->verbatimBlocks as $placeholder => $original) {
@@ -159,10 +190,14 @@ class BladeCompiler implements TemplateCompiler
         return $content;
     }
 
-    // ================================================================
-    // DIRECTIVE COMPILATION (Laravel's robust approach)
-    // ================================================================
+    // ─── DIRECTIVE COMPILATION (Laravel's robust approach) ────
 
+    /**
+     * Compile every directive in a run of template text.
+     *
+     * Matches are replaced one at a time from a moving offset, so a directive
+     * whose compiled form contains an `@` cannot be rematched.
+     */
     protected function compileDirectives(string $content): string
     {
         preg_match_all(
@@ -225,9 +260,17 @@ class BladeCompiler implements TemplateCompiler
         return $content;
     }
 
+    /**
+     * Compile a single matched directive.
+     *
+     * A doubled `@@name` is an escape: one `@` is stripped and the rest is
+     * emitted literally. Otherwise a `compile<Name>` method wins over a
+     * registered custom directive, and an unknown directive is left as it was.
+     *
+     * @param array{0: string, 1: string, 2: string, 3: ?string, 4: ?string} $match
+     */
     protected function compileDirective(array $match): string
     {
-        // Handle @@directive escape — strip one @ and return literal
         if (str_contains($match[1], '@')) {
             return isset($match[3]) ? $match[1] . $match[3] : $match[1];
         }
@@ -254,6 +297,11 @@ class BladeCompiler implements TemplateCompiler
         return $match[0];
     }
 
+    /**
+     * Replace the first occurrence of a statement at or after an offset.
+     *
+     * @return array{0: string, 1: int} The new subject and the next offset.
+     */
     protected function replaceFirstStatement(string $search, string $replace, string $subject, int $offset): array
     {
         if ($search === '') {
@@ -272,6 +320,12 @@ class BladeCompiler implements TemplateCompiler
         return [$subject, 0];
     }
 
+    /**
+     * Determine whether a directive's arguments close every parenthesis.
+     *
+     * Tokenised rather than counted textually, so a bracket inside a string
+     * literal does not throw the balance off.
+     */
     protected function hasEvenNumberOfParentheses(string $expression): bool
     {
         $tokens = token_get_all('<?php ' . $expression);
@@ -295,10 +349,13 @@ class BladeCompiler implements TemplateCompiler
         return $opening === $closing;
     }
 
-    // ================================================================
-    // REGISTRATION
-    // ================================================================
+    // ─── REGISTRATION ─────────────────────────────────────────
 
+    /**
+     * Register a directive compiled by a callback.
+     *
+     * @param callable $callback Callable(string $arguments): string
+     */
     public static function registerCustomDirective(string $name, callable $callback): void
     {
         static::$customDirectives[$name] = $callback;
@@ -313,6 +370,11 @@ class BladeCompiler implements TemplateCompiler
         static::$precompilers[] = $callback;
     }
 
+    /**
+     * Get every registered custom directive.
+     *
+     * @return array<string, callable>
+     */
     public static function getCustomDirectives(): array
     {
         return static::$customDirectives;

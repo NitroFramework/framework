@@ -2,25 +2,15 @@
 
 namespace Nitro\Session;
 
-use Nitro\Session\Handlers\ArraySessionHandler;
-
 /**
- * A {@see Store} backed by PHP's native session ($_SESSION + session_start()).
+ * A {@see Store} backed by PHP's native session.
  *
- * Why this exists: the rest of the app — and the (locked) HTMX layer's CSRF
- * guard — read and write the native $_SESSION superglobal. Rather than run a
- * second, parallel cookie-based store alongside it, this binds the Store's
- * attribute bag *by reference* to $_SESSION so there is exactly one session:
- * OO access for new code, full interoperability with everything still touching
- * the superglobal directly (CSRF, HTMX state), and no second cookie.
+ * The attribute bag is bound by reference to $_SESSION, so code reaching for
+ * the superglobal and code using the Store see one session rather than two.
+ * PHP owns persistence and the session id, so the parent's handler is unused.
  *
- * The pluggable-handler machinery of the parent is bypassed — PHP itself owns
- * persistence and the session id — so the inherited dot-notation, flash, and
- * removal helpers operate directly on the live native session.
- *
- * NOTE: native sessions are not worker-safe the way the file/array-handler
- * Store is; this is the right backend on classic SAPIs (Apache/FPM) and while
- * the HTMX CSRF coupling stands. Swap the driver to "file" to go cookie-based.
+ * Not worker-safe: ext/session keeps process globals a worker never tears
+ * down. Use the file driver where the process is long-lived.
  */
 class NativeSession extends Store
 {

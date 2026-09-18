@@ -6,7 +6,7 @@ use Nitro\Auth\Contracts\Guard;
 use Nitro\Foundation\Contracts\ConfigRepository;
 use Nitro\Http\Request;
 use Nitro\Http\Response;
-use Nitro\Session\Contracts\SessionInterface;
+use Nitro\Session\Contracts\Session;
 
 /**
  * Guards sensitive areas behind a recent password confirmation. If the user
@@ -18,7 +18,7 @@ class RequirePassword
     public function __construct(
         protected Guard $auth,
         protected ConfigRepository $config,
-        protected SessionInterface $session,
+        protected Session $session,
     ) {}
 
     /**

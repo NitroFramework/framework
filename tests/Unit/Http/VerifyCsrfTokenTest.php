@@ -7,7 +7,7 @@ use Nitro\Exceptions\HttpException;
 use Nitro\Http\Middleware\VerifyCsrfToken;
 use Nitro\Http\Request;
 use Nitro\Http\Response;
-use Nitro\Session\Handlers\ArraySessionHandler;
+use Nitro\Session\ArraySessionHandler;
 use Nitro\Session\Store;
 use PHPUnit\Framework\TestCase;
 

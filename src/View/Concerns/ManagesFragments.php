@@ -1,6 +1,6 @@
 <?php
 
-namespace Nitro\View\Engine\Concerns;
+namespace Nitro\View\Concerns;
 
 use InvalidArgumentException;
 
@@ -11,7 +11,7 @@ trait ManagesFragments
 {
     /**
      * Fragment state (captured fragments + in-progress stack) lives on
-     * {@see \Nitro\View\Engine\RenderContext} via $this->context.
+     * {@see \Nitro\View\Engines\RenderContext} via $this->context.
      */
 
     /**

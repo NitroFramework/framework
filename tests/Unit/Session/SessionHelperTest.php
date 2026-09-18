@@ -24,7 +24,7 @@ class SessionHelperTest extends TestCase
 
         Container::reset();
 
-        $this->store = new Store('nitro_session', new \Nitro\Session\Handlers\ArraySessionHandler());
+        $this->store = new Store('nitro_session', new \Nitro\Session\ArraySessionHandler());
         $this->store->start();
 
         Container::getInstance()->instance('session', $this->store);

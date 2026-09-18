@@ -14,7 +14,7 @@ use Nitro\Foundation\Contracts\ConfigRepository;
 use Nitro\Http\RedirectResponse;
 use Nitro\Http\Request;
 use Nitro\Http\Response;
-use Nitro\Session\Handlers\ArraySessionHandler;
+use Nitro\Session\ArraySessionHandler;
 use Nitro\Session\Store;
 use PHPUnit\Framework\TestCase;
 

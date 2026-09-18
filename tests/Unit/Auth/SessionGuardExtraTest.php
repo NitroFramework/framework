@@ -5,7 +5,7 @@ namespace Tests\Unit\Auth;
 use Nitro\Auth\Contracts\Authenticatable;
 use Nitro\Auth\Contracts\UserProvider;
 use Nitro\Auth\SessionGuard;
-use Nitro\Session\Handlers\ArraySessionHandler;
+use Nitro\Session\ArraySessionHandler;
 use Nitro\Session\Store;
 use PHPUnit\Framework\TestCase;
 

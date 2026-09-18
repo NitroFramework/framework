@@ -70,7 +70,7 @@ class ViewCommands implements CommandInterface
             foreach ($viewFiles as $viewFile) {
                 $viewName = $this->getViewNameFromPath($viewFile, $viewsPath);
                 try {
-                    // Using injected ViewRenderer
+                    // Using injected CompilerEngine
                     $this->view->compileOnly($viewName);
                     $cachedCount++;
                     $this->output->writeln($this->output->color("  ✓ Cached: ", 'green') . $viewName);

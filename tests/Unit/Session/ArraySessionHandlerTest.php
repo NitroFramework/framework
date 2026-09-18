@@ -2,7 +2,7 @@
 
 namespace Tests\Unit\Session;
 
-use Nitro\Session\Handlers\ArraySessionHandler;
+use Nitro\Session\ArraySessionHandler;
 use PHPUnit\Framework\TestCase;
 
 class ArraySessionHandlerTest extends TestCase

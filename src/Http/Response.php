@@ -2,6 +2,8 @@
 
 namespace Nitro\Http;
 
+use JsonSerializable;
+
 /**
  * HTTP response: body, status code, and headers, plus static factories for the
  * common response types. Method names follow Laravel/Symfony (getContent,
@@ -205,17 +207,35 @@ class Response
     }
 
     /**
-     * Create JSON response
+     * Create JSON response.
+     *
+     * Takes whatever json_encode takes. An array declaration here would be a
+     * trap rather than a safeguard: an endpoint answering `true` or a bare
+     * string is legitimate JSON, and forcing callers to wrap those turns
+     * `true` into `[true]` on the wire.
+     *
+     * @param int $options Flags for json_encode, on top of the defaults.
      */
-    public static function json(array $data, int $statusCode = self::HTTP_OK): self
+    public static function json(mixed $data = [], int $statusCode = self::HTTP_OK, int $options = 0): self
     {
-        $content = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if ($data instanceof JsonSerializable || $data instanceof \stdClass) {
+            $encodable = $data;
+        } elseif (is_object($data) && method_exists($data, 'toArray')) {
+            $encodable = $data->toArray();
+        } else {
+            $encodable = $data;
+        }
 
-        $response = new self($content, $statusCode, [
+        $content = json_encode(
+            $encodable,
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | $options,
+        );
+
+        $response = new self((string) $content, $statusCode, [
             'Content-Type' => 'application/json; charset=utf-8'
         ]);
 
-        // Keep the array so a caller can read the data back without decoding
+        // Keep the original so a caller can read the data back without decoding
         // the body again.
         return $response->setOriginalContent($data);
     }

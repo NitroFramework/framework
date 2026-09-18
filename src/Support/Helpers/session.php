@@ -1,6 +1,6 @@
 <?php
 
-use Nitro\Session\Contracts\SessionInterface;
+use Nitro\Session\Contracts\Session;
 
 if (!function_exists('session')) {
     /**
@@ -17,7 +17,7 @@ if (!function_exists('session')) {
      */
     function session($key = null, $default = null)
     {
-        /** @var SessionInterface $store */
+        /** @var Session $store */
         $store = nitro_session();
 
         if ($key === null) {
@@ -43,7 +43,7 @@ if (!function_exists('nitro_session')) {
     /**
      * Resolve the request's session store.
      *
-     * Reading the store does not start it. Only {@see \Nitro\Http\Middleware\StartSession}
+     * Reading the store does not start it. Only {@see \Nitro\Session\Middleware\StartSession}
      * does that, so a session exists when the matched route asked for one and
      * never because some helper wanted to look something up. Starting on read
      * meant a stateless JSON route could mint a session — and with it an id, a
@@ -52,9 +52,9 @@ if (!function_exists('nitro_session')) {
      * On a route with no session the store answers empty and discards writes,
      * which is the same thing a session that was never started would do.
      *
-     * @return SessionInterface
+     * @return Session
      */
-    function nitro_session(): SessionInterface
+    function nitro_session(): Session
     {
         return app('session');
     }

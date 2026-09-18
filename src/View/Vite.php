@@ -30,6 +30,9 @@ class Vite
     /** @var array<string, mixed>|null */
     protected ?array $manifest = null;
 
+    /**
+     * @param string $publicPath Directory the built assets are served from.
+     */
     public function __construct(
         protected string $publicPath,
 
@@ -126,11 +129,13 @@ class Vite
             : sprintf('<script type="module" src="%s"></script>', $url);
     }
 
+    /** Determine whether a built asset is a stylesheet. */
     protected function isStylesheet(string $path): bool
     {
         return (bool) preg_match('/\.(css|less|sass|scss|styl|stylus|pcss|postcss)$/', $path);
     }
 
+    /** Get the public URL for a built asset. */
     protected function asset(string $file): string
     {
         return '/' . trim($this->buildDirectory, '/') . '/' . ltrim($file, '/');

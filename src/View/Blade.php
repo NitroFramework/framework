@@ -1,52 +1,43 @@
 <?php
 
-// Ignore all error 
-
-
 namespace Nitro\View;
 
-use Nitro\Foundation\PathRegistry;
 use Nitro\Foundation\Contracts\ConfigRepository;
-
-use Nitro\View\Contracts\TemplateCache;
+use Nitro\Foundation\PathRegistry;
 use Nitro\View\Compiler\BladeCompiler;
-use Nitro\View\Engine\ViewFactory;
+use Nitro\View\Contracts\TemplateCache;
 use RuntimeException;
 
 /**
- * Blade template engine facade.
+ * A standalone entry point to the Blade engine.
  *
- * Provides a single entry point for compiling and rendering Blade templates
- * with configurable paths, caching, and shared data. Wraps BladeCompiler and
- * ViewFactory and handles session/CSRF setup for directives like @csrf.
- *
- * RESPONSIBILITIES:
- * - Validate and hold views path, extension, and cache settings
- * - Delegate compilation to BladeCompiler and rendering to ViewFactory
- * - Manage shared data (share/getSharedData) and merge with view data in make()
- * - Initialize session and CSRF token for @csrf and auth directives
- * - Expose cache controls (enable/disable, expiry, clear, stats) and view existence check
- *
- * USAGE:
- * - Prefer using the framework's bound "view" service (ViewRenderer) for consistency.
- * - Use this class when you need a standalone Blade instance or shared data / session handling.
- *
- * @package Nitro\View
+ * Holds its own views path, extension and cache settings, and delegates
+ * compilation and rendering to {@see Factory}. The container's `view` service
+ * is the usual way in; this is for code that needs an instance of its own.
  */
 class Blade
 {
-
-    // Properties for paths, extension, cache settings, and shared data
+    /** Directory templates are resolved against. */
     protected string $viewsPath;
+
+    /** Template file extension, without the leading dot. */
     protected string $extension;
+
+    /** Directory compiled templates are written to. */
     protected string $cachePath;
+
+    /** Whether compiled templates are reused between renders. */
     protected bool $cacheEnabled;
+
+    /** How long a compiled template stays fresh, in seconds. */
     protected int $cacheExpiry;
 
-
+    /**
+     * @throws RuntimeException When the views directory is missing or unreadable.
+     */
     public function __construct(
         protected TemplateCache $cache,
-        protected ViewFactory $factory,
+        protected Factory $factory,
         PathRegistry $paths,
         ConfigRepository $config
     ) {
@@ -69,7 +60,7 @@ class Blade
      * Render a template view to HTML.
      *
      * View name uses dot notation (e.g. 'pages.home' → pages/home.blade.php).
-     * Delegates to the internal ViewRenderer; wraps errors in RuntimeException.
+     * Delegates to the internal CompilerEngine; wraps errors in RuntimeException.
      *
      * @param string $view View name in dot notation
      * @param array  $data Variables to pass to the template
@@ -144,18 +135,16 @@ class Blade
 
 
     /**
-     * Return the current CSRF token, minting one via the canonical helper when
-     * a session is active. Falls back to the raw session value (or '') when no
-     * session is available (e.g. CLI), matching the previous behaviour.
+     * Get the current CSRF token.
      *
-     * @return string Token value or empty string if unavailable
+     * Read through the helper, which sources it from the session store rather
+     * than the superglobal, so it is still there in worker mode. Falls back to
+     * the superglobal where the helper is absent, such as under the CLI.
+     *
+     * @return string Token value, or an empty string when unavailable.
      */
     public function getCsrfToken(): string
     {
-        // csrf_token() now sources the token from the framework session Store
-        // (worker-safe), so we no longer gate on a native PHP session being
-        // active — under worker mode there isn't one, which used to return an
-        // empty token here and break CSRF.
         if (function_exists('csrf_token')) {
             return csrf_token();
         }
@@ -295,43 +284,64 @@ class Blade
         return $this->cacheEnabled;
     }
 
-    
-
-    
-    public function getFactory(): ViewFactory
+    /**
+     * Get the factory this instance renders through.
+     */
+    public function getFactory(): Factory
     {
         return $this->factory;
     }
 
+    /**
+     * Set a section's contents, overriding whatever the template yields.
+     */
     public function forceSection(string $name, string $content): void
     {
         $this->factory->forceSection($name, $content);
     }
 
+    /**
+     * Compile a view without rendering it.
+     */
     public function compileOnly(string $view): void
     {
         $this->factory->compileOnly($view);
     }
 
     /**
-     * Render only a named fragment from a view
+     * Render one `@fragment` of a view.
+     *
+     * @param array<string, mixed> $data
      */
-    // Blade.php
     public function renderFragment(string $view, string $fragment, array $data = []): string
     {
         return $this->factory->renderFragment($view, $fragment, $data);
     }
 
+    /**
+     * Render several fragments of a view as one response.
+     *
+     * @param array<int, string>   $fragments
+     * @param array<string, mixed> $data
+     */
     public function renderFragments(string $view, array $fragments, array $data = []): string
     {
         return $this->factory->renderFragments($view, $fragments, $data);
     }
 
+    /**
+     * Share a value with every view rendered through this instance.
+     */
     public function share(string $key, mixed $value): void
     {
         $this->factory->share($key, $value);
     }
 
+    /**
+     * Register a composer against one or more view names.
+     *
+     * @param string|array<int, string> $views
+     */
     public function composer(string|array $views, callable|string $composer): void
     {
         $this->factory->composer($views, $composer);

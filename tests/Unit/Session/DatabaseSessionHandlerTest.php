@@ -5,7 +5,7 @@ namespace Tests\Unit\Session;
 use Nitro\Database\Connection;
 use Nitro\Database\DB;
 use Nitro\Database\Query\Grammar\SqliteGrammar;
-use Nitro\Session\Handlers\DatabaseSessionHandler;
+use Nitro\Session\DatabaseSessionHandler;
 use PDO;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;

@@ -138,11 +138,11 @@ class ResetsForWorkerModeTest extends TestCase
         $container = $app->getContainer();
 
         // The 'view' alias points at the Blade facade; per-render state
-        // lives on ViewRenderer, which the worker reset reaches for
+        // lives on CompilerEngine, which the worker reset reaches for
         // directly. Mirror that here so the test exercises the same path.
-        $this->assertTrue($container->has(\Nitro\View\Engine\ViewRenderer::class),
-            'ViewRenderer singleton must be bound');
-        $view = $container->get(\Nitro\View\Engine\ViewRenderer::class);
+        $this->assertTrue($container->has(\Nitro\View\Engines\CompilerEngine::class),
+            'CompilerEngine singleton must be bound');
+        $view = $container->get(\Nitro\View\Engines\CompilerEngine::class);
         $this->assertTrue(method_exists($view, 'flushState'),
             'view renderer must expose flushState()');
 
@@ -181,7 +181,7 @@ class ResetsForWorkerModeTest extends TestCase
 
         // The singleton itself must survive — flushing state shouldn't
         // drop the binding (compiled-template cache lives on it).
-        $this->assertSame($view, $container->get(\Nitro\View\Engine\ViewRenderer::class),
+        $this->assertSame($view, $container->get(\Nitro\View\Engines\CompilerEngine::class),
             'view renderer singleton must survive the reset');
     }
 }

@@ -1,6 +1,6 @@
 <?php
 
-namespace Nitro\Session\Handlers;
+namespace Nitro\Session;
 
 use SessionHandlerInterface;
 

@@ -1,7 +1,7 @@
 <?php
 
 use Nitro\Http\Response;
-use Nitro\View\Engine\View;
+use Nitro\View\View;
 use Nitro\View\Support\Htmlable;
 
 if (!function_exists('nitro_e')) {

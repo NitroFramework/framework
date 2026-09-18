@@ -6,7 +6,7 @@ use Nitro\Container\Container;
 use Nitro\Exceptions\ExceptionHandler;
 use Nitro\Exceptions\HttpException;
 use Nitro\Foundation\Application;
-use Nitro\View\Contracts\ViewEngine;
+use Nitro\View\Contracts\Engine;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 
@@ -38,7 +38,7 @@ class ErrorViewTest extends TestCase
 
     public function test_the_framework_error_view_namespace_is_registered(): void
     {
-        $engine = Container::getInstance()->make(ViewEngine::class);
+        $engine = Container::getInstance()->make(Engine::class);
 
         $this->assertTrue($engine->viewExists('nitro-errors::404'));
         $this->assertTrue($engine->viewExists('nitro-errors::500'));

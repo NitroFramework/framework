@@ -1,6 +1,6 @@
 <?php
 
-namespace Nitro\Session\Handlers;
+namespace Nitro\Session;
 
 use Nitro\Database\DB;
 use SessionHandlerInterface;
@@ -19,8 +19,11 @@ use Throwable;
  *   payload       text
  *   last_activity integer, indexed
  */
-class DatabaseSessionHandler implements SessionHandlerInterface
+class DatabaseSessionHandler implements SessionHandlerInterface, ExistenceAwareInterface
 {
+    /** Whether the session is known to be persisted already; null when unknown. */
+    private ?bool $exists = null;
+
     public function __construct(
         private string $table = 'sessions',
         private int $minutes = 120,
@@ -61,6 +64,19 @@ class DatabaseSessionHandler implements SessionHandlerInterface
      * loses the race on the primary key; that is caught and treated as written,
      * since the winner stored an equivalent payload.
      */
+    /**
+     * Record whether the session is already persisted.
+     *
+     * Lets a write go straight to the statement it needs instead of trying an
+     * update and falling back.
+     */
+    public function setExists(bool $value): SessionHandlerInterface
+    {
+        $this->exists = $value;
+
+        return $this;
+    }
+
     public function write(string $id, string $data): bool
     {
         $values = [
@@ -68,7 +84,7 @@ class DatabaseSessionHandler implements SessionHandlerInterface
             'last_activity' => time(),
         ];
 
-        if (DB::table($this->table)->where('id', $id)->update($values) > 0) {
+        if ($this->exists !== false && DB::table($this->table)->where('id', $id)->update($values) > 0) {
             return true;
         }
 

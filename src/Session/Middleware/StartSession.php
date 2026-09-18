@@ -1,6 +1,6 @@
 <?php
 
-namespace Nitro\Http\Middleware;
+namespace Nitro\Session\Middleware;
 
 use Nitro\Container\Contracts\ContainerInterface;
 use Nitro\Http\Request;

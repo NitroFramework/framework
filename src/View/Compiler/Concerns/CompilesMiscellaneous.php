@@ -7,6 +7,7 @@ namespace Nitro\View\Compiler\Concerns;
  */
 trait CompilesMiscellaneous
 {
+    /** Compile the `@once` directive. */
     protected function compileOnce(string $args): string
     {
         $id = !empty($args)
@@ -16,11 +17,13 @@ trait CompilesMiscellaneous
         return "<?php if(!\$this->hasRenderedOnce({$id})): \$this->markRenderedOnce({$id}); ?>";
     }
 
+    /** Compile the `@endonce` directive. */
     protected function compileEndonce(string $args): string
     {
         return "<?php endif; ?>";
     }
 
+    /** Compile the `@error` directive. */
     protected function compileError(string $args): string
     {
         $expression = $this->stripParentheses($args);
@@ -28,6 +31,7 @@ trait CompilesMiscellaneous
         return "<?php if(isset(\$errors[{$expression}]) && !empty(\$errors[{$expression}])): ?>";
     }
 
+    /** Compile the `@enderror` directive. */
     protected function compileEnderror(string $args): string
     {
         return "<?php endif; ?>";

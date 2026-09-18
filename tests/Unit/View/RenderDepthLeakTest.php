@@ -8,7 +8,7 @@ use Nitro\View\Compiler\BladeCompiler;
 use Nitro\View\Compiler\CompiledTemplateCache;
 use Nitro\View\Compiler\ComponentTagCompiler;
 use Nitro\View\Component\ComponentRenderer;
-use Nitro\View\Engine\ViewRenderer;
+use Nitro\View\Engines\CompilerEngine;
 use PHPUnit\Framework\TestCase;
 use ReflectionProperty;
 
@@ -21,7 +21,7 @@ use ReflectionProperty;
  */
 class RenderDepthLeakTest extends TestCase
 {
-    private ViewRenderer $engine;
+    private CompilerEngine $engine;
     private string $dir;
 
     protected function setUp(): void
@@ -46,7 +46,7 @@ class RenderDepthLeakTest extends TestCase
 
     private function renderCount(): int
     {
-        $ctx = (new ReflectionProperty(ViewRenderer::class, 'context'))->getValue($this->engine);
+        $ctx = (new ReflectionProperty(CompilerEngine::class, 'context'))->getValue($this->engine);
         return $ctx->renderCount;
     }
 
@@ -87,7 +87,7 @@ class RenderDepthLeakTest extends TestCase
         $this->assertSame(0, $this->renderCount());
     }
 
-    private function buildEngine(): ViewRenderer
+    private function buildEngine(): CompilerEngine
     {
         $tagCompiler = new ComponentTagCompiler();
         $compiler = new BladeCompiler($tagCompiler);
@@ -107,6 +107,6 @@ class RenderDepthLeakTest extends TestCase
         $templateCache = new CompiledTemplateCache($compiler, $paths, $config);
         $components = new ComponentRenderer(fn() => $this->engine);
 
-        return new ViewRenderer($templateCache, $components, $compiler, $tagCompiler, $paths, $config);
+        return new CompilerEngine($templateCache, $components, $compiler, $tagCompiler, $paths, $config);
     }
 }

@@ -8,7 +8,7 @@ use Nitro\Livewire\Component;
 use Nitro\Livewire\Features\SupportsLazyLoading;
 use Nitro\Livewire\Hooks\UserHooks;
 use Nitro\Livewire\Snapshot\Snapshotter;
-use Nitro\View\Contracts\ViewEngine;
+use Nitro\View\Contracts\Engine;
 use ReflectionObject;
 
 /**
@@ -114,7 +114,7 @@ class Mounter
             return $this->renderComponentLayout($layout[0], $html);
         }
 
-        return $this->container->createOrResolve(ViewEngine::class)->render('livewire::page', [
+        return $this->container->createOrResolve(Engine::class)->render('livewire::page', [
             '__layout'  => $layout[0],
             '__section' => $layout[1],
             '__slot'    => $html,
@@ -140,9 +140,9 @@ class Mounter
     {
         $name = substr($layout, strlen('components.'));
 
-        $engine = $this->container->createOrResolve(ViewEngine::class);
+        $engine = $this->container->createOrResolve(Engine::class);
 
-        // The bound ViewEngine may be the renderer itself or a factory holding
+        // The bound Engine may be the renderer itself or a factory holding
         // one; both shapes are in use.
         $renderer = method_exists($engine, 'getRenderer') ? $engine->getRenderer() : $engine;
 

@@ -5,13 +5,13 @@ namespace Nitro\Auth;
 use Nitro\Auth\Contracts\Authenticatable;
 use Nitro\Auth\Contracts\Guard;
 use Nitro\Auth\Contracts\UserProvider;
-use Nitro\Session\Contracts\SessionInterface;
+use Nitro\Session\Contracts\Session;
 
 /**
  * Session-based authentication guard: tracks who is logged in, handles
  * login/logout and the intended-URL round trip, and delegates user retrieval and
  * credential checking to a {@see UserProvider}. All state goes through the
- * injected {@see SessionInterface} rather than $_SESSION directly.
+ * injected {@see Session} rather than $_SESSION directly.
  */
 class SessionGuard implements Guard
 {
@@ -37,7 +37,7 @@ class SessionGuard implements Guard
 
     public function __construct(
         protected UserProvider $provider,
-        protected SessionInterface $session,
+        protected Session $session,
     ) {}
 
     // ─── State queries ──────────────────────────────────────────────────────

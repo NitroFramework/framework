@@ -25,7 +25,7 @@ use Nitro\Foundation\Providers\ExceptionServiceProvider;
 use Nitro\Foundation\Providers\MailServiceProvider;
 use Nitro\Foundation\Providers\RoutingServiceProvider;
 use Nitro\Foundation\Providers\ServiceProvider;
-use Nitro\Foundation\Providers\SessionServiceProvider;
+use Nitro\Session\SessionServiceProvider;
 use Nitro\Foundation\Providers\ValidationServiceProvider;
 use Nitro\Foundation\Providers\ViewServiceProvider;
 use Nitro\Http\Client\Factory as HttpClientFactory;

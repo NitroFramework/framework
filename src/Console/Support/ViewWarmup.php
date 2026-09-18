@@ -57,7 +57,7 @@ class ViewWarmup
                     if (method_exists($viewRenderer, 'getCompiledPath')) {
                         $compiledPath = $viewRenderer->getCompiledPath($viewName);
                     } else {
-                        $compiledPath = $this->guessCompiledPath($viewName);
+                        $compiledPath = $this->guessCompiledPath($viewFile);
                     }
                     if ($compiledPath && is_file($compiledPath)) {
                         $compiledPaths[] = $compiledPath;
@@ -70,7 +70,7 @@ class ViewWarmup
 
             $this->output->writeln($this->output->color("  ✓ Cached {$cachedCount} views", 'green'));
 
-            // Persist the per-view flag manifest so ViewRenderer::isStreamView
+            // Persist the per-view flag manifest so CompilerEngine::isStreamView
             // can answer from one autoload instead of stat'ing every source.
             if (ViewManifest::write($manifest)) {
                 $this->output->writeln($this->output->color(
@@ -274,12 +274,16 @@ PHP;
 
     /**
      * Fallback path computation when the view renderer doesn't expose a
-     * getCompiledPath() helper. Mirrors CompiledTemplateCache::getCacheFilePath.
+     * getCompiledPath() helper. Mirrors CompiledTemplateCache::getCacheFilePath,
+     * which keys on the template's own path rather than the view name.
+     *
+     * @param string $templateFile Absolute path to the source template.
      */
-    private function guessCompiledPath(string $view): string
+    private function guessCompiledPath(string $templateFile): string
     {
         $cachePath = $this->paths->cache('views');
-        return $cachePath . DIRECTORY_SEPARATOR . md5($view . $cachePath) . '.php';
+
+        return $cachePath . DIRECTORY_SEPARATOR . md5($templateFile . $cachePath) . '.php';
     }
 
     /** Recursively collect every template file under the views directory. */

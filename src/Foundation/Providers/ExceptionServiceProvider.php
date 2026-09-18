@@ -6,7 +6,7 @@ use Nitro\Exceptions\ExceptionHandler;
 use Nitro\Http\Request;
 use Nitro\Http\Response;
 use Nitro\Validation\ValidationException;
-use Nitro\View\Contracts\ViewEngine;
+use Nitro\View\Contracts\Engine;
 
 /**
  * Registers the centralized ExceptionHandler.
@@ -29,11 +29,11 @@ class ExceptionServiceProvider extends ServiceProvider
      */
     protected function registerErrorViews(): void
     {
-        if (! $this->container->has(ViewEngine::class)) {
+        if (! $this->container->has(Engine::class)) {
             return;
         }
 
-        $this->container->createOrResolve(ViewEngine::class)
+        $this->container->createOrResolve(Engine::class)
             ->addNamespace('nitro-errors', __DIR__ . '/../../Exceptions/views');
     }
 

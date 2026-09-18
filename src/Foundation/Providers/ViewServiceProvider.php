@@ -8,18 +8,18 @@ use Nitro\View\Compiler\BladeCompiler;
 use Nitro\View\Compiler\CompiledTemplateCache;
 use Nitro\View\Compiler\ComponentTagCompiler;
 use Nitro\View\Component\ComponentRenderer;
-use Nitro\View\Engine\ViewRenderer;
-use Nitro\View\Engine\ViewFactory;
-use Nitro\View\Engine\View;
-use Nitro\View\Support\ComposerResolver;
-
-// New contract imports:
-use Nitro\View\Contracts\TemplateCompiler;
+use Nitro\View\Contracts\ComponentEngine;
 use Nitro\View\Contracts\TagCompiler;
 use Nitro\View\Contracts\TemplateCache;
-use Nitro\View\Contracts\ViewEngine;
-use Nitro\View\Contracts\ComponentEngine;
+use Nitro\View\Contracts\TemplateCompiler;
 use Nitro\View\Contracts\ViewComposerResolver;
+use Nitro\View\Contracts\Engine;
+use Nitro\View\Contracts\ViewFinder;
+use Nitro\View\View;
+use Nitro\View\Factory;
+use Nitro\View\Engines\CompilerEngine;
+use Nitro\View\FileViewFinder;
+use Nitro\View\Support\ComposerResolver;
 
 /**
  * Registers the Blade compiler, view engine, factory and component renderer.
@@ -35,7 +35,19 @@ class ViewServiceProvider extends ServiceProvider
         $this->container->singleton(BladeCompiler::class, BladeCompiler::class);
         $this->container->singleton(CompiledTemplateCache::class, CompiledTemplateCache::class);
         $this->container->singleton(ComposerResolver::class, ComposerResolver::class);
-        $this->container->singleton(ViewRenderer::class, ViewRenderer::class);
+        $this->container->singleton(CompilerEngine::class, CompilerEngine::class);
+
+        /*
+         * Resolves view names to template files. A singleton because it
+         * memoizes those resolutions, and because the namespaces a provider
+         * registers must be visible to every later lookup.
+         */
+        $this->container->singleton(ViewFinder::class, function ($container) {
+            return new FileViewFinder(
+                $container->createOrResolve('paths')->views(),
+                (string) config('view.extension', 'blade.php'),
+            );
+        });
 
         /*
          * What @vite resolves. A singleton because the manifest is read from
@@ -56,21 +68,21 @@ class ViewServiceProvider extends ServiceProvider
         $this->container->singleton(TemplateCompiler::class, BladeCompiler::class);
         $this->container->singleton(TagCompiler::class, ComponentTagCompiler::class);
         $this->container->singleton(TemplateCache::class, CompiledTemplateCache::class);
-        $this->container->singleton(ViewEngine::class, ViewRenderer::class);
+        $this->container->singleton(Engine::class, CompilerEngine::class);
         $this->container->singleton(ComponentEngine::class, ComponentRenderer::class);
         $this->container->singleton(ViewComposerResolver::class, ComposerResolver::class);
 
         // ── Component renderer (lazy to avoid circular resolution) ──
         $this->container->singleton(ComponentRenderer::class, function ($container) {
             return new ComponentRenderer(
-                fn() => $container->createOrResolve(ViewEngine::class),
+                fn() => $container->createOrResolve(Engine::class),
             );
         });
 
         // ── Factory ──
-        $this->container->singleton(ViewFactory::class, function ($container) {
-            return new ViewFactory(
-                $container->createOrResolve(ViewEngine::class),
+        $this->container->singleton(Factory::class, function ($container) {
+            return new Factory(
+                $container->createOrResolve(Engine::class),
                 $container,
                 $container->createOrResolve(ViewComposerResolver::class),
             );
@@ -81,7 +93,7 @@ class ViewServiceProvider extends ServiceProvider
 
         // ── Aliases ──
         $this->container->alias('view', Blade::class);
-        $this->container->alias('view.factory', ViewFactory::class);
+        $this->container->alias('view.factory', Factory::class);
     }
 
     public function boot(): void

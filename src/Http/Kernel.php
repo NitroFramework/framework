@@ -10,7 +10,7 @@ use Nitro\Http\Contracts\Responsable;
 use Nitro\Http\Exceptions\HttpResponseException;
 use Nitro\Http\Middleware\AddQueuedCookiesToResponse;
 use Nitro\Http\Middleware\EncryptCookies;
-use Nitro\Http\Middleware\StartSession;
+use Nitro\Session\Middleware\StartSession;
 use Nitro\Http\Middleware\VerifyCsrfToken;
 use Nitro\Http\Request;
 use Nitro\Http\Response;
@@ -19,7 +19,7 @@ use Nitro\Routing\RouteDispatcher;
 use Nitro\Support\Pipeline;
 use Nitro\Routing\Route;
 use Nitro\Routing\Router;
-use Nitro\View\Contracts\ViewEngine;
+use Nitro\View\Contracts\Engine;
 use RuntimeException;
 use Throwable;
 
@@ -424,7 +424,7 @@ class Kernel
 
         // 2. Handle the "Decoupled View" (The DTO)
         if ($result instanceof ViewResponse) {
-            $renderer = $this->container->createOrResolve(ViewEngine::class);
+            $renderer = $this->container->createOrResolve(Engine::class);
             return Response::html($renderer->render($result->template, $result->data));
         }
 

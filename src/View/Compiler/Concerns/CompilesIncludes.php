@@ -8,18 +8,11 @@ namespace Nitro\View\Compiler\Concerns;
 trait CompilesIncludes
 {
     /**
-     * Compile @include into one of two shapes depending on call form:
+     * `@include('header')` or `@include('header', ['k' => $v])`.
      *
-     *   @include('header')                 — caller wants parent scope; emit
-     *                                        get_defined_vars() so vars carry over.
-     *   @include('header', ['k' => $v])    — caller passed explicit data; skip
-     *                                        get_defined_vars() entirely (it
-     *                                        walks the whole local symbol
-     *                                        table on every call).
-     *
-     * Distinguishing the two at COMPILE time means a page that uses the
-     * explicit form for all its includes pays zero get_defined_vars() cost
-     * at runtime — a measurable win on pages with many includes.
+     * Only the first form emits get_defined_vars(), which walks the whole local
+     * symbol table; telling them apart at compile time keeps that off pages
+     * that always pass data explicitly.
      */
     protected function compileInclude(string $args): string
     {
@@ -32,6 +25,7 @@ trait CompilesIncludes
         return "<?php echo \$this->renderInclude({$expression}, get_defined_vars()); ?>";
     }
 
+    /** Compile the `@includeIf` directive, which skips a view that does not exist. */
     protected function compileIncludeIf(string $args): string
     {
         $expression = $this->stripParentheses($args);
@@ -44,6 +38,7 @@ trait CompilesIncludes
         return "<?php if(\$this->viewExists({$expression})) echo \$this->renderInclude({$expression}, get_defined_vars()); ?>";
     }
 
+    /** Compile the `@includeWhen` directive. */
     protected function compileIncludeWhen(string $args): string
     {
         $expression = $this->stripParentheses($args);
@@ -51,6 +46,7 @@ trait CompilesIncludes
         return "<?php echo \$this->renderIncludeWhen({$expression}, get_defined_vars()); ?>";
     }
 
+    /** Compile the `@includeUnless` directive. */
     protected function compileIncludeUnless(string $args): string
     {
         $expression = $this->stripParentheses($args);
@@ -58,6 +54,7 @@ trait CompilesIncludes
         return "<?php echo \$this->renderIncludeUnless({$expression}, get_defined_vars()); ?>";
     }
 
+    /** Compile the `@includeFirst` directive, which takes the first view that exists. */
     protected function compileIncludeFirst(string $args): string
     {
         $expression = $this->stripParentheses($args);
@@ -65,6 +62,7 @@ trait CompilesIncludes
         return "<?php echo \$this->renderIncludeFirst({$expression}, get_defined_vars()); ?>";
     }
 
+    /** Compile the `@each` directive. */
     protected function compileEach(string $args): string
     {
         $expression = $this->stripParentheses($args);
@@ -73,11 +71,10 @@ trait CompilesIncludes
     }
 
     /**
-     * Does the argument list contain a second argument? We do a depth-aware
-     * scan for a top-level comma so commas inside the view name's string
-     * literal or inside nested function calls don't trick us.
+     * Determine whether the argument list has a second argument.
      *
-     * Returns true for `'header', ['k' => 1]`, false for `'header'`.
+     * Depth-aware, so a comma inside a string or a nested call is not mistaken
+     * for a separator.
      */
     private function hasExplicitDataArg(string $expression): bool
     {

@@ -4,20 +4,21 @@ namespace Nitro\Session;
 
 use Closure;
 use InvalidArgumentException;
-use Nitro\Session\Handlers\ArraySessionHandler;
-use Nitro\Session\Handlers\DatabaseSessionHandler;
-use Nitro\Session\Handlers\FileSessionHandler;
-use Nitro\Session\Handlers\RedisSessionHandler;
+use Nitro\Cache\Repository;
+use Nitro\Cookie\CookieJar;
+use Nitro\Encryption\Contracts\Encrypter;
 use RuntimeException;
 use SessionHandlerInterface;
 
 /**
- * Builds a {@see Store} for the configured (or requested) driver and memoizes
- * it. New drivers are added here — the rest of the framework depends only on
- * the Store / SessionInterface, never on a specific backend.
+ * Builds a {@see Store} for the configured (or requested) driver.
  *
- * Config keys: driver ('native'|'file'|'array'|'redis'|'database'), cookie,
- * lifetime (minutes), files (dir), connection (redis), table (database).
+ * New drivers are added here — the rest of the framework depends only on the
+ * Store / Session contract, never on a specific backend.
+ *
+ * Config keys: driver ('native'|'file'|'array'|'cookie'|'cache'|'redis'|
+ * 'database'|'null'), cookie, lifetime (minutes), encrypt, serialization,
+ * files (dir), connection (redis), store (cache), table (database).
  */
 class SessionManager
 {
@@ -30,6 +31,9 @@ class SessionManager
     public function __construct(
         private array $config,
         private ?Closure $redis = null,
+        private ?Closure $cookie = null,
+        private ?Closure $cache = null,
+        private ?Closure $encrypter = null,
     ) {}
 
     /**
@@ -48,6 +52,7 @@ class SessionManager
     private function createStore(string $name): Store
     {
         $cookie = $this->config['cookie'] ?? 'nitro_session';
+        $serialization = (string) ($this->config['serialization'] ?? 'php');
 
         // "native" is backed by PHP's own $_SESSION (see NativeSession) and has
         // no pluggable handler — it's the default while the app/HTMX layer still
@@ -56,7 +61,13 @@ class SessionManager
             return new NativeSession($cookie);
         }
 
-        return new Store($cookie, $this->createHandler($name));
+        $handler = $this->createHandler($name);
+
+        if ($this->config['encrypt'] ?? false) {
+            return new EncryptedStore($cookie, $handler, $this->encrypter(), null, $serialization);
+        }
+
+        return new Store($cookie, $handler, null, $serialization);
     }
 
     private function createHandler(string $name): SessionHandlerInterface
@@ -64,9 +75,19 @@ class SessionManager
         $lifetime = (int) ($this->config['lifetime'] ?? 120);
 
         return match ($name) {
+            'null'  => new NullSessionHandler(),
             'array' => new ArraySessionHandler($lifetime),
             'file'  => new FileSessionHandler(
                 $this->config['files'] ?? sys_get_temp_dir(),
+                $lifetime,
+            ),
+            'cookie' => new CookieSessionHandler(
+                $this->cookieJar(),
+                $lifetime,
+                (bool) ($this->config['expire_on_close'] ?? false),
+            ),
+            'cache' => new CacheBasedSessionHandler(
+                $this->cacheRepository((string) ($this->config['store'] ?? 'file')),
                 $lifetime,
             ),
             'redis' => new RedisSessionHandler(
@@ -85,13 +106,41 @@ class SessionManager
     /** The Redis connection the 'redis' driver writes to. */
     private function redisConnection(): object
     {
-        if ($this->redis === null) {
+        return $this->resolve($this->redis, 'redis', 'Redis')($this->config['connection'] ?? null);
+    }
+
+    /** The cookie jar the 'cookie' driver queues onto. */
+    private function cookieJar(): CookieJar
+    {
+        return $this->resolve($this->cookie, 'cookie', 'Cookie')();
+    }
+
+    /** The cache store the 'cache' driver writes to. */
+    private function cacheRepository(string $store): Repository
+    {
+        return $this->resolve($this->cache, 'cache', 'Cache')($store);
+    }
+
+    /** The encrypter used when session.encrypt is on. */
+    private function encrypter(): Encrypter
+    {
+        return $this->resolve($this->encrypter, 'encrypted', 'Encryption')();
+    }
+
+    /**
+     * Get a resolver, or explain which provider is missing.
+     *
+     * @throws RuntimeException When the driver's backing layer was never registered.
+     */
+    private function resolve(?Closure $resolver, string $driver, string $provider): Closure
+    {
+        if ($resolver === null) {
             throw new RuntimeException(
-                'The redis session driver needs a Redis connection resolver. '
-                    . 'Register the Redis service provider, or choose another session driver.'
+                "The {$driver} session driver needs the {$provider} service provider to be "
+                    . 'registered, or choose another session driver.'
             );
         }
 
-        return ($this->redis)($this->config['connection'] ?? null);
+        return $resolver;
     }
 }

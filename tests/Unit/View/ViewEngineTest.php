@@ -4,7 +4,7 @@ namespace Tests\Unit\View;
 
 use PHPUnit\Framework\TestCase;
 use PHPUnit\Framework\MockObject\MockObject;
-use Nitro\View\Engine\ViewRenderer;
+use Nitro\View\Engines\CompilerEngine;
 use Nitro\View\Compiler\CompiledTemplateCache;
 use Nitro\View\Compiler\BladeCompiler;
 use Nitro\View\Compiler\ComponentTagCompiler;
@@ -13,7 +13,7 @@ use Nitro\Foundation\Config;
 
 class ViewEngineTest extends TestCase
 {
-    private ViewRenderer $engine;
+    private CompilerEngine $engine;
 
     protected function setUp(): void
     {
@@ -36,7 +36,7 @@ class ViewEngineTest extends TestCase
         $tagCompiler = new ComponentTagCompiler();
         $compiler = new BladeCompiler($tagCompiler);
 
-        $this->engine = new ViewRenderer(
+        $this->engine = new CompilerEngine(
             $cache,        // 1
             $components,   // 2
             $compiler,     // 3

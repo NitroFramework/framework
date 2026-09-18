@@ -10,7 +10,7 @@ use PHPUnit\Framework\TestCase;
  * iterator, which left the foreach with nothing to iterate over and
  * silently rendered nothing.
  *
- * We can't construct a real ViewRenderer here (it needs a TemplateCache
+ * We can't construct a real CompilerEngine here (it needs a TemplateCache
  * and the whole container), so we exercise the empty-detection logic by
  * subclassing and stubbing renderPartial(). That isolates the bug-fix
  * to the part that was wrong: the iterator consumption pattern.
@@ -21,11 +21,11 @@ class RenderEachTest extends TestCase
     {
         $renderer = new class {
             public array $calls = [];
-            use \Nitro\View\Engine\Concerns\ManagesLayouts;
-            use \Nitro\View\Engine\Concerns\ManagesStacks;
-            use \Nitro\View\Engine\Concerns\ManagesFragments;
-            use \Nitro\View\Engine\Concerns\ManagesLoops;
-            use \Nitro\View\Engine\Concerns\ManagesStream;
+            use \Nitro\View\Concerns\ManagesLayouts;
+            use \Nitro\View\Concerns\ManagesStacks;
+            use \Nitro\View\Concerns\ManagesFragments;
+            use \Nitro\View\Concerns\ManagesLoops;
+            use \Nitro\View\Concerns\ManagesStream;
 
             // Inline the renderEach body so the test exercises the same
             // logic without needing a real template cache + view file.
@@ -55,11 +55,11 @@ class RenderEachTest extends TestCase
     public function test_empty_array_uses_empty_view(): void
     {
         $renderer = new class {
-            use \Nitro\View\Engine\Concerns\ManagesLayouts;
-            use \Nitro\View\Engine\Concerns\ManagesStacks;
-            use \Nitro\View\Engine\Concerns\ManagesFragments;
-            use \Nitro\View\Engine\Concerns\ManagesLoops;
-            use \Nitro\View\Engine\Concerns\ManagesStream;
+            use \Nitro\View\Concerns\ManagesLayouts;
+            use \Nitro\View\Concerns\ManagesStacks;
+            use \Nitro\View\Concerns\ManagesFragments;
+            use \Nitro\View\Concerns\ManagesLoops;
+            use \Nitro\View\Concerns\ManagesStream;
 
             public function renderEach(string $view, iterable $data, string $itemVar, string $empty = ''): string
             {

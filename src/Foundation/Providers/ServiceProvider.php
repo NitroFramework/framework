@@ -5,7 +5,7 @@ namespace Nitro\Foundation\Providers;
 use Nitro\Container\Contracts\ContainerInterface;
 use Nitro\Database\Migration\MigrationPathRegistry;
 use Nitro\Routing\RouteLoader;
-use Nitro\View\Contracts\ViewEngine;
+use Nitro\View\Contracts\Engine;
 
 /**
  * Base Service Provider
@@ -80,7 +80,7 @@ class ServiceProvider
      */
     protected function loadViewsFrom(string $path, string $namespace): void
     {
-        $this->container->createOrResolve(ViewEngine::class)->addNamespace($namespace, $path);
+        $this->container->createOrResolve(Engine::class)->addNamespace($namespace, $path);
     }
 
     /**

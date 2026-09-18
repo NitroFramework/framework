@@ -7,6 +7,7 @@ namespace Nitro\View\Compiler\Concerns;
  */
 trait CompilesRawPhp
 {
+    /** Compile the `@php` directive. */
     protected function compilePhp(string $args): string
     {
         if (trim($args) === '') {
@@ -22,6 +23,7 @@ trait CompilesRawPhp
         return "<?php {$expression}; ?>";
     }
 
+    /** Compile the `@endphp` directive. */
     protected function compileEndphp(string $args): string
     {
         return " ?>";

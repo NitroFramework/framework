@@ -5,7 +5,7 @@ namespace Tests\Unit\View;
 use PHPUnit\Framework\TestCase;
 use Nitro\View\Component\Component;
 use Nitro\View\Component\ComponentRenderer;
-use Nitro\View\Contracts\ViewEngine;
+use Nitro\View\Contracts\Engine;
 
 /**
  * The component renderer used to call ReflectionClass on every <x-foo>
@@ -18,9 +18,9 @@ class ComponentReflectionCacheTest extends TestCase
     private function renderer(): ComponentRenderer
     {
         // We don't render anything — just exercise buildComponentInstance
-        // and the cache. A stub ViewEngine factory keeps the constructor
+        // and the cache. A stub Engine factory keeps the constructor
         // happy without spinning up the whole view stack.
-        return new ComponentRenderer(fn() => $this->createMock(ViewEngine::class));
+        return new ComponentRenderer(fn() => $this->createMock(Engine::class));
     }
 
     public function test_constructor_metadata_is_cached_per_class(): void
