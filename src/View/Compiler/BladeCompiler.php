@@ -11,7 +11,8 @@ use Nitro\View\Contracts\TagCompiler;
  */
 class BladeCompiler implements TemplateCompiler
 {
-    use Concerns\CompilesComments,
+    use Concerns\CompilesAuthorizations,
+        Concerns\CompilesComments,
         Concerns\CompilesEchos,
         Concerns\CompilesConditionals,
         Concerns\CompilesLoops,
@@ -24,6 +25,7 @@ class BladeCompiler implements TemplateCompiler
         Concerns\CompilesFragments,
         Concerns\CompilesInjections,
         Concerns\CompilesMiscellaneous,
+        Concerns\CompilesTranslations,
         Concerns\CompilesStream;
 
     /**

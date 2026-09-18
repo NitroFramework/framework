@@ -2,7 +2,11 @@
 
 namespace Nitro\Notifications;
 
+use Nitro\Notifications\Events\NotificationFailed;
+use Nitro\Notifications\Events\NotificationSending;
+use Nitro\Notifications\Events\NotificationSent;
 use Nitro\Queue\Contracts\ShouldQueue;
+use Throwable;
 
 /** Routes a notification to each of its channels for one or many notifiables. */
 class NotificationSender
@@ -43,10 +47,50 @@ class NotificationSender
         }
     }
 
+    /**
+     * Begin notifying somebody by address rather than by model.
+     *
+     *   Notification::route('mail', 'ops@example.com')->notify(new Alert());
+     */
+    public function route(string $channel, mixed $route): AnonymousNotifiable
+    {
+        return (new AnonymousNotifiable())->route($channel, $route);
+    }
+
+    /**
+     * Deliver on every channel the notification asks for.
+     *
+     * Each channel is independent: one failing is reported and the rest still
+     * go out, so a bad email address does not also cost the database record.
+     * The exception is not re-thrown, because a notification is a side effect
+     * of whatever the caller was actually doing.
+     */
     protected function deliver(object $notifiable, Notification $notification): void
     {
         foreach ($notification->via($notifiable) as $channel) {
-            $this->channels->channel($channel)->send($notifiable, $notification);
+            $this->dispatch(new NotificationSending($notifiable, $notification, $channel));
+
+            try {
+                $this->channels->channel($channel)->send($notifiable, $notification);
+            } catch (Throwable $exception) {
+                $this->dispatch(new NotificationFailed($notifiable, $notification, $channel, $exception));
+
+                continue;
+            }
+
+            $this->dispatch(new NotificationSent($notifiable, $notification, $channel));
+        }
+    }
+
+    /**
+     * Fire an event, when there is a dispatcher to fire it on.
+     */
+    protected function dispatch(object $event): void
+    {
+        $container = app();
+
+        if ($container->has('events')) {
+            $container->createOrResolve('events')->dispatch($event);
         }
     }
 

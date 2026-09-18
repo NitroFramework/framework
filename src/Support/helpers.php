@@ -77,3 +77,5 @@ require_once __DIR__ . '/Helpers/view.php';
 require_once __DIR__ . '/Helpers/query.php';
 require_once __DIR__ . '/Helpers/cache.php';
 require_once __DIR__ . '/Helpers/cookie.php';
+
+require_once __DIR__ . '/Helpers/translation.php';

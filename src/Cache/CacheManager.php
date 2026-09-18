@@ -4,13 +4,16 @@ namespace Nitro\Cache;
 
 use Nitro\Cache\Contracts\StoreInterface;
 use Nitro\Cache\Drivers\ArrayStore;
+use Nitro\Cache\Drivers\DatabaseStore;
 use Nitro\Cache\Drivers\FileStore;
 use Nitro\Cache\Drivers\NullStore;
 use Nitro\Cache\Drivers\RedisStore;
 use Nitro\Redis\Connector;
 
 /**
- * Resolves and caches the configured cache store driver (array/file/redis/null).
+ * Resolves and caches the configured cache store driver.
+ *
+ * Drivers: array, file, database, redis, null.
  */
 class CacheManager
 {
@@ -151,6 +154,22 @@ class CacheManager
     protected function createArrayDriver(array $config): Repository
     {
         $store = new ArrayStore(
+            prefix: $config['prefix'] ?? $this->getPrefix(),
+        );
+
+        return $this->repository($store, $config);
+    }
+
+    /**
+     * Create a database cache driver.
+     *
+     * @param array $config
+     * @return Repository
+     */
+    protected function createDatabaseDriver(array $config): Repository
+    {
+        $store = new DatabaseStore(
+            table: $config['table'] ?? 'cache',
             prefix: $config['prefix'] ?? $this->getPrefix(),
         );
 

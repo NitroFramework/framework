@@ -5,7 +5,7 @@ namespace Tests\Unit\Livewire;
 use Nitro\Container\Container;
 use Nitro\Foundation\Application;
 use Nitro\Livewire\Component;
-use Nitro\Livewire\Support\Js;
+use Nitro\Support\Js;
 use Nitro\Livewire\Runtime\LivewireManager;
 use Nitro\View\Contracts\TemplateCompiler;
 use PHPUnit\Framework\TestCase;
@@ -42,15 +42,15 @@ class LivewireDirectivesTest extends TestCase
 
     public function test_js_encodes_a_value_as_a_safe_js_literal(): void
     {
-        $this->assertSame('{"a":1,"b":"x"}', Js::from(['a' => 1, 'b' => 'x']));
+        $this->assertSame('{"a":1,"b":"x"}', (string) Js::from(['a' => 1, 'b' => 'x']));
         // < > & ' " are escaped so the literal is <script>-safe.
-        $this->assertStringNotContainsString('<', Js::from('<b>'));
+        $this->assertStringNotContainsString('<', (string) Js::from('<b>'));
     }
 
     public function test_blade_compiles_js_this_and_entangle(): void
     {
         $out = $this->compile("@js(['a'=>1]) @this @entangle('search')");
-        $this->assertStringContainsString('\\Nitro\\Livewire\\Support\\Js::from([\'a\'=>1])', $out);
+        $this->assertStringContainsString('\\Nitro\\Support\\Js::from([\'a\'=>1])', $out);
         $this->assertStringContainsString('$wire', $out);
         $this->assertStringContainsString("\$wire.entangle('search')", $out);
     }

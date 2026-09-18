@@ -13,8 +13,28 @@ use Nitro\Container\Contracts\ContainerInterface;
  */
 class Event
 {
+    use ManagesFrequencies;
+
     /** [minute, hour, day-of-month, month, day-of-week] */
     protected array $fields = ['*', '*', '*', '*', '*'];
+
+    /** Timezone the expression is evaluated in; null uses the application's. */
+    protected ?string $timezone = null;
+
+    /** Environments this task runs in; empty means all of them. */
+    protected array $environments = [];
+
+    /** @var array<int, callable> Run before the task. */
+    protected array $beforeCallbacks = [];
+
+    /** @var array<int, callable> Run after the task, whatever it did. */
+    protected array $afterCallbacks = [];
+
+    /** @var array<int, callable> Run when the task completes without throwing. */
+    protected array $successCallbacks = [];
+
+    /** @var array<int, callable> Run when the task throws. */
+    protected array $failureCallbacks = [];
 
     /** @var array<int, callable> Must all return true for the event to run. */
     protected array $filters = [];
@@ -34,49 +54,6 @@ class Event
         protected string $type = 'callback', // callback | command | job | exec
     ) {}
 
-    // ─── frequency ────────────────────────────────────────
-
-    public function cron(string $expression): static
-    {
-        $this->fields = preg_split('/\s+/', trim($expression));
-        return $this;
-    }
-
-    public function everyMinute(): static { return $this->splice(1, '*'); }
-    public function everyFiveMinutes(): static { return $this->splice(1, '*/5'); }
-    public function everyTenMinutes(): static { return $this->splice(1, '*/10'); }
-    public function everyThirtyMinutes(): static { return $this->splice(1, '*/30'); }
-
-    public function hourly(): static { return $this->splice(1, '0'); }
-    public function hourlyAt(int $minute): static { return $this->splice(1, (string) $minute); }
-
-    public function daily(): static { return $this->splice(1, '0')->splice(2, '0'); }
-
-    public function dailyAt(string $time): static
-    {
-        [$hour, $minute] = array_pad(explode(':', $time), 2, '0');
-        return $this->splice(1, (string) (int) $minute)->splice(2, (string) (int) $hour);
-    }
-
-    public function weekly(): static { return $this->daily()->splice(5, '0'); }
-    public function weeklyOn(int $day, string $time = '0:0'): static { return $this->dailyAt($time)->splice(5, (string) $day); }
-    public function monthly(): static { return $this->daily()->splice(3, '1'); }
-
-    public function weekdays(): static { return $this->splice(5, '1-5'); }
-    public function weekends(): static { return $this->splice(5, '0,6'); }
-
-    /** @param int|array<int,int> $days */
-    public function days(int|array $days): static
-    {
-        return $this->splice(5, implode(',', (array) $days));
-    }
-
-    protected function splice(int $position, string $value): static
-    {
-        $this->fields[$position - 1] = $value;
-        return $this;
-    }
-
     public function expression(): string
     {
         return implode(' ', $this->fields);
@@ -87,12 +64,64 @@ class Event
     public function when(callable $callback): static { $this->filters[] = $callback; return $this; }
     public function skip(callable $callback): static { $this->rejects[] = $callback; return $this; }
 
-    public function between(string $start, string $end): static
+    /**
+     * Restrict the task to the given environments.
+     *
+     * @param string|array<int, string> $environments
+     */
+    public function environments(string|array $environments): static
     {
-        return $this->when(function () use ($start, $end): bool {
-            $now = date('H:i');
-            return $now >= $start && $now <= $end;
-        });
+        $this->environments = is_array($environments) ? $environments : func_get_args();
+
+        return $this;
+    }
+
+    /**
+     * Determine whether the task runs in the given environment.
+     */
+    public function runsInEnvironment(string $environment): bool
+    {
+        return $this->environments === [] || in_array($environment, $this->environments, true);
+    }
+
+    // ─── hooks ────────────────────────────────────────────
+
+    /** Run a callback before the task. */
+    public function before(callable $callback): static
+    {
+        $this->beforeCallbacks[] = $callback;
+
+        return $this;
+    }
+
+    /** Run a callback after the task, whether or not it threw. */
+    public function after(callable $callback): static
+    {
+        return $this->then($callback);
+    }
+
+    /** Run a callback after the task, whether or not it threw. */
+    public function then(callable $callback): static
+    {
+        $this->afterCallbacks[] = $callback;
+
+        return $this;
+    }
+
+    /** Run a callback when the task completes without throwing. */
+    public function onSuccess(callable $callback): static
+    {
+        $this->successCallbacks[] = $callback;
+
+        return $this;
+    }
+
+    /** Run a callback when the task throws. */
+    public function onFailure(callable $callback): static
+    {
+        $this->failureCallbacks[] = $callback;
+
+        return $this;
     }
 
     public function description(string $description): static
@@ -108,8 +137,19 @@ class Event
 
     // ─── due / run ────────────────────────────────────────
 
+    /**
+     * Determine whether the task is due, and passes every constraint.
+     *
+     * An event with its own timezone has `$now` converted into it first, so a
+     * task written as 02:00 in one zone does not drift with the server's.
+     */
     public function isDue(DateTimeInterface $now): bool
     {
+        if ($this->timezone !== null) {
+            $now = \DateTimeImmutable::createFromInterface($now)
+                ->setTimezone(new \DateTimeZone($this->timezone));
+        }
+
         if (! (new CronExpression($this->expression()))->isDue($now)) {
             return false;
         }
@@ -200,15 +240,49 @@ class Event
         );
     }
 
+    /**
+     * Run the task, firing its hooks around it.
+     *
+     * The after callbacks run in a `finally`, so a task that throws still gets
+     * its cleanup; the failure callbacks see the exception before it is
+     * re-thrown, so nothing is swallowed.
+     */
     protected function execute(ContainerInterface $container): mixed
     {
-        return match ($this->type) {
-            'callback' => ($this->task)(),
-            'command'  => $this->runCommand($container),
-            'job'      => $container->createOrResolve('queue')->push($this->task),
-            'exec'     => $this->runExec(),
-            default    => null,
-        };
+        $this->fire($this->beforeCallbacks);
+
+        try {
+            $result = match ($this->type) {
+                'callback' => ($this->task)(),
+                'command'  => $this->runCommand($container),
+                'job'      => $container->createOrResolve('queue')->push($this->task),
+                'exec'     => $this->runExec(),
+                default    => null,
+            };
+        } catch (\Throwable $exception) {
+            $this->fire($this->failureCallbacks, [$exception]);
+
+            throw $exception;
+        } finally {
+            $this->fire($this->afterCallbacks);
+        }
+
+        $this->fire($this->successCallbacks, [$result]);
+
+        return $result;
+    }
+
+    /**
+     * Call each of a set of hooks.
+     *
+     * @param array<int, callable> $callbacks
+     * @param array<int, mixed>    $arguments
+     */
+    protected function fire(array $callbacks, array $arguments = []): void
+    {
+        foreach ($callbacks as $callback) {
+            $callback(...$arguments);
+        }
     }
 
     protected function runCommand(ContainerInterface $container): mixed

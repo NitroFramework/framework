@@ -25,6 +25,7 @@ use Nitro\Foundation\Providers\ExceptionServiceProvider;
 use Nitro\Foundation\Providers\MailServiceProvider;
 use Nitro\Foundation\Providers\RoutingServiceProvider;
 use Nitro\Foundation\Providers\ServiceProvider;
+use Nitro\Log\LogServiceProvider;
 use Nitro\Session\SessionServiceProvider;
 use Nitro\Foundation\Providers\ValidationServiceProvider;
 use Nitro\Foundation\Providers\ViewServiceProvider;
@@ -316,7 +317,6 @@ class Application
             'blade' => Blade::class,
             'gate' => Gate::class,
             'hash' => Hash::class,
-            'log' => Logger::class,
             'date' => DateFactory::class,
             'response' => ResponseFactory::class,
             'redirect' => Redirector::class,
@@ -511,6 +511,7 @@ class Application
     public function getDefaultProviders(): array
     {
         return [
+            LogServiceProvider::class,
             RoutingServiceProvider::class,
             SessionServiceProvider::class,
             ViewServiceProvider::class,

@@ -215,10 +215,6 @@ class LivewireServiceProvider extends ServiceProvider
      */
     protected function registerScriptDirectives(): void
     {
-        // @js($value) — a PHP value as a safe JS literal.
-        Blade::directive('js', static fn(string $expression): string =>
-            "<?php echo \\Nitro\\Livewire\\Support\\Js::from({$expression}); ?>");
-
         // @this / @entangle('prop') — the component's $wire handle (inside @script).
         Blade::directive('this', static fn(): string => '$wire');
         Blade::directive('entangle', static fn(string $expression): string => "\$wire.entangle({$expression})");

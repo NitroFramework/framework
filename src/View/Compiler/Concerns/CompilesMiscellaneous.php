@@ -37,4 +37,41 @@ trait CompilesMiscellaneous
         return "<?php endif; ?>";
     }
 
+    /** Compile the `@session` directive, true when the key is present. */
+    protected function compileSession(string $args): string
+    {
+        $expression = $this->stripParentheses($args);
+
+        return "<?php if (session()->has({$expression})): \$value = session()->get({$expression}); ?>";
+    }
+
+    /** Compile the `@endsession` directive. */
+    protected function compileEndsession(string $args): string
+    {
+        return '<?php unset($value); endif; ?>';
+    }
+
+    /** Compile the `@js` directive, which renders a value as a JavaScript literal. */
+    protected function compileJs(string $args): string
+    {
+        $expression = $this->stripParentheses($args);
+
+        return "<?php echo \\Nitro\\Support\\Js::from({$expression}); ?>";
+    }
+
+    /** Compile the `@use` directive, which imports a class into the template. */
+    protected function compileUse(string $args): string
+    {
+        $expression = trim($this->stripParentheses($args), '\'"');
+
+        return "<?php use {$expression}; ?>";
+    }
+
+    /** Compile the `@unset` directive. */
+    protected function compileUnset(string $args): string
+    {
+        $expression = $this->stripParentheses($args);
+
+        return "<?php unset({$expression}); ?>";
+    }
 }

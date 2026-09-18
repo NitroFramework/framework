@@ -48,15 +48,56 @@ return [
     ],
 
     'logging' => [
-        // 'file' writes to storage/logs; 'stderr' and 'stdout' write to the
-        // process's own streams, which is how a container platform collects
-        // logs — a file inside a container goes away with the container.
-        'channel'   => 'file',
-        // Overrides the default file path when the channel is 'file'.
-        'path'      => null,
-        // Rotate the file once it reaches this size; 0 disables rotation, and
-        // a stream channel ignores it.
-        'max_bytes' => 5_242_880,
+        // The channel used when none is named. A channel that is not listed
+        // below raises rather than falling back, so a platform injecting a
+        // channel this application does not have fails loudly instead of
+        // writing somewhere nobody reads.
+        'default' => 'stack',
+
+        'channels' => [
+            // Both a file and the process's own output. A container platform
+            // collects the latter; a file inside a container goes away with it.
+            'stack' => [
+                'driver'            => 'stack',
+                'channels'          => ['single', 'stderr'],
+                'ignore_exceptions' => true,
+            ],
+
+            'single' => [
+                'driver'    => 'single',
+                'path'      => null,
+                'max_bytes' => 5_242_880,
+                'level'     => 'debug',
+            ],
+
+            'daily' => [
+                'driver' => 'daily',
+                'path'   => null,
+                'days'   => 14,
+                'level'  => 'debug',
+            ],
+
+            'stderr' => [
+                'driver' => 'stream',
+                'stream' => 'php://stderr',
+                'level'  => 'debug',
+            ],
+
+            'stdout' => [
+                'driver' => 'stream',
+                'stream' => 'php://stdout',
+                'level'  => 'debug',
+            ],
+
+            'errorlog' => [
+                'driver' => 'errorlog',
+                'level'  => 'debug',
+            ],
+
+            'null' => [
+                'driver' => 'null',
+            ],
+        ],
     ],
 
     // No config/mail.php ships, so this is the sole source of the mail default.
