@@ -99,7 +99,9 @@ return [
         'cache' => [
             'enabled'     => true,
             'expiry'      => 0,
-            'use_opcache' => false,
+            // Null decides from the environment — on in production, off in
+            // debug. Set true or false to override.
+            'use_opcache' => null,
             'use_locks'   => false,
         ],
     ],

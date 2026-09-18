@@ -32,9 +32,17 @@ class CompiledTemplateCache implements TemplateCache, ResetsBetweenRequests
         $this->cachePath    = $paths->cache('views');
         $this->cacheEnabled = (bool) $config->get('view.cache.enabled');
         $this->cacheExpiry  = (int)  $config->get('view.cache.expiry');
-        $this->useOpCache   = (bool) $config->get('view.cache.use_opcache');
         $this->useFileLocks = (bool) $config->get('view.cache.use_locks');
         $this->debug        = (bool) $config->get('app.debug', false);
+
+        // Null means "decide from the environment": prime compiled views into
+        // opcache in production, leave it alone in debug, where invalidating a
+        // template the developer just edited is the behaviour that matters. An
+        // explicit true or false still wins — this only removes the need for
+        // every application to remember to turn it on for production.
+        $configured = $config->get('view.cache.use_opcache');
+
+        $this->useOpCache = $configured === null ? ! $this->debug : (bool) $configured;
 
         $this->opcacheAvailable = $this->useOpCache && function_exists('opcache_is_script_cached');
 
