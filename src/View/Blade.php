@@ -63,8 +63,6 @@ class Blade
         if (!is_readable($this->viewsPath)) {
             throw new RuntimeException("Views directory is not readable: {$this->viewsPath}");
         }
-
-        $this->initializeSession();
     }
 
     /**
@@ -144,24 +142,6 @@ class Blade
         BladeCompiler::registerPrecompiler($callback);
     }
 
-    /**
-     * Ensure a session is started and a CSRF token exists.
-     *
-     * Skips session_start() when running in CLI. Token minting is delegated to
-     * the canonical csrf_token() helper so there is a single CSPRNG source
-     * shared by the view, middleware and HTMX layers — no second generator and
-     * no predictable md5(uniqid()) fallback.
-     */
-    protected function initializeSession(): void
-    {
-        // The request's session is started by the kernel's request hook (through
-        // the session Store), so we don't touch native session_start() here —
-        // that spun up an orphaned PHP session under worker mode. Just ensure a
-        // CSRF token exists; csrf_token() mints it via the Store.
-        if (PHP_SAPI !== 'cli' && function_exists('csrf_token')) {
-            csrf_token();
-        }
-    }
 
     /**
      * Return the current CSRF token, minting one via the canonical helper when
