@@ -2,11 +2,18 @@
 
 namespace Nitro\Foundation;
 
+use Nitro\Auth\Access\Gate;
+use Nitro\Auth\Passwords\PasswordBroker;
+use Nitro\Broadcasting\BroadcastManager;
 use Nitro\Cache\CacheServiceProvider;
+use Nitro\Cache\RateLimiter;
 use Nitro\Concurrency\ConcurrencyServiceProvider;
+use Nitro\Console\Kernel as ConsoleKernel;
 use Nitro\Container\Container;
 use Nitro\Container\Contracts\ContainerInterface;
 use Nitro\Container\Lifetime;
+use Nitro\Context\Repository as ContextRepository;
+use Nitro\Cookie\CookieJar;
 use Nitro\Cookie\CookieServiceProvider;
 use Nitro\Encryption\EncryptionServiceProvider;
 use Nitro\Events\Dispatcher as EventDispatcher;
@@ -22,14 +29,25 @@ use Nitro\Foundation\Providers\ServiceProvider;
 use Nitro\Foundation\Providers\SessionServiceProvider;
 use Nitro\Foundation\Providers\ValidationServiceProvider;
 use Nitro\Foundation\Providers\ViewServiceProvider;
+use Nitro\Http\Client\Factory as HttpClientFactory;
 use Nitro\Http\Kernel;
+use Nitro\Http\Redirector;
 use Nitro\Http\Request;
+use Nitro\Http\ResponseFactory;
+use Nitro\Image\Image;
 use Nitro\Notifications\NotificationServiceProvider;
+use Nitro\Process\Factory as ProcessFactory;
 use Nitro\Queue\QueueServiceProvider;
 use Nitro\Redis\RedisServiceProvider;
 use Nitro\Scheduling\ScheduleServiceProvider;
+use Nitro\Support\DateFactory;
+use Nitro\Support\Hash;
 use Nitro\Support\Logger;
+use Nitro\Support\Pipeline;
+use Nitro\Testing\ParallelTesting;
 use Nitro\Thrust\Concerns\ResetsForWorkerMode;
+use Nitro\Translation\Translator;
+use Nitro\View\Blade;
 use RuntimeException;
 
 
@@ -260,6 +278,15 @@ class Application
 
         $this->container->alias(EventDispatcher::class, 'events');
 
+        // A singleton so that a fake installed in a test is the same instance
+        // the code under test sends through. Each verb still builds its own
+        // PendingRequest, so nothing configured on one request leaks.
+        $this->container->singleton('http.client', fn () => new HttpClientFactory());
+
+        $this->registerFacadeBindings();
+
+        $this->container->alias(HttpClientFactory::class, 'http.client');
+
         // The HTTP kernel is a singleton so lifecycle hooks (requestReceived,
         // responseReady, terminating) registered during provider boot are
         // attached to the very instance that Application::handle() runs.
@@ -277,6 +304,72 @@ class Application
         $this->container->declareLifetime(Request::class, Lifetime::Request);
 
         Logger::setPath($this->paths->storage('logs/nitro.log'));
+    }
+
+    /**
+     * Bind the services the facades resolve through.
+     *
+     * A facade is only a front door: it needs the binding behind it to exist,
+     * or the first call is a resolution error rather than a missing method.
+     */
+    private function registerFacadeBindings(): void
+    {
+        $singletons = [
+            'blade' => Blade::class,
+            'cookie' => CookieJar::class,
+            'gate' => Gate::class,
+            'hash' => Hash::class,
+            'log' => Logger::class,
+            'date' => DateFactory::class,
+            'response' => ResponseFactory::class,
+            'redirect' => Redirector::class,
+            'rate.limiter' => RateLimiter::class,
+            'auth.password' => PasswordBroker::class,
+            'artisan' => ConsoleKernel::class,
+            'context' => ContextRepository::class,
+            'process' => ProcessFactory::class,
+            'image' => Image::class,
+            'parallel.testing' => ParallelTesting::class,
+        ];
+
+        foreach ($singletons as $name => $class) {
+            $this->container->singleton(
+                $name,
+                static fn ($container) => $container->createOrResolve($class)
+            );
+
+            $this->container->alias($class, $name);
+        }
+
+        // These three need values from config or the path registry, so they
+        // are built here rather than autowired.
+        $this->container->singleton('maintenance', fn () => new MaintenanceMode(
+            $this->paths->storage('framework/down')
+        ));
+
+        $this->container->alias(MaintenanceMode::class, 'maintenance');
+
+        $this->container->singleton('translator', fn () => new Translator(
+            $this->paths->base('lang'),
+            (string) config('app.locale', 'en'),
+            (string) config('app.fallback_locale', 'en')
+        ));
+
+        $this->container->alias(Translator::class, 'translator');
+
+        $this->container->singleton('broadcast', fn ($container) => new BroadcastManager(
+            $container,
+            (string) config('broadcasting.default', 'null')
+        ));
+
+        $this->container->alias(BroadcastManager::class, 'broadcast');
+
+        // A pipeline holds the value travelling through it, so each caller
+        // needs their own rather than a shared one.
+        $this->container->bind(
+            'pipeline',
+            static fn ($container) => new Pipeline($container)
+        );
     }
 
     /** Register core bootstrappers to run during bootstrap */
