@@ -14,12 +14,23 @@ class Logger
 {
     private static ?string $logPath = null;
 
+    /** Whether the target is a PHP stream rather than a file on disk. */
+    private static bool $isStream = false;
+
     /** Track which directories we've already ensured exist for the lifetime of the process. */
     private static array $verifiedDirs = [];
 
     /** Rotate the log once it reaches this many bytes (0 disables rotation). */
     private static int $maxBytes = 5_242_880; // 5 MB
 
+    /**
+     * Point the log at a file, or at a PHP stream such as php://stderr.
+     *
+     * A stream target is what a container platform expects: it collects a
+     * process's standard output, and a log written to a file inside the
+     * container is thrown away when the container is replaced. A stream has no
+     * directory to create and no size to rotate, so both are skipped.
+     */
     public static function setPath(string $path): void
     {
         // Avoid redundant is_dir() / mkdir() syscalls when the path doesn't
@@ -29,6 +40,11 @@ class Logger
             return;
         }
         self::$logPath = $path;
+        self::$isStream = str_starts_with($path, 'php://');
+
+        if (self::$isStream) {
+            return;
+        }
 
         $dir = dirname($path);
         if (!isset(self::$verifiedDirs[$dir]) && !is_dir($dir)) {
@@ -118,7 +134,7 @@ class Logger
      */
     private static function rotateIfNeeded(): void
     {
-        if (self::$maxBytes <= 0) {
+        if (self::$isStream || self::$maxBytes <= 0) {
             return;
         }
 

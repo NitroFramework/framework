@@ -6,6 +6,7 @@ use Nitro\Foundation\Application;
 use Nitro\Foundation\Config;
 use Nitro\Foundation\Contracts\ConfigRepository;
 use Nitro\Foundation\PathRegistry;
+use Nitro\Support\Logger;
 
 /**
  * Bootstrapper: loads configuration and injects it into the Application.
@@ -45,6 +46,27 @@ class LoadConfiguration implements BootstrapperInterface
         // Hand the Application its config as a typed dependency so it never has
         // to resolve 'config' from the container itself.
         $app->setConfig($config);
+
+        $this->configureLogger($config);
     }
 
+    /**
+     * Re-point the logger now that configuration is readable.
+     *
+     * The Application sets a file path while registering its base bindings, so
+     * anything that fails before this point is still recorded; this is the
+     * first moment the application's own choice of channel is known.
+     */
+    private function configureLogger(ConfigRepository $config): void
+    {
+        $channel = (string) $config->get('logging.channel', 'file');
+
+        Logger::setMaxBytes((int) $config->get('logging.max_bytes', 5_242_880));
+
+        Logger::setPath(match ($channel) {
+            'stderr' => 'php://stderr',
+            'stdout' => 'php://stdout',
+            default  => (string) ($config->get('logging.path') ?: $this->paths->storage('logs/nitro.log')),
+        });
+    }
 }

@@ -23,6 +23,12 @@ class Event
 
     protected string $description = '';
 
+    /** Seconds an overlap lock may be held, or null when overlapping is allowed. */
+    protected ?int $withoutOverlapping = null;
+
+    /** Whether only one instance may run this task per due minute. */
+    protected bool $onOneServer = false;
+
     public function __construct(
         protected mixed $task,
         protected string $type = 'callback', // callback | command | job | exec
@@ -122,7 +128,79 @@ class Event
         return true;
     }
 
+    /**
+     * Let only one run of this task be in flight at a time.
+     *
+     * A task that occasionally takes longer than its own interval would
+     * otherwise start again on top of itself. The lock is held for the duration
+     * of the run and released afterwards, whatever the task does; $expiresAfter
+     * only bounds how long a run that dies without releasing can block the next
+     * one, so it should exceed the task's worst-case runtime.
+     *
+     * @param int $expiresAfter Minutes before an unreleased lock lapses.
+     */
+    public function withoutOverlapping(int $expiresAfter = 1440): static
+    {
+        $this->withoutOverlapping = max(1, $expiresAfter) * 60;
+
+        return $this;
+    }
+
+    /**
+     * Run this task on one instance only.
+     *
+     * Every replica runs the scheduler, so without this a task due at 03:00
+     * runs once per replica. The lock is keyed by the minute the task is due
+     * and is deliberately never released — the first instance to claim that
+     * minute is the one that runs, and the key lapses on its own.
+     *
+     * Requires a cache store every instance shares (redis or database); a
+     * per-instance store cannot coordinate anything.
+     */
+    public function onOneServer(): static
+    {
+        $this->onOneServer = true;
+
+        return $this;
+    }
+
+    /** A name for this task's locks, stable across runs and processes. */
+    public function mutexName(): string
+    {
+        return 'schedule:' . sha1($this->type . '|' . $this->expression() . '|' . $this->getDescription());
+    }
+
     public function run(ContainerInterface $container): mixed
+    {
+        if ($this->onOneServer && ! $this->claimThisMinute($container)) {
+            return null;
+        }
+
+        if ($this->withoutOverlapping !== null) {
+            return $container->createOrResolve('cache')->store()->lock(
+                $this->mutexName(),
+                $this->withoutOverlapping,
+                fn (): mixed => $this->execute($container),
+            );
+        }
+
+        return $this->execute($container);
+    }
+
+    /**
+     * Claim the current minute for this task, returning false when another
+     * instance already holds it.
+     */
+    protected function claimThisMinute(ContainerInterface $container): bool
+    {
+        return $container->createOrResolve('cache')->store()->add(
+            $this->mutexName() . ':' . date('YmdHi'),
+            1,
+            60,
+        );
+    }
+
+    protected function execute(ContainerInterface $container): mixed
     {
         return match ($this->type) {
             'callback' => ($this->task)(),

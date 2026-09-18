@@ -47,7 +47,11 @@ class SessionServiceProvider extends ServiceProvider
             $config['cookie']   ??= 'nitro_session';
             $config['lifetime'] ??= 120;
             $config['files']    ??= $container->get('paths')->storage('framework/sessions');
-            return new SessionManager($config);
+            // Resolved lazily: only the redis driver needs a connection, and
+            // the Redis layer may not be registered at all.
+            $redis = fn (?string $connection): object => $container->get('redis')->connection($connection);
+
+            return new SessionManager($config, $redis);
         });
 
         // The kernel resolves route middleware fresh on every request. Bind

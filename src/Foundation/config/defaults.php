@@ -47,6 +47,18 @@ return [
         ],
     ],
 
+    'logging' => [
+        // 'file' writes to storage/logs; 'stderr' and 'stdout' write to the
+        // process's own streams, which is how a container platform collects
+        // logs — a file inside a container goes away with the container.
+        'channel'   => 'file',
+        // Overrides the default file path when the channel is 'file'.
+        'path'      => null,
+        // Rotate the file once it reaches this size; 0 disables rotation, and
+        // a stream channel ignores it.
+        'max_bytes' => 5_242_880,
+    ],
+
     // No config/mail.php ships, so this is the sole source of the mail default.
     'mail' => [
         'driver' => 'log',
@@ -57,6 +69,9 @@ return [
         'failed'  => [
             'table' => 'failed_jobs',
         ],
+        'batching' => [
+            'table' => 'job_batches',
+        ],
     ],
 
     'session' => [
@@ -64,6 +79,12 @@ return [
         'lifetime' => 120,
         'cookie'   => 'nitro_session',
         'files'    => null,
+        // Used by the 'redis' driver: the connection under database.redis to
+        // write to, and the prefix its keys carry. Null takes the default one.
+        'connection' => null,
+        'prefix'     => 'nitro:session:',
+        // Used by the 'database' driver.
+        'table'      => 'sessions',
         // Odds that a request sweeps expired sessions once its response has
         // been sent: 2 in 100. Set the first number to 0 to never sweep.
         'lottery'  => [2, 100],

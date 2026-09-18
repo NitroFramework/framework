@@ -4,9 +4,12 @@ namespace Nitro\Queue;
 
 use Nitro\Container\Contracts\ContainerInterface;
 use Nitro\Foundation\Contracts\ConfigRepository;
+use Nitro\Queue\Batching\BatchRepository;
+use Nitro\Queue\Batching\PendingBatch;
 use Nitro\Queue\Contracts\Queue;
 use Nitro\Queue\Drivers\ArrayQueue;
 use Nitro\Queue\Drivers\DatabaseQueue;
+use Nitro\Queue\Drivers\RedisQueue;
 use Nitro\Queue\Drivers\SyncQueue;
 
 /**
@@ -19,7 +22,7 @@ use Nitro\Queue\Drivers\SyncQueue;
  *   $manager->connection('mail');    // alt connection
  *
  * Connection vs queue: a connection is the storage backend (database,
- * sync, array, eventually redis); a queue is a named bucket WITHIN
+ * redis, sync, array); a queue is a named bucket WITHIN
  * that backend (default, mail, reports). One database connection
  * holds N queues.
  *
@@ -69,6 +72,11 @@ class QueueManager
                 table: $config['table'] ?? 'jobs',
                 visibilityTimeout: (int) ($config['retry_after'] ?? 90),
             ),
+            'redis' => new RedisQueue(
+                connection: $this->container->get('redis')->connection($config['connection'] ?? null),
+                prefix: (string) ($config['prefix'] ?? 'nitro:queue:'),
+                visibilityTimeout: (int) ($config['retry_after'] ?? 90),
+            ),
             default => throw new \RuntimeException(
                 "Unknown queue driver [{$driver}] for connection [{$name}]."
             ),
@@ -82,5 +90,46 @@ class QueueManager
     public function extend(string $name, Queue $queue): void
     {
         $this->connections[$name] = $queue;
+    }
+
+    /**
+     * Push a job onto a queue.
+     *
+     * @param  string|null $queue      Queue name, or the job's own.
+     * @param  string|null $connection Connection name, or the default.
+     * @return int|string Identifier the driver gave the queued job.
+     */
+    public function push(Job $job, ?string $queue = null, ?string $connection = null): int|string
+    {
+        $queueName = $queue ?? $job->queueName();
+
+        $envelope = new QueuedJob(
+            id: null,
+            queue: $queueName,
+            payload: QueuedJob::encode($job),
+            attempts: 0,
+            availableAt: time(),
+            reservedAt: null,
+            createdAt: time(),
+        );
+
+        return $this->connection($connection)->push($envelope, $queueName);
+    }
+
+    /**
+     * Start a batch of jobs dispatched together.
+     *
+     *     Queue::batch([new ImportRows(1), new ImportRows(2)])->dispatch();
+     *
+     * @param array<int, Job>|Job $jobs
+     */
+    public function batch(array|Job $jobs = []): PendingBatch
+    {
+        return new PendingBatch(
+            $this->container,
+            $this,
+            $this->container->createOrResolve(BatchRepository::class),
+            $jobs
+        );
     }
 }

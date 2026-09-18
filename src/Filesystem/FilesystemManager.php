@@ -42,6 +42,7 @@ class FilesystemManager
 
         return match ($driver) {
             'local' => new LocalFilesystem((string) ($config['root'] ?? ''), $config),
+            's3'    => new S3Filesystem($config),
             default => throw new InvalidArgumentException("Unsupported filesystem driver [{$driver}]."),
         };
     }

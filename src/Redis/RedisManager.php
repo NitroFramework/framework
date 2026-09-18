@@ -4,7 +4,6 @@ namespace Nitro\Redis;
 
 use InvalidArgumentException;
 use Nitro\Redis\Connections\PhpRedisConnection;
-use RuntimeException;
 
 /**
  * Resolves and caches named Redis connections from config('database.redis').
@@ -35,30 +34,7 @@ class RedisManager
         $config = $this->config['connections'][$name]
             ?? throw new InvalidArgumentException("Redis connection [{$name}] is not configured.");
 
-        if (! extension_loaded('redis')) {
-            throw new RuntimeException('The phpredis extension is required for Redis connections.');
-        }
-
-        $client = new \Redis();
-
-        $connect = ($config['persistent'] ?? false) ? 'pconnect' : 'connect';
-        $client->{$connect}(
-            (string) ($config['host'] ?? '127.0.0.1'),
-            (int) ($config['port'] ?? 6379),
-            (float) ($config['timeout'] ?? 0.0),
-        );
-
-        if (! empty($config['password'])) {
-            $client->auth($config['password']);
-        }
-        if (isset($config['database'])) {
-            $client->select((int) $config['database']);
-        }
-        if (! empty($config['prefix'])) {
-            $client->setOption(\Redis::OPT_PREFIX, (string) $config['prefix']);
-        }
-
-        return new PhpRedisConnection($client);
+        return new PhpRedisConnection(Connector::connect($config));
     }
 
     /** Disconnect and forget all resolved connections. */
