@@ -27,8 +27,11 @@ interface SessionInterface
      */
     public function isStarted(): bool;
 
-    /** Remove persisted sessions idle longer than $minutes. */
-    public function collectGarbage(int $minutes): void;
+    /**
+     * Remove persisted sessions idle longer than $minutes, up to $limit of
+     * them; 0 sweeps without a cap.
+     */
+    public function collectGarbage(int $minutes, int $limit = 0): void;
 
     /** The session id. */
     public function getId(): string;

@@ -2,10 +2,13 @@
 
 namespace Tests\Unit\Http;
 
+use Nitro\Container\Container;
 use Nitro\Exceptions\HttpException;
 use Nitro\Http\Middleware\VerifyCsrfToken;
 use Nitro\Http\Request;
 use Nitro\Http\Response;
+use Nitro\Session\Handlers\ArraySessionHandler;
+use Nitro\Session\Store;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -20,10 +23,22 @@ class VerifyCsrfTokenTest extends TestCase
 
     protected function setUp(): void
     {
-        if (session_status() !== PHP_SESSION_ACTIVE) {
-            @session_start();
-        }
-        $_SESSION['_csrf'] = self::TOKEN;
+        // The token is read from the session the route started, not from
+        // $_SESSION: nothing outside StartSession may bring a session into
+        // being, so a test that wants one starts it the same way a request
+        // would.
+        Container::reset();
+
+        $session = new Store('test_sess', new ArraySessionHandler());
+        $session->start();
+        $session->put('_csrf', self::TOKEN);
+
+        Container::getInstance()->instance('session', $session);
+    }
+
+    protected function tearDown(): void
+    {
+        Container::reset();
     }
 
     private function request(string $method, string $path, array $body = [], array $headers = []): Request

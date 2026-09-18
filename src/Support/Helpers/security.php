@@ -31,42 +31,34 @@ if (!function_exists('e')) {
 
 if (!function_exists('csrf_token')) {
     /**
-     * Get CSRF token
-     * 
-     * @return string
+     * The current session's CSRF token, or an empty string when there is no
+     * session.
+     *
+     * A read, never a write. The token is minted by the session itself the
+     * moment it starts, so by the time a route in the session group renders a
+     * form the token is already there. Minting here instead meant that asking
+     * for a token created a session: a stateless JSON route, or a view compiler
+     * warming itself at construction, would take an id, set a cookie and leave
+     * a file behind for a request that had no state to keep.
+     *
+     * An empty string is the honest answer for a route with no session. A form
+     * on such a route could not be verified against one anyway.
      */
     function csrf_token(): string
     {
-        // Route the token through the framework session Store so it lives in the
-        // same session as everything else. Under FrankenPHP worker mode that
-        // store is worker-safe (file-backed, persists across requests); raw
-        // $_SESSION does NOT persist there (native session isn't managed per
-        // worker request), which minted a fresh token every request and caused
-        // CSRF 419s on POST/Livewire/HTMX. Non-worker native sessions are backed
-        // by $_SESSION anyway, so behaviour there is unchanged. Falls back to raw
-        // $_SESSION only when no session service is bound (CLI/early bootstrap).
         try {
             $session = nitro_session();
         } catch (\Throwable) {
-            $session = null;
+            return '';
         }
 
-        if ($session !== null) {
-            $token = $session->get('_csrf');
-            if (!is_string($token) || $token === '') {
-                $token = bin2hex(random_bytes(16));
-                $session->put('_csrf', $token);
-            }
-            return $token;
+        if (! $session->isStarted()) {
+            return '';
         }
 
-        if (session_status() === PHP_SESSION_NONE) {
-            session_start();
-        }
-        if (!isset($_SESSION['_csrf'])) {
-            $_SESSION['_csrf'] = bin2hex(random_bytes(16));
-        }
-        return $_SESSION['_csrf'];
+        $token = $session->get('_csrf');
+
+        return is_string($token) ? $token : '';
     }
 }
 

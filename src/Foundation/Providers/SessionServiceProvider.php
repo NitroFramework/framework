@@ -11,6 +11,7 @@ use Nitro\Session\Contracts\SessionInterface;
 use Nitro\Session\NativeSession;
 use Nitro\Session\SessionManager;
 use Nitro\Session\Store;
+use Nitro\Support\Logger;
 
 /**
  * Wires the session layer into the container.
@@ -143,7 +144,45 @@ class SessionServiceProvider extends ServiceProvider
 
             // save() flushes and releases the native lock.
             $session->save();
+
+            $this->sweepExpiredSessions($session);
         });
+    }
+
+    /**
+     * Occasionally delete sessions nobody came back for.
+     *
+     * An application should not have to be told to clean up after itself, so
+     * this runs on a lottery rather than from a command someone has to
+     * remember to schedule — a file driver otherwise grows one dead payload for
+     * every client that never returns its cookie, which is every health check,
+     * crawler and load generator that ever touched it.
+     *
+     * Two things keep it off the critical path. It runs from the terminating
+     * hook, after the response has been sent, so no client waits for it. And it
+     * removes at most a fixed number of files per sweep, so the cost does not
+     * grow with the size of the backlog — an unbounded walk would stall the
+     * worker, and every request queued behind it, for as long as the directory
+     * took to read.
+     */
+    protected function sweepExpiredSessions(SessionInterface $session): void
+    {
+        $config = (array) config('session');
+        [$chances, $outOf] = $config['lottery'] ?? [2, 100];
+
+        if ($chances < 1 || $outOf < 1 || random_int(1, $outOf) > $chances) {
+            return;
+        }
+
+        try {
+            $session->collectGarbage(
+                (int) ($config['lifetime'] ?? 120),
+                (int) ($config['sweep_limit'] ?? 100)
+            );
+        } catch (\Throwable $exception) {
+            // Housekeeping must never turn a served response into an error.
+            Logger::debug('Session sweep failed', ['exception' => $exception->getMessage()]);
+        }
     }
 
     /**

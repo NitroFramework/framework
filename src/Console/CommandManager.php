@@ -80,7 +80,6 @@ class CommandManager
             Commands\CacheCommands::class,
             Commands\LifecycleCommand::class,
             Commands\RouteListCommand::class,
-            Commands\SessionCommands::class,
             Commands\VariableAuditCommand::class,
             Commands\LifetimeCheckCommand::class,
             ConcurrencyInvokeCommand::class,

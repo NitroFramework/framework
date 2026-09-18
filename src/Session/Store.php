@@ -55,13 +55,15 @@ class Store implements SessionInterface
     }
 
     /**
-     * Delegate garbage collection to the handler. Called on a lottery from the
-     * session lifecycle rather than every request — see
-     * SessionServiceProvider::sweepExpiredSessions().
+     * Remove persisted sessions idle longer than $minutes.
+     *
+     * Runs on a lottery after the response has been sent, so an application
+     * never has to be told to clean up after itself. $limit caps how much one
+     * sweep does, keeping the cost the same on a directory of any size.
      */
-    public function collectGarbage(int $minutes): void
+    public function collectGarbage(int $minutes, int $limit = 0): void
     {
-        $this->handler->gc($minutes * 60);
+        $this->handler->gc($minutes * 60, $limit);
     }
 
     /** Read + unserialize the persisted payload for the current id. */

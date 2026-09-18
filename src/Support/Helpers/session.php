@@ -41,18 +41,22 @@ if (!function_exists('session')) {
 
 if (!function_exists('nitro_session')) {
     /**
-     * Resolve the request's session store, starting it if the kernel hasn't yet
-     * (e.g. when a helper is called outside the normal request lifecycle).
+     * Resolve the request's session store.
+     *
+     * Reading the store does not start it. Only {@see \Nitro\Http\Middleware\StartSession}
+     * does that, so a session exists when the matched route asked for one and
+     * never because some helper wanted to look something up. Starting on read
+     * meant a stateless JSON route could mint a session — and with it an id, a
+     * cookie and a file on disk — merely by calling csrf_token().
+     *
+     * On a route with no session the store answers empty and discards writes,
+     * which is the same thing a session that was never started would do.
      *
      * @return SessionInterface
      */
     function nitro_session(): SessionInterface
     {
-        $store = app('session');
-        if (!$store->isStarted()) {
-            $store->start();
-        }
-        return $store;
+        return app('session');
     }
 }
 

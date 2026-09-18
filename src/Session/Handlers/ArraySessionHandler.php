@@ -55,16 +55,25 @@ class ArraySessionHandler implements SessionHandlerInterface
         return true;
     }
 
-    public function gc(int $max_lifetime): int|false
+    /** @param int $limit Entries to remove at most; 0 for no limit. */
+    public function gc(int $max_lifetime, int $limit = 0): int|false
     {
         $cutoff = time() - $max_lifetime;
         $removed = 0;
+
         foreach ($this->storage as $id => $entry) {
-            if ($entry['time'] < $cutoff) {
-                unset($this->storage[$id]);
-                $removed++;
+            if ($entry['time'] >= $cutoff) {
+                continue;
+            }
+
+            unset($this->storage[$id]);
+            $removed++;
+
+            if ($limit > 0 && $removed >= $limit) {
+                break;
             }
         }
+
         return $removed;
     }
 }

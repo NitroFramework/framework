@@ -88,16 +88,55 @@ class FileSessionHandler implements SessionHandlerInterface
         return true;
     }
 
-    public function gc(int $max_lifetime): int|false
+    /**
+     * Delete payloads idle past the lifetime, up to $limit of them.
+     *
+     * The limit is what makes this safe to run automatically. A worker serves
+     * requests in a loop, so an unbounded walk of a directory holding a hundred
+     * thousand files stalls every request queued behind it; bounded, a sweep
+     * costs the same whether the directory holds ten files or a million, and
+     * the backlog drains over successive sweeps instead of in one stall.
+     *
+     * glob() is avoided for the same reason — it builds an array of every entry
+     * before the first one can be examined.
+     *
+     * @param int $limit Files to remove at most; 0 for no limit.
+     */
+    public function gc(int $max_lifetime, int $limit = 0): int|false
     {
         $cutoff = time() - $max_lifetime;
         $removed = 0;
-        foreach (glob($this->path . DIRECTORY_SEPARATOR . '*') ?: [] as $file) {
-            if (is_file($file) && filemtime($file) < $cutoff) {
+
+        $directory = @opendir($this->path);
+
+        if ($directory === false) {
+            return false;
+        }
+
+        try {
+            while (($entry = readdir($directory)) !== false) {
+                if ($entry === '.' || $entry === '..') {
+                    continue;
+                }
+
+                $file = $this->path . DIRECTORY_SEPARATOR . $entry;
+                $mtime = @filemtime($file);
+
+                if ($mtime === false || $mtime >= $cutoff || ! is_file($file)) {
+                    continue;
+                }
+
                 @unlink($file);
                 $removed++;
+
+                if ($limit > 0 && $removed >= $limit) {
+                    break;
+                }
             }
+        } finally {
+            closedir($directory);
         }
+
         return $removed;
     }
 

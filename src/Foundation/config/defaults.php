@@ -64,6 +64,12 @@ return [
         'lifetime' => 120,
         'cookie'   => 'nitro_session',
         'files'    => null,
+        // Odds that a request sweeps expired sessions once its response has
+        // been sent: 2 in 100. Set the first number to 0 to never sweep.
+        'lottery'  => [2, 100],
+        // Files one sweep may delete. Bounded so the cost does not grow with
+        // the backlog and a worker is never held up reading a large directory.
+        'sweep_limit' => 100,
     ],
 
     'view' => [
