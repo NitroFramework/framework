@@ -13,7 +13,6 @@ use Nitro\Container\Container;
 use Nitro\Container\Contracts\ContainerInterface;
 use Nitro\Container\Lifetime;
 use Nitro\Context\Repository as ContextRepository;
-use Nitro\Cookie\CookieJar;
 use Nitro\Cookie\CookieServiceProvider;
 use Nitro\Encryption\EncryptionServiceProvider;
 use Nitro\Events\Dispatcher as EventDispatcher;
@@ -34,7 +33,6 @@ use Nitro\Http\Kernel;
 use Nitro\Http\Redirector;
 use Nitro\Http\Request;
 use Nitro\Http\ResponseFactory;
-use Nitro\Image\Image;
 use Nitro\Notifications\NotificationServiceProvider;
 use Nitro\Process\Factory as ProcessFactory;
 use Nitro\Queue\QueueServiceProvider;
@@ -316,7 +314,6 @@ class Application
     {
         $singletons = [
             'blade' => Blade::class,
-            'cookie' => CookieJar::class,
             'gate' => Gate::class,
             'hash' => Hash::class,
             'log' => Logger::class,
@@ -328,17 +325,19 @@ class Application
             'artisan' => ConsoleKernel::class,
             'context' => ContextRepository::class,
             'process' => ProcessFactory::class,
-            'image' => Image::class,
             'parallel.testing' => ParallelTesting::class,
         ];
 
         foreach ($singletons as $name => $class) {
-            $this->container->singleton(
-                $name,
-                static fn ($container) => $container->createOrResolve($class)
-            );
-
-            $this->container->alias($class, $name);
+            // The class is the binding and the short name points at it, never
+            // the reverse. Binding the short name and then aliasing the class
+            // back to it closes a loop: resolving either one asks for the
+            // other for as long as the process has memory. A provider that
+            // later binds the short name itself simply replaces the alias,
+            // which is why this direction survives being overridden and the
+            // other does not.
+            $this->container->singleton($class, $class);
+            $this->container->alias($name, $class);
         }
 
         // These three need values from config or the path registry, so they
