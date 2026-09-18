@@ -15,6 +15,8 @@ use JsonSerializable;
  */
 class Stringable implements ArrayAccess, JsonSerializable, \Stringable
 {
+    use Conditionable;
+
     public function __construct(protected string $value = '') {}
 
     /**
@@ -238,18 +240,6 @@ class Stringable implements ArrayAccess, JsonSerializable, \Stringable
         return new static(substr_replace($this->value, $replace, $position, strlen($search)));
     }
 
-    public function when(mixed $condition, callable $callback, ?callable $default = null): static
-    {
-        if ($condition) {
-            return $callback($this, $condition) ?? $this;
-        }
-
-        if ($default !== null) {
-            return $default($this, $condition) ?? $this;
-        }
-
-        return $this;
-    }
 
     public function whenEmpty(callable $callback): static
     {

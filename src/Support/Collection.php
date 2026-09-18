@@ -13,6 +13,8 @@ use JsonSerializable;
  */
 class Collection implements ArrayAccess, Countable, IteratorAggregate, JsonSerializable
 {
+    use Conditionable;
+
     protected array $items;
 
     public function __construct(array $items = [])
@@ -1072,27 +1074,7 @@ class Collection implements ArrayAccess, Countable, IteratorAggregate, JsonSeria
     // CONDITIONALS
     // =========================================================================
 
-    public function when($condition, callable $callback, ?callable $default = null): static
-    {
-        $condition = is_callable($condition) ? $condition($this) : $condition;
-
-        if ($condition) {
-            return $callback($this) ?? $this;
-        }
-
-        if ($default) {
-            return $default($this) ?? $this;
-        }
-
-        return $this;
-    }
-
-    public function unless($condition, callable $callback, ?callable $default = null): static
-    {
-        $condition = is_callable($condition) ? $condition($this) : $condition;
-
-        return $this->when(!$condition, $callback, $default);
-    }
+    // when() and unless() come from Conditionable.
 
     // =========================================================================
     // CHECKING

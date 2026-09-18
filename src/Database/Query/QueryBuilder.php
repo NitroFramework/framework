@@ -14,6 +14,7 @@ use Nitro\Database\Query\Concerns\CachesQueries;
 use Nitro\Database\Query\Concerns\ExecutesQueries;
 use Nitro\Database\Query\Concerns\HasAggregates;
 use Nitro\Database\Query\Concerns\InspectsQueries;
+use Nitro\Support\Conditionable;
 
 /**
  * Fluent SQL query builder — composes and executes queries via the grammar and connection.
@@ -28,6 +29,7 @@ class QueryBuilder
     use HasAggregates;
     use InspectsQueries;
     use CachesQueries;
+    use Conditionable;
 
     protected Connection $connection;
     protected Grammar $grammar;
@@ -267,17 +269,6 @@ class QueryBuilder
         return $this;
     }
 
-    // ─── Conditional ────────────────────────────────────────
-
-    public function when(mixed $condition, Closure $callback, ?Closure $default = null): static
-    {
-        if ($condition) {
-            $callback($this, $condition);
-        } elseif ($default) {
-            $default($this, $condition);
-        }
-        return $this;
-    }
 
     // ─── Ordering & Grouping ────────────────────────────────
 

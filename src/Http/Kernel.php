@@ -16,6 +16,7 @@ use Nitro\Http\Request;
 use Nitro\Http\Response;
 use Nitro\Http\ViewResponse;
 use Nitro\Routing\RouteDispatcher;
+use Nitro\Support\Pipeline;
 use Nitro\Routing\Route;
 use Nitro\Routing\Router;
 use Nitro\View\Contracts\ViewEngine;
@@ -229,11 +230,12 @@ class Kernel
     /**
      * Compose a middleware list around a destination and run it.
      *
-     * The list is wrapped inside-out — reversed, so the first-listed middleware
-     * becomes the outermost closure and therefore runs first.
+     * Names are resolved before the pipeline runs, so 'alias:args' is split
+     * into the alias and its arguments here rather than in {@see Pipeline}.
      *
      * @param  array<int, string>          $middlewareNames Aliases, 'alias:args', or class names.
      * @param  callable(Request): Response $destination     Invoked once all middleware have called $next.
+     * @return Response
      *
      * @throws RuntimeException When a name resolves to no middleware.
      */
@@ -243,22 +245,21 @@ class Kernel
             return $destination($request);
         }
 
-        $next = $destination;
+        $stages = [];
 
-        foreach (array_reverse($middlewareNames) as $name) {
-            // 'platform:admin' is the alias 'platform' with 'admin' as an
-            // argument. Without the split the whole string resolves to nothing
-            // and the middleware is skipped — which, on a guard, leaves a route
-            // declared ->middleware('platform:admin') wide open while the route
-            // list still shows it as protected.
+        foreach ($middlewareNames as $name) {
             [$alias, $parameters] = $this->parseMiddlewareName($name);
 
             $middleware = $this->resolveRouteMiddleware($alias);
-            $current = $next;
-            $next = fn (Request $request): Response => $middleware->handle($request, $current, ...$parameters);
+
+            $stages[] = static fn (Request $request, callable $next): Response
+                => $middleware->handle($request, $next, ...$parameters);
         }
 
-        return $next($request);
+        return Pipeline::make($this->container)
+            ->send($request)
+            ->through($stages)
+            ->then(static fn (Request $request): Response => $destination($request));
     }
 
     /**
