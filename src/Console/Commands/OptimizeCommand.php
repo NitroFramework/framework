@@ -19,8 +19,8 @@ use Nitro\View\Blade;
 
 /**
  * Console commands: build (optimize) and clear (optimize:clear) the production
- * caches — config, routes, views, providers, schema, the helper bundle, an
- * opcache preload script, and an optimized/class-authoritative autoloader.
+ * caches — config, routes, views, providers, schema, an opcache preload
+ * script, and an optimized/class-authoritative autoloader.
  * optimize:clear reverts all of them (and resets opcache / restores the dev
  * autoloader), so it's the single "back to development" verb.
  */
@@ -62,31 +62,28 @@ class OptimizeCommand implements CommandInterface
 
         $startTime = microtime(true);
 
-        $this->output->info("Step 1/9: Caching configuration...");
+        $this->output->info("Step 1/8: Caching configuration...");
         $this->cacheConfig();
 
-        $this->output->info("Step 2/9: Caching routes...");
+        $this->output->info("Step 2/8: Caching routes...");
         $this->cacheRoutes();
 
-        $this->output->info("Step 3/9: Compiling container...");
+        $this->output->info("Step 3/8: Compiling container...");
         $this->cacheContainer();
 
-        $this->output->info("Step 4/9: Caching views...");
+        $this->output->info("Step 4/8: Caching views...");
         $this->cacheViews();
 
-        $this->output->info("Step 5/9: Caching service providers...");
+        $this->output->info("Step 5/8: Caching service providers...");
         $this->cacheBootstrap();
 
-        $this->output->info("Step 6/9: Bundling helpers...");
-        $this->bundleHelpers();
-
-        $this->output->info("Step 7/9: Caching database schema...");
+        $this->output->info("Step 6/8: Caching database schema...");
         $this->cacheSchema();
 
-        $this->output->info("Step 8/9: Generating opcache preload script...");
+        $this->output->info("Step 7/8: Generating opcache preload script...");
         $this->generatePreload();
 
-        $this->output->info("Step 9/9: Dumping optimized autoloader...");
+        $this->output->info("Step 8/8: Dumping optimized autoloader...");
         $this->dumpAutoloader();
 
         $duration = round((microtime(true) - $startTime) * 1000, 2);
@@ -179,74 +176,6 @@ class OptimizeCommand implements CommandInterface
         (new ViewWarmup($this->paths, $this->view, $this->config, $this->output))->compile();
     }
 
-    /**
-     * Bundle every Helpers/*.php into a single Helpers/bundle.php so the
-     * runtime loader only does one file open + one opcache lookup instead of
-     * ~20. Order is preserved to honor dependency order between helper files.
-     */
-    protected function bundleHelpers(): void
-    {
-        try {
-            $helpersDir = __DIR__ . '/../../Support/Helpers';
-            // Derive the file list AND its dependency order from the runtime
-            // loader itself (Support/helpers.php), so the bundle can never drift
-            // out of sync with it. A hardcoded copy here previously omitted
-            // cookie.php, leaving cookie() undefined in optimized mode.
-            $loaderFile = __DIR__ . '/../../Support/helpers.php';
-            $files = [];
-            if (is_file($loaderFile)
-                && preg_match_all('#/Helpers/([A-Za-z0-9_]+\.php)#', (string) file_get_contents($loaderFile), $matches)
-            ) {
-                foreach ($matches[1] as $file) {
-                    if ($file !== 'bundle.php' && !in_array($file, $files, true)) {
-                        $files[] = $file;
-                    }
-                }
-            }
-
-            // Helper files are concatenated into ONE file scope, so their
-            // top-level `use` imports must be hoisted to the top and de-duped —
-            // otherwise two files importing the same class (e.g. Container)
-            // collide with "Cannot use … because the name is already in use".
-            $useStatements = [];
-            $bodies = '';
-
-            foreach ($files as $file) {
-                $path = $helpersDir . DIRECTORY_SEPARATOR . $file;
-                if (!is_file($path)) {
-                    continue;
-                }
-                $contents = file_get_contents($path);
-                // Strip the leading <?php tag so we can concatenate.
-                $contents = preg_replace('/^\s*<\?php\s*/i', '', $contents, 1);
-
-                // Lift top-level `use ...;` lines out of the body (line-anchored,
-                // so closure `use (...)` clauses are never matched) and collect
-                // them de-duped. Keyed by statement => emitted once.
-                $contents = preg_replace_callback(
-                    '/^use\s+[^;]+;[ \t]*\r?\n/m',
-                    function (array $matches) use (&$useStatements): string {
-                        $useStatements[trim($matches[0])] = true;
-                        return '';
-                    },
-                    $contents,
-                );
-
-                $bodies .= "// --- {$file} ---\n" . $contents . "\n";
-            }
-
-            $bundled = "<?php\n\n// Auto-generated by `nitro optimize` — do not edit.\n// Run `nitro optimize:clear` to remove.\n\n";
-            if ($useStatements !== []) {
-                $bundled .= implode("\n", array_keys($useStatements)) . "\n\n";
-            }
-            $bundled .= $bodies;
-
-            file_put_contents($helpersDir . '/bundle.php', $bundled);
-            $this->output->writeln($this->output->color("  ✓ Bundled " . count($files) . " helper files", 'green'));
-        } catch (\Throwable $exception) {
-            $this->output->writeln($this->output->color("  ✖ Helper bundling failed: " . $exception->getMessage(), 'red'));
-        }
-    }
 
     /**
      * Compile a reflection-free container for the app's autowired entry classes.
@@ -585,10 +514,13 @@ class OptimizeCommand implements CommandInterface
             // No loader/router resolvable — nothing to clear.
         }
 
+        // Left behind by a version that bundled the helpers into one file.
+        // Removed here so an upgraded application does not keep loading a
+        // stale copy that shadows the real ones.
         $bundlePath = __DIR__ . '/../../Support/Helpers/bundle.php';
         if (is_file($bundlePath)) {
             unlink($bundlePath);
-            $this->output->writeln($this->output->color("  ✓ Cleared helper bundle", 'green'));
+            $this->output->writeln($this->output->color("  ✓ Removed the old helper bundle", 'green'));
             $cleared++;
         }
 
