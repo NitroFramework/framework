@@ -50,6 +50,8 @@ class ViewServiceProvider extends ServiceProvider
             );
         });
 
+        $this->container->alias(\Nitro\View\Vite::class, 'vite');
+
         // ── Interface → concrete (route to the singleton above) ──
         $this->container->singleton(TemplateCompiler::class, BladeCompiler::class);
         $this->container->singleton(TagCompiler::class, ComponentTagCompiler::class);
