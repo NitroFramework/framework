@@ -546,17 +546,117 @@ abstract class Model implements \ArrayAccess, \JsonSerializable
     }
 
 
+    // ─── Global Scopes ────────────────────────────────────
+
+    /**
+     * Registered global scopes, keyed by model class then identifier.
+     *
+     * @var array<class-string, array<string, Scope|\Closure>>
+     */
+    protected static array $globalScopes = [];
+
+    /**
+     * Register a constraint applied to every query for this model.
+     *
+     * A Scope instance is keyed by its class name; a closure needs an
+     * explicit string identifier so it can be removed again.
+     *
+     * @param  string|Scope    $identifier Identifier, or a Scope keyed by its class.
+     * @param  Scope|\Closure|null $scope  Implementation when $identifier is a string.
+     * @throws \InvalidArgumentException When a closure is given no identifier.
+     */
+    public static function addGlobalScope(string|Scope $identifier, Scope|\Closure|null $scope = null): void
+    {
+        if ($identifier instanceof Scope) {
+            static::$globalScopes[static::class][$identifier::class] = $identifier;
+
+            return;
+        }
+
+        if ($scope === null) {
+            throw new \InvalidArgumentException(
+                "Global scope [{$identifier}] was registered without an implementation."
+            );
+        }
+
+        static::$globalScopes[static::class][$identifier] = $scope;
+    }
+
+    public static function hasGlobalScope(string|Scope $identifier): bool
+    {
+        return static::resolveGlobalScope($identifier) !== null;
+    }
+
+    /** @return Scope|\Closure|null */
+    public static function resolveGlobalScope(string|Scope $identifier): Scope|\Closure|null
+    {
+        $key = $identifier instanceof Scope ? $identifier::class : $identifier;
+
+        return static::$globalScopes[static::class][$key] ?? null;
+    }
+
+    /** @return array<string, Scope|\Closure> */
+    public static function getGlobalScopes(): array
+    {
+        return static::$globalScopes[static::class] ?? [];
+    }
+
     // ─── Query Entry Point ────────────────────────────────
 
     public static function query(): ModelBuilder
     {
+        return static::buildQuery();
+    }
+
+    /**
+     * A query with every global scope applied except those named.
+     *
+     * @param string|Scope ...$identifiers Scopes to leave off.
+     */
+    public static function withoutGlobalScope(string|Scope ...$identifiers): ModelBuilder
+    {
+        $excluded = array_map(
+            static fn (string|Scope $identifier): string => $identifier instanceof Scope
+                ? $identifier::class
+                : $identifier,
+            $identifiers
+        );
+
+        return static::buildQuery($excluded);
+    }
+
+    /** A query with no global scopes applied. */
+    public static function withoutGlobalScopes(): ModelBuilder
+    {
+        return static::buildQuery(null);
+    }
+
+    /**
+     * Build a query, applying global scopes.
+     *
+     * @param array<int, string>|null $excluded Identifiers to skip, or null to skip all.
+     */
+    protected static function buildQuery(?array $excluded = []): ModelBuilder
+    {
         $instance = new static;
         $builder = new ModelBuilder(DB::table($instance->getTable()), static::class);
 
-        // Soft-delete global scope: hide trashed rows unless the query opts in
-        // via withTrashed()/onlyTrashed() (which build a fresh, unscoped query).
-        if ($instance->usesSoftDeletes()) {
-            $builder->whereNull($instance->getDeletedAtColumn());
+        if ($excluded === null) {
+            return $builder;
+        }
+
+        foreach (static::getGlobalScopes() as $identifier => $scope) {
+            if (in_array($identifier, $excluded, true)) {
+                continue;
+            }
+
+            if ($scope instanceof Scope) {
+                $scope->apply($builder, $instance);
+
+                continue;
+            }
+
+            $scope($builder, $instance);
         }
 
         return $builder;

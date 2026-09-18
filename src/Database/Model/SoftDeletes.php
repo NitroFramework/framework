@@ -3,6 +3,7 @@
 namespace Nitro\Database\Model;
 
 use Nitro\Database\DB;
+use Nitro\Database\Model\Scopes\SoftDeletingScope;
 
 /**
  * Soft deletes — Laravel's SoftDeletes trait.
@@ -17,6 +18,12 @@ use Nitro\Database\DB;
  */
 trait SoftDeletes
 {
+    /** Registers the scope that hides trashed rows. */
+    protected static function bootSoftDeletes(): void
+    {
+        static::addGlobalScope(new SoftDeletingScope());
+    }
+
     /** Tells Model::query() to apply the trashed-hiding scope. */
     public function usesSoftDeletes(): bool
     {
@@ -98,15 +105,13 @@ trait SoftDeletes
     /** Query including trashed rows (no soft-delete scope). */
     public static function withTrashed(): ModelBuilder
     {
-        $instance = new static;
-        return new ModelBuilder(DB::table($instance->getTable()), static::class);
+        return static::withoutGlobalScope(SoftDeletingScope::class);
     }
 
     /** Query ONLY trashed rows. */
     public static function onlyTrashed(): ModelBuilder
     {
-        $instance = new static;
-        $builder  = new ModelBuilder(DB::table($instance->getTable()), static::class);
-        return $builder->whereNotNull($instance->getDeletedAtColumn());
+        return static::withoutGlobalScope(SoftDeletingScope::class)
+            ->whereNotNull((new static)->getDeletedAtColumn());
     }
 }
