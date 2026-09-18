@@ -80,6 +80,16 @@ class ArrayStore implements StoreInterface
     /**
      * {@inheritdoc}
      */
+    /** One process owns this store, so an absent key cannot be taken twice. */
+    public function add(string $key, mixed $value, int $seconds): bool
+    {
+        if ($this->get($key) !== null) {
+            return false;
+        }
+
+        return $this->put($key, $value, $seconds);
+    }
+
     public function putMany(array $values, int $seconds): bool
     {
         foreach ($values as $key => $value) {

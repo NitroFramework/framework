@@ -102,6 +102,41 @@ class Repository
     }
 
     /**
+     * Store a value only when the key is absent.
+     *
+     * Atomic in the store, so it can be used as a lock: the caller that gets
+     * true owns it until the entry expires.
+     *
+     * @param int|null $ttl Seconds to hold it; null holds it indefinitely.
+     */
+    public function add(string $key, mixed $value, ?int $ttl = null): bool
+    {
+        return $this->store->add($key, $value, $ttl ?? (60 * 60 * 24 * 365));
+    }
+
+    /**
+     * Run the callback while holding a named lock, or return null.
+     *
+     * The lock is released whatever the callback does, so a throw cannot
+     * strand it; if the process dies the entry expires on its own.
+     *
+     * @param  int      $seconds How long the lock may be held before it lapses.
+     * @return mixed The callback's return value, or null when the lock was taken.
+     */
+    public function lock(string $key, int $seconds, \Closure $callback): mixed
+    {
+        if (! $this->add('lock:' . $key, 1, $seconds)) {
+            return null;
+        }
+
+        try {
+            return $callback();
+        } finally {
+            $this->forget('lock:' . $key);
+        }
+    }
+
+    /**
      * Store multiple items in the cache.
      *
      * @param array    $values

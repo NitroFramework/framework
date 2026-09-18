@@ -3,9 +3,14 @@
 namespace Nitro\Queue;
 
 use Nitro\Cache\CacheManager;
+use Nitro\Cache\Repository as CacheRepository;
 use Nitro\Foundation\Contracts\ConfigRepository;
 use Nitro\Foundation\Providers\ServiceProvider;
 use Nitro\Queue\Contracts\FailedJobStore;
+use Nitro\Queue\Batching\BatchCallbacks;
+use Nitro\Queue\Batching\BatchFactory;
+use Nitro\Queue\Batching\BatchRepository;
+use Nitro\Queue\Batching\DatabaseBatchRepository;
 use Nitro\Queue\Drivers\DatabaseFailedJobStore;
 
 /**
@@ -28,6 +33,10 @@ class QueueServiceProvider extends ServiceProvider
             QueueManager::class,
             FailedJobStore::class,
             Worker::class,
+            BatchRepository::class,
+            BatchFactory::class,
+            BatchCallbacks::class,
+            UniqueLock::class,
             'queue',
         ];
     }
@@ -49,6 +58,27 @@ class QueueServiceProvider extends ServiceProvider
             return new DatabaseFailedJobStore($table);
         });
 
+        $this->container->singleton(UniqueLock::class, function ($container) {
+            return new UniqueLock($container->createOrResolve(CacheRepository::class));
+        });
+
+        $this->container->singleton(BatchFactory::class, function ($container) {
+            return new BatchFactory($container->createOrResolve(QueueManager::class));
+        });
+
+        $this->container->singleton(BatchRepository::class, function ($container) {
+            $config = $container->createOrResolve(ConfigRepository::class);
+
+            return new DatabaseBatchRepository(
+                $container->createOrResolve(BatchFactory::class),
+                $config->get('queue.batching.table') ?? 'job_batches'
+            );
+        });
+
+        $this->container->singleton(BatchCallbacks::class, function ($container) {
+            return new BatchCallbacks($container);
+        });
+
         $this->container->singleton(Worker::class, function ($container) {
             return new Worker(
                 $container->createOrResolve(QueueManager::class),
@@ -59,6 +89,8 @@ class QueueServiceProvider extends ServiceProvider
                 $container->has(CacheManager::class)
                     ? $container->createOrResolve(CacheManager::class)
                     : null,
+                $container->createOrResolve(BatchRepository::class),
+                $container->createOrResolve(BatchCallbacks::class),
             );
         });
     }

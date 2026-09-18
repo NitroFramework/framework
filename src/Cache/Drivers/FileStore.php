@@ -77,6 +77,37 @@ class FileStore implements StoreInterface
     /**
      * {@inheritdoc}
      */
+    /**
+     * Create the entry only when no live one exists.
+     *
+     * The 'x' mode fails when the file is already there, and the check is
+     * made by the filesystem rather than by this process, so two workers
+     * racing for the same key cannot both succeed. An expired file is
+     * removed first, so a stale lock does not block forever.
+     */
+    public function add(string $key, mixed $value, int $seconds): bool
+    {
+        $path = $this->path($key);
+
+        $this->ensureDirectoryExists(dirname($path));
+
+        if (is_file($path) && $this->get($key) === null) {
+            @unlink($path);
+        }
+
+        $handle = @fopen($path, 'xb');
+
+        if ($handle === false) {
+            return false;
+        }
+
+        $written = fwrite($handle, (time() + $seconds) . serialize($value)) !== false;
+
+        fclose($handle);
+
+        return $written;
+    }
+
     public function putMany(array $values, int $seconds): bool
     {
         $success = true;

@@ -24,6 +24,12 @@ class NullStore implements StoreInterface
         return false;
     }
 
+    /** Nothing is stored, so nothing is ever held. */
+    public function add(string $key, mixed $value, int $seconds): bool
+    {
+        return true;
+    }
+
     public function putMany(array $values, int $seconds): bool
     {
         return false;

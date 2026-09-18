@@ -7,6 +7,7 @@ use Nitro\Cache\Drivers\ArrayStore;
 use Nitro\Cache\Drivers\FileStore;
 use Nitro\Cache\Drivers\NullStore;
 use Nitro\Cache\Drivers\RedisStore;
+use Nitro\Redis\Connector;
 
 /**
  * Resolves and caches the configured cache store driver (array/file/redis/null).
@@ -132,32 +133,8 @@ class CacheManager
      */
     protected function createRedisDriver(array $config): Repository
     {
-        if (! extension_loaded('redis')) {
-            throw new \RuntimeException(
-                'The phpredis extension is required to use the Redis cache driver. '
-                    . 'Install it via: pecl install redis'
-            );
-        }
-
-        /** @var \Redis $redis */
-        $redis = new \Redis();
-
-        $redis->connect(
-            $config['host'] ?? '127.0.0.1',
-            $config['port'] ?? 6379,
-            $config['timeout'] ?? 0.0
-        );
-
-        if (! empty($config['password'])) {
-            $redis->auth($config['password']);
-        }
-
-        if (isset($config['database'])) {
-            $redis->select((int) $config['database']);
-        }
-
         $store = new RedisStore(
-            redis: $redis,
+            redis: Connector::connect($config),
             prefix: $config['prefix'] ?? $this->getPrefix(),
             allowedClasses: $config['allowed_classes'] ?? true,
         );

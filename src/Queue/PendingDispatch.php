@@ -2,6 +2,8 @@
 
 namespace Nitro\Queue;
 
+use Nitro\Queue\Contracts\ShouldBeUnique;
+
 /**
  * Captures dispatch-time overrides (connection, queue, delay) and pushes
  * the job to the configured QueueManager when the builder is committed.
@@ -60,6 +62,12 @@ final class PendingDispatch
         }
         $this->committed = true;
 
+        // A unique job already queued or running is dropped rather than
+        // queued a second time.
+        if ($this->job instanceof ShouldBeUnique && ! $this->claimUniqueness($this->job)) {
+            return null;
+        }
+
         $manager = \app(QueueManager::class);
         $queue = $manager->connection($this->connection);
         $queueName = $this->queue ?? $this->job->queueName();
@@ -77,6 +85,23 @@ final class PendingDispatch
         return $this->delay > 0
             ? $queue->later($this->delay, $envelope, $queueName)
             : $queue->push($envelope, $queueName);
+    }
+
+    /**
+     * Take the claim that keeps a unique job from being queued twice.
+     *
+     * Without a lock service there is nothing to claim against, so the job is
+     * allowed through rather than silently never dispatching.
+     */
+    private function claimUniqueness(ShouldBeUnique $job): bool
+    {
+        $container = \app();
+
+        if (! $container->has(UniqueLock::class)) {
+            return true;
+        }
+
+        return $container->createOrResolve(UniqueLock::class)->acquire($job);
     }
 
     public function __destruct()

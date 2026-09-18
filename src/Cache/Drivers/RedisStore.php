@@ -94,6 +94,19 @@ class RedisStore implements TaggableStoreInterface
     }
 
     /**
+     * SET with NX and EX, which Redis applies as one operation, so two
+     * callers racing for the same key cannot both be told they stored it.
+     */
+    public function add(string $key, mixed $value, int $seconds): bool
+    {
+        return (bool) $this->redis->set(
+            $this->prefix . $key,
+            $this->serialize($value),
+            ['NX', 'EX' => max(1, $seconds)]
+        );
+    }
+
+    /**
      * {@inheritdoc}
      */
     public function putMany(array $values, int $seconds): bool

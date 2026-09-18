@@ -4,8 +4,15 @@ namespace Nitro\Queue;
 
 use Nitro\Cache\CacheManager;
 use Nitro\Container\Contracts\ContainerInterface;
+use Nitro\Queue\Batching\Batch;
+use Nitro\Queue\Batching\BatchCallbacks;
+use Nitro\Queue\Batching\BatchRepository;
 use Nitro\Queue\Contracts\FailedJobStore;
 use Nitro\Queue\Contracts\Queue;
+use Nitro\Queue\Contracts\ShouldBeUnique;
+use Nitro\Queue\Contracts\ShouldBeUniqueUntilProcessing;
+use Nitro\Queue\Events;
+use Nitro\Support\Pipeline;
 use Throwable;
 
 /**
@@ -46,6 +53,8 @@ class Worker
         private FailedJobStore $failedStore,
         private ContainerInterface $container,
         private ?CacheManager $cache = null,
+        private ?BatchRepository $batches = null,
+        private ?BatchCallbacks $batchCallbacks = null,
     ) {
         $this->installSignalHandlers();
     }
@@ -117,6 +126,12 @@ class Worker
             // Expose the reserved attempt count so handle()/backoff() can be
             // attempt-aware (the docblock's `2 ** $this->currentAttempts`).
             $job->setCurrentAttempts($envelope->attempts);
+
+            // A job that interacts with the queue needs its envelope before
+            // handle() can release, delete or fail it.
+            if (method_exists($job, 'setJob')) {
+                $job->setJob($envelope, $queue);
+            }
             $tries = $defaultTries ?? $job->tries();
 
             // Poison-pill guard: a job that comes off the queue with
@@ -132,14 +147,136 @@ class Worker
                 );
             }
 
+            $this->event(new Events\JobProcessing($envelope));
+
+            if ($job instanceof ShouldBeUniqueUntilProcessing) {
+                $this->releaseUniqueLock($job);
+            }
+
             $this->invoke($job);
             $queue->delete($envelope);
+
+            if ($job instanceof ShouldBeUnique) {
+                $this->releaseUniqueLock($job);
+            }
+
+            $this->event(new Events\JobProcessed($envelope));
+            $this->recordBatchSuccess($job, $envelope);
         } catch (Throwable $exception) {
             $this->handleFailure($queue, $envelope, $job, $exception, $defaultTries);
         }
     }
 
+    /** Move a batch's counters and fire its callbacks after a job succeeds. */
+    private function recordBatchSuccess(Job $job, QueuedJob $envelope): void
+    {
+        $batch = $this->batchOf($job);
+
+        if ($batch === null) {
+            return;
+        }
+
+        $batch->recordSuccessfulJob((string) $envelope->id);
+
+        $this->fireBatchCallbacks($batch->fresh() ?? $batch);
+    }
+
+    /** The same, after a job has exhausted its attempts. */
+    private function recordBatchFailure(Job $job, QueuedJob $envelope, Throwable $exception): void
+    {
+        $batch = $this->batchOf($job);
+
+        if ($batch === null) {
+            return;
+        }
+
+        // Cancelling when failures are not allowed happens inside the batch,
+        // so the jobs still queued behind this one can see there is nothing
+        // left to do.
+        $batch->recordFailedJob((string) $envelope->id, $exception);
+
+        $settled = $batch->fresh() ?? $batch;
+
+        $this->batchCallbacks?->failed($settled, $exception);
+
+        $this->fireBatchCallbacks($settled);
+    }
+
+    /** Run the progress callback, and the settling ones when it is over. */
+    private function fireBatchCallbacks(Batch $batch): void
+    {
+        $this->batchCallbacks?->progress($batch);
+        $this->batchCallbacks?->settled($batch);
+    }
+
+    /** Give back the claim that kept a unique job from being queued twice. */
+    private function releaseUniqueLock(Job $job): void
+    {
+        if (! $job instanceof ShouldBeUnique || ! $this->container->has(UniqueLock::class)) {
+            return;
+        }
+
+        $this->container->createOrResolve(UniqueLock::class)->release($job);
+    }
+
+    /** Dispatch a lifecycle event, when anything is listening. */
+    private function event(object $event): void
+    {
+        if (! $this->container->has('events')) {
+            return;
+        }
+
+        $this->container->createOrResolve('events')->dispatch($event);
+    }
+
+    /** The batch a job belongs to, or null when it is not batched. */
+    private function batchOf(Job $job): ?Batch
+    {
+        if (! property_exists($job, 'batchId') || $job->batchId === null) {
+            return null;
+        }
+
+        return $this->batches?->find($job->batchId);
+    }
+
+    /**
+     * Run a job through its own middleware, then call it.
+     *
+     * A job declares middleware with a middleware() method or a $middleware
+     * property; without either this is the call on its own.
+     */
     private function invoke(Job $job): void
+    {
+        $middleware = $this->middlewareFor($job);
+
+        if ($middleware === []) {
+            $this->call($job);
+
+            return;
+        }
+
+        Pipeline::make($this->container)
+            ->send($job)
+            ->through($middleware)
+            ->then(function (Job $job): void {
+                $this->call($job);
+            });
+    }
+
+    /**
+     * The middleware a job asks to run through.
+     *
+     * @return array<int, mixed>
+     */
+    private function middlewareFor(Job $job): array
+    {
+        $declared = method_exists($job, 'middleware') ? $job->middleware() : [];
+        $property = property_exists($job, 'middleware') ? $job->middleware : [];
+
+        return array_merge((array) $declared, (array) $property);
+    }
+
+    private function call(Job $job): void
     {
         $reflector = new \ReflectionMethod($job, 'handle');
         $args = [];
@@ -178,12 +315,20 @@ class Worker
             $this->failedStore->log($envelope, $exception);
             $queue->delete($envelope);
 
+            if ($job instanceof ShouldBeUnique) {
+                $this->releaseUniqueLock($job);
+            }
+
+            $this->event(new Events\JobFailed($envelope, null, $exception));
+
             if ($job !== null) {
                 try {
                     $job->failed($exception);
                 } catch (Throwable $hookError) {
                     error_log('[queue] failed() hook threw: ' . $hookError->getMessage());
                 }
+
+                $this->recordBatchFailure($job, $envelope, $exception);
             }
             return;
         }
@@ -194,6 +339,9 @@ class Worker
         error_log("[queue] job {$envelope->id} failed (attempt {$envelope->attempts}/{$tries}), retrying: " . $exception->getMessage());
         $backoff = $job?->backoff() ?? 5;
         $queue->release($envelope, $backoff);
+
+        $this->event(new Events\JobExceptionOccurred($envelope, null, $exception));
+        $this->event(new Events\JobReleased($envelope, null, $backoff));
     }
 
     // ── Signals & supervision ─────────────────────────────────────────

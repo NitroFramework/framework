@@ -43,6 +43,17 @@ interface StoreInterface
     public function putMany(array $values, int $seconds): bool;
 
     /**
+     * Store a value only when the key is absent.
+     *
+     * Must be atomic against other processes: this is what a lock is built
+     * on, and a check followed by a write lets two callers both believe they
+     * acquired it.
+     *
+     * @return bool Whether this caller stored the value.
+     */
+    public function add(string $key, mixed $value, int $seconds): bool;
+
+    /**
      * Increment the value of an item in the cache.
      *
      * @param string $key
