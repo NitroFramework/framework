@@ -28,31 +28,44 @@ class DailyHandler extends StreamHandler
         $this->basePath = $path;
 
         parent::__construct($this->pathForToday(), 0);
+
+        // Left empty so the first write rolls over: that is what prunes, and
+        // a process that only ever runs on one day would otherwise never do it.
+        $this->date = '';
     }
 
     public function write(string $level, string $message, array $context = []): void
     {
-        $this->rollToToday();
+        $rolled = $this->rollToToday();
 
         parent::write($level, $message, $context);
+
+        // Pruned after the write, so today's file is already on disk and the
+        // retention window counts it rather than being off by one.
+        if ($rolled) {
+            $this->prune();
+        }
     }
 
     /**
-     * Point at today's file, pruning old ones when the day has turned over.
+     * Point at today's file.
+     *
+     * @return bool Whether the day had turned over.
      */
-    protected function rollToToday(): void
+    protected function rollToToday(): bool
     {
         $today = date('Y-m-d');
 
         if ($this->date === $today) {
-            return;
+            return false;
         }
 
         $this->date = $today;
         $this->path = $this->pathForToday();
 
         $this->ensureDirectoryExists(dirname($this->path));
-        $this->prune();
+
+        return true;
     }
 
     /**
@@ -60,14 +73,12 @@ class DailyHandler extends StreamHandler
      */
     protected function pathForToday(): string
     {
-        $this->date = date('Y-m-d');
-
         $extension = pathinfo($this->basePath, PATHINFO_EXTENSION);
         $withoutExtension = $extension === ''
             ? $this->basePath
             : substr($this->basePath, 0, -(strlen($extension) + 1));
 
-        return $withoutExtension . '-' . $this->date . ($extension === '' ? '' : '.' . $extension);
+        return $withoutExtension . '-' . date('Y-m-d') . ($extension === '' ? '' : '.' . $extension);
     }
 
     /**

@@ -4,6 +4,7 @@ use Nitro\Exceptions\HttpException;
 use Nitro\Http\RedirectResponse;
 use Nitro\Http\Redirector;
 use Nitro\Http\Response;
+use Nitro\Http\ResponseFactory;
 
 if (!function_exists('json')) {
     /**
@@ -61,22 +62,23 @@ if (!function_exists('html')) {
 
 if (!function_exists('response')) {
     /**
-     * Create a response
-     * 
-     * @param string $content
-     * @param int $status
-     * @param array $headers
-     * @return void
+     * Get the response factory, or build a response.
+     *
+     * Called with no arguments it hands back the factory, which is what makes
+     * `response()->view(...)` and `response()->json(...)` work. Given content
+     * it builds a response instead.
+     *
+     * @param array<string, string> $headers
      */
-    function response(string $content = '', int $status = 200, array $headers = []): void
+    function response(string $content = '', int $status = 200, array $headers = []): ResponseFactory|Response
     {
-        http_response_code($status);
+        $factory = app(ResponseFactory::class);
 
-        foreach ($headers as $name => $value) {
-            header("$name: $value");
+        if (func_num_args() === 0) {
+            return $factory;
         }
 
-        echo $content;
+        return $factory->make($content, $status, $headers);
     }
 }
 

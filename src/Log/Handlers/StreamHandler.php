@@ -37,7 +37,11 @@ class StreamHandler implements Handler
     {
         $this->rotateIfNeeded();
 
-        file_put_contents($this->path, $this->format($level, $message, $context), FILE_APPEND | LOCK_EX);
+        // A stream does not support an exclusive lock, and asking for one
+        // warns on every line. Appends to php://stderr are atomic anyway.
+        $flags = $this->isStream ? FILE_APPEND : FILE_APPEND | LOCK_EX;
+
+        file_put_contents($this->path, $this->format($level, $message, $context), $flags);
     }
 
     /**
