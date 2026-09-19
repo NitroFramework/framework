@@ -244,6 +244,8 @@ class OptimizeCommand implements CommandInterface
 
             $allProviders = array_merge($defaults, $packageProviders, $userProviders, $moduleProviders);
 
+            [$eagerProviders, $deferredServices] = $this->splitDeferredProviders($allProviders);
+
             // NOTE: Blade directives are intentionally NOT cached here. A directive
             // callback receives the invocation's $expression; caching its output
             // for one fixed expression and replaying it for every call produced
@@ -251,7 +253,8 @@ class OptimizeCommand implements CommandInterface
             // directive definitions in config/directives.php are cheap to register
             // per request and are always loaded at runtime by ViewServiceProvider.
             $cache = [
-                'providers'  => $allProviders,
+                'providers'  => $eagerProviders,
+                'deferred'   => $deferredServices,
                 'timestamp'  => time(),
             ];
 
@@ -260,13 +263,61 @@ class OptimizeCommand implements CommandInterface
                 "<?php\n\nreturn " . var_export($cache, true) . ";\n"
             );
 
+            $deferredProviders = count(array_unique($deferredServices));
+
             $this->output->writeln($this->output->color(
-                "  ✓ Cached " . count($allProviders) . " providers",
+                "  ✓ Cached " . count($eagerProviders) . " providers"
+                . ($deferredProviders > 0
+                    ? ", deferred {$deferredProviders} (" . count($deferredServices) . " services)"
+                    : ''),
                 'green'
             ));
         } catch (\Throwable $exception) {
             $this->output->writeln($this->output->color("  ✖ Bootstrap cache failed: " . $exception->getMessage(), 'red'));
         }
+    }
+
+    /**
+     * Split a provider list into the ones production must register at boot and a
+     * [service => providerClass] map for the ones it must not.
+     *
+     * Asking a provider whether it defers means constructing it, which is the
+     * whole cost the deferral was meant to avoid — {@see Application::register()}
+     * instantiates before it can call isDeferred(), so a deferred provider still
+     * loaded its class on every request. Answering the question once here, at
+     * build time, lets the runtime seed the deferred map straight from the cache
+     * and never touch those classes.
+     *
+     * A provider that cannot be constructed is treated as eager: the runtime will
+     * fail the same way it does today rather than silently dropping a service.
+     *
+     * @param  array<int, class-string> $providers
+     * @return array{0: array<int, class-string>, 1: array<string, class-string>}
+     */
+    private function splitDeferredProviders(array $providers): array
+    {
+        $eager = [];
+        $deferred = [];
+        $container = $this->app->getContainer();
+
+        foreach ($providers as $providerClass) {
+            try {
+                $instance = new $providerClass($container);
+
+                if (! $instance->isDeferred()) {
+                    $eager[] = $providerClass;
+                    continue;
+                }
+
+                foreach ($instance->provides() as $service) {
+                    $deferred[$service] = $providerClass;
+                }
+            } catch (\Throwable) {
+                $eager[] = $providerClass;
+            }
+        }
+
+        return [$eager, $deferred];
     }
 
     /**

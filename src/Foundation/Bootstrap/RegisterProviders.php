@@ -26,7 +26,14 @@ class RegisterProviders implements BootstrapperInterface
             // Directives are NOT cached (see OptimizeCommand::cacheBootstrap):
             // ViewServiceProvider::boot always registers them from
             // config/directives.php with their real, expression-aware callbacks.
-            $app->registerConfiguredProviders($cached['providers'] ?? []);
+            //
+            // 'deferred' is absent from caches written before it existed, and
+            // null then means "no map": those providers are still in 'providers'
+            // and defer themselves at runtime, as they did before.
+            $app->registerConfiguredProviders(
+                $cached['providers'] ?? [],
+                $cached['deferred'] ?? null,
+            );
         } else {
             $app->registerConfiguredProviders();
         }

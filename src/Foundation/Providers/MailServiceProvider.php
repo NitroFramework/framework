@@ -13,6 +13,14 @@ use Nitro\Mail\Mailer;
  */
 class MailServiceProvider extends ServiceProvider
 {
+    protected bool $defer = true;
+
+    /** @return array<int, string> */
+    public function provides(): array
+    {
+        return ['mail', MailManager::class, 'mailer', Mailer::class, MailerContract::class];
+    }
+
     public function register(): void
     {
         $this->container->singleton('mail', function ($container) {

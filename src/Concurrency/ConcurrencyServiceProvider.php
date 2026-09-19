@@ -10,6 +10,14 @@ use Nitro\Foundation\Providers\ServiceProvider;
  */
 class ConcurrencyServiceProvider extends ServiceProvider
 {
+    protected bool $defer = true;
+
+    /** @return array<int, string> */
+    public function provides(): array
+    {
+        return ['concurrency', Concurrency::class];
+    }
+
     public function register(): void
     {
         $this->container->singleton('concurrency', function () {

@@ -10,6 +10,14 @@ use Nitro\Foundation\Providers\ServiceProvider;
  */
 class RedisServiceProvider extends ServiceProvider
 {
+    protected bool $defer = true;
+
+    /** @return array<int, string> */
+    public function provides(): array
+    {
+        return ['redis', RedisManager::class];
+    }
+
     public function register(): void
     {
         $this->container->singleton('redis', function () {

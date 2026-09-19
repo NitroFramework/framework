@@ -14,6 +14,20 @@ use Nitro\View\Contracts\ViewFinder;
  */
 class NotificationServiceProvider extends ServiceProvider
 {
+    protected bool $defer = true;
+
+    /**
+     * The `nitro::` namespace registered in boot() is only read while rendering
+     * a notification, which cannot happen before one of these is resolved — so
+     * deferring the provider cannot hide the view from anything that needs it.
+     *
+     * @return array<int, string>
+     */
+    public function provides(): array
+    {
+        return [ChannelManager::class, 'notification', NotificationSender::class];
+    }
+
     public function register(): void
     {
         $this->container->singleton(ChannelManager::class, function ($container) {
