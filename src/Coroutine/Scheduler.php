@@ -62,6 +62,26 @@ final class Scheduler
     }
 
     /**
+     * What the loop is holding right now.
+     *
+     * The failure mode of a cooperative scheduler is a hang — nothing throws
+     * and nothing logs, the request simply never finishes. These counts say
+     * whether the coroutines are runnable, on a timer, or waiting on a socket.
+     *
+     * @return array{live: int, ready: int, sleeping: int, waitingOnCurl: int, current: int|null}
+     */
+    public function stats(): array
+    {
+        return [
+            'live'          => $this->live,
+            'ready'         => count($this->ready),
+            'sleeping'      => count($this->timers),
+            'waitingOnCurl' => count($this->curlWaiters),
+            'current'       => $this->currentCoroutine?->id,
+        ];
+    }
+
+    /**
      * Run $main as the root coroutine, drive the loop to completion, and return its
      * value (or rethrow its exception). Restores any outer scheduler on the way out.
      */
@@ -91,6 +111,7 @@ final class Scheduler
     public function spawn(callable $callable): Coroutine
     {
         $coroutine = new Coroutine($this->nextId++, $callable);
+        $coroutine->parentId = $this->currentCoroutine?->id ?? -1;
         $this->live++;
         $this->ready[] = [$coroutine, null];
 

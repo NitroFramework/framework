@@ -19,6 +19,9 @@ use Throwable;
  */
 class Coroutine
 {
+    /** The coroutine that spawned this one; -1 for the root. */
+    public int $parentId = -1;
+
     public bool $finished = false;
 
     public mixed $result = null;

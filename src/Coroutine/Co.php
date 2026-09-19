@@ -142,6 +142,29 @@ final class Co
     }
 
     /** Whether the caller is executing inside a coroutine. */
+    /** The coroutine that spawned this one, or -1 at the root or outside one. */
+    public static function parentId(): int
+    {
+        return Scheduler::current()?->currentCoroutine()?->parentId ?? -1;
+    }
+
+    /**
+     * What the scheduler is holding, for when a request hangs instead of
+     * failing. 'running' is false when no scheduler is active.
+     *
+     * @return array{running: bool, live: int, ready: int, sleeping: int, waitingOnCurl: int, current: int|null}
+     */
+    public static function stats(): array
+    {
+        $scheduler = Scheduler::current();
+
+        if ($scheduler === null) {
+            return ['running' => false, 'live' => 0, 'ready' => 0, 'sleeping' => 0, 'waitingOnCurl' => 0, 'current' => null];
+        }
+
+        return ['running' => true] + $scheduler->stats();
+    }
+
     public static function inCoroutine(): bool
     {
         return Scheduler::current()?->currentCoroutine() !== null && Fiber::getCurrent() !== null;
