@@ -2,6 +2,7 @@
 
 namespace Nitro\Session\Console;
 
+use Nitro\Console\ExitCode;
 use Nitro\Console\Contracts\CommandInterface;
 use Nitro\Console\OutputFormatter;
 use Nitro\Foundation\PathRegistry;
@@ -19,22 +20,30 @@ class SessionTableCommand implements CommandInterface
         private OutputFormatter $output,
     ) {}
 
-    public function getCommands(): array
-    {
-        return [
+    /**
+     * Signature => description, as a constant so the manager can read it
+     * without constructing the command.
+     *
+     * @var array<string, string>
+     */
+    public const COMMANDS = [
             'make:session-table' => 'Create a migration for the session database table',
             'session:table'      => 'Create a migration for the session database table',
         ];
+
+    public function getCommands(): array
+    {
+        return self::COMMANDS;
     }
 
-    public function handle(string $signature, array $arguments): void
+    public function handle(string $signature, array $arguments): int
     {
         $directory = $this->paths->base('database/migrations');
 
         if ($this->migrationExists($directory)) {
             $this->output->error('A create_sessions_table migration already exists.');
 
-            return;
+            return ExitCode::FAILURE;
         }
 
         if (! is_dir($directory)) {
@@ -46,6 +55,8 @@ class SessionTableCommand implements CommandInterface
         file_put_contents($directory . '/' . $filename, $this->stub());
 
         $this->output->success("Created: database/migrations/{$filename}");
+
+        return ExitCode::SUCCESS;
     }
 
     /** Determine whether the table's migration has already been generated. */

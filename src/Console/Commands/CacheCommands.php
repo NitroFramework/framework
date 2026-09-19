@@ -2,6 +2,7 @@
 
 namespace Nitro\Console\Commands;
 
+use Nitro\Console\ExitCode;
 use Nitro\Console\Contracts\CommandInterface;
 use Nitro\Cache\CacheManager;
 use Nitro\Console\OutputFormatter;
@@ -27,28 +28,36 @@ class CacheCommands implements CommandInterface
         private readonly ConfigRepository $config,
     ) {}
 
-    public function getCommands(): array
-    {
-        return [
+    /**
+     * Signature => description, as a constant so the manager can read it
+     * without constructing the command.
+     *
+     * @var array<string, string>
+     */
+    public const COMMANDS = [
             'cache:clear'  => 'Flush every key in the cache',
             'cache:forget' => 'Drop a single key from the cache',
             'cache:stats'  => 'Show the active cache driver + config',
         ];
+
+    public function getCommands(): array
+    {
+        return self::COMMANDS;
     }
 
-    public function handle(string $command, array $arguments = []): void
+    public function handle(string $command, array $arguments = []): int
     {
-        match ($command) {
+        return match ($command) {
             'cache:clear'  => $this->clear($arguments),
             'cache:forget' => $this->forget($arguments),
             'cache:stats'  => $this->stats(),
-            default        => $this->output->error("Unknown cache command: {$command}"),
+            default        => $this->invalidSignature("Unknown cache command: {$command}"),
         };
     }
 
     // ── cache:clear ───────────────────────────────────────────────────
 
-    private function clear(array $arguments): void
+    private function clear(array $arguments): int
     {
         $store = $this->flagValue($arguments, '--store');
         $repo  = $this->container->createOrResolve(CacheManager::class)->store($store);
@@ -59,11 +68,13 @@ class CacheCommands implements CommandInterface
         $ok
             ? $this->output->success("Cleared cache store [{$label}].")
             : $this->output->error("Cache flush returned false for store [{$label}].");
+
+        return ExitCode::SUCCESS;
     }
 
     // ── cache:forget ──────────────────────────────────────────────────
 
-    private function forget(array $arguments): void
+    private function forget(array $arguments): int
     {
         // First non-flag arg is the key. Multiple words allowed if quoted.
         $key = null;
@@ -73,7 +84,7 @@ class CacheCommands implements CommandInterface
         if (!$key) {
             $this->output->error("Usage: cache:forget <key> [--store=name]");
             $this->output->writeln("Example: cache:forget students.page.1");
-            return;
+            return ExitCode::FAILURE;
         }
         $store = $this->flagValue($arguments, '--store');
         $repo  = $this->container->createOrResolve(CacheManager::class)->store($store);
@@ -81,11 +92,13 @@ class CacheCommands implements CommandInterface
         $repo->forget($key)
             ? $this->output->success("Forgot key [{$key}].")
             : $this->output->info("Key [{$key}] was not in the cache.");
+
+        return ExitCode::SUCCESS;
     }
 
     // ── cache:stats ───────────────────────────────────────────────────
 
-    private function stats(): void
+    private function stats(): int
     {
         $config = $this->config->get('cache');
         $default = $config['default'] ?? 'file';
@@ -98,6 +111,8 @@ class CacheCommands implements CommandInterface
         $this->output->writeln("  Default driver: " . ($store['driver'] ?? '(unknown)'));
         if (isset($store['path']))   $this->output->writeln("  Path:            " . $store['path']);
         if (isset($store['prefix'])) $this->output->writeln("  Prefix:          " . $store['prefix']);
+
+        return ExitCode::SUCCESS;
     }
 
     // ── helpers ───────────────────────────────────────────────────────
@@ -110,5 +125,12 @@ class CacheCommands implements CommandInterface
             }
         }
         return null;
+    }
+    /** Report an unrecognised signature and fail the invocation. */
+    private function invalidSignature(string $message): int
+    {
+        $this->output->error($message);
+
+        return ExitCode::INVALID;
     }
 }

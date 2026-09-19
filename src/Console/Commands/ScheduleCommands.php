@@ -2,6 +2,7 @@
 
 namespace Nitro\Console\Commands;
 
+use Nitro\Console\ExitCode;
 use DateTime;
 use Nitro\Console\Contracts\CommandInterface;
 use Nitro\Console\OutputFormatter;
@@ -23,32 +24,40 @@ class ScheduleCommands implements CommandInterface
         private OutputFormatter $output,
     ) {}
 
-    public function getCommands(): array
-    {
-        return [
+    /**
+     * Signature => description, as a constant so the manager can read it
+     * without constructing the command.
+     *
+     * @var array<string, string>
+     */
+    public const COMMANDS = [
             'schedule:run'  => 'Run the scheduled tasks that are currently due',
             'schedule:work' => 'Run due tasks every minute (long-running; no cron needed)',
             'schedule:list' => 'List the defined scheduled tasks',
         ];
+
+    public function getCommands(): array
+    {
+        return self::COMMANDS;
     }
 
-    public function handle(string $command, array $arguments): void
+    public function handle(string $command, array $arguments): int
     {
-        match ($command) {
+        return match ($command) {
             'schedule:run'  => $this->run(),
             'schedule:work' => $this->work(),
             'schedule:list' => $this->list(),
-            default         => $this->output->error("Unknown schedule command: {$command}"),
+            default         => $this->invalidSignature("Unknown schedule command: {$command}"),
         };
     }
 
-    protected function run(): void
+    protected function run(): int
     {
         $due = $this->schedule()->dueEvents(new DateTime());
 
         if ($due === []) {
             $this->output->info('No scheduled tasks are due.');
-            return;
+            return ExitCode::SUCCESS;
         }
 
         foreach ($due as $event) {
@@ -60,6 +69,8 @@ class ScheduleCommands implements CommandInterface
                 $this->output->error('Failed: ' . $event->getDescription() . ' — ' . $exception->getMessage());
             }
         }
+
+        return ExitCode::SUCCESS;
     }
 
     /**
@@ -71,7 +82,7 @@ class ScheduleCommands implements CommandInterface
      * wall clock, not on a fixed sleep, so a slow minute does not push every
      * later tick out of alignment with the cron expressions.
      */
-    protected function work(): void
+    protected function work(): int
     {
         $this->installSignalHandlers();
 
@@ -84,20 +95,24 @@ class ScheduleCommands implements CommandInterface
         }
 
         $this->output->info('Scheduler stopped.');
+
+        return ExitCode::SUCCESS;
     }
 
-    protected function list(): void
+    protected function list(): int
     {
         $events = $this->schedule()->events();
 
         if ($events === []) {
             $this->output->info('No scheduled tasks are defined.');
-            return;
+            return ExitCode::SUCCESS;
         }
 
         foreach ($events as $event) {
             $this->output->writeln(str_pad($event->expression(), 20) . $event->getDescription());
         }
+
+        return ExitCode::SUCCESS;
     }
 
     protected function schedule(): Schedule
@@ -134,5 +149,12 @@ class ScheduleCommands implements CommandInterface
         if (defined('SIGQUIT')) {
             pcntl_signal(SIGQUIT, $stop);
         }
+    }
+    /** Report an unrecognised signature and fail the invocation. */
+    private function invalidSignature(string $message): int
+    {
+        $this->output->error($message);
+
+        return ExitCode::INVALID;
     }
 }

@@ -2,6 +2,7 @@
 
 namespace Nitro\Console\Commands;
 
+use Nitro\Console\ExitCode;
 use Closure;
 use Nitro\Console\Contracts\CommandInterface;
 use Nitro\Console\OutputFormatter;
@@ -40,26 +41,36 @@ class LifetimeCheckCommand implements CommandInterface
         private OutputFormatter $output,
     ) {}
 
-    public function getCommands(): array
-    {
-        return [
+    /**
+     * Signature => description, as a constant so the manager can read it
+     * without constructing the command.
+     *
+     * @var array<string, string>
+     */
+    public const COMMANDS = [
             'lifetimes:check' => 'Report bindings that depend on something shorter-lived than themselves',
         ];
+
+    public function getCommands(): array
+    {
+        return self::COMMANDS;
     }
 
-    public function handle(string $signature, array $arguments): void
+    public function handle(string $signature, array $arguments): int
     {
         $findings = array_merge($this->checkConstructors(), $this->checkFactories());
 
         if ($findings === []) {
             $this->output->success('No binding depends on anything shorter-lived than itself.');
 
-            return;
+            return ExitCode::SUCCESS;
         }
 
         $this->report($findings);
 
         exit(1);
+
+        return ExitCode::SUCCESS;
     }
 
     /**
@@ -253,7 +264,7 @@ class LifetimeCheckCommand implements CommandInterface
     }
 
     /** @param array<int, array<string, mixed>> $findings */
-    private function report(array $findings): void
+    private function report(array $findings): int
     {
         $count = count($findings);
         $noun = $count === 1 ? 'binding holds' : 'bindings hold';
@@ -279,5 +290,7 @@ class LifetimeCheckCommand implements CommandInterface
             'Each one keeps the first request\'s instance for the life of the process. '
             . 'Bind the consumer with scoped(), or have it resolve the dependency per call.'
         );
+
+        return ExitCode::SUCCESS;
     }
 }

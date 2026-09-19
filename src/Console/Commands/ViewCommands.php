@@ -2,6 +2,7 @@
 
 namespace Nitro\Console\Commands;
 
+use Nitro\Console\ExitCode;
 use Nitro\Console\Contracts\CommandInterface;
 use Nitro\Console\OutputFormatter;
 use Nitro\Foundation\PathRegistry;
@@ -24,24 +25,32 @@ class ViewCommands implements CommandInterface
         private readonly OutputFormatter $output
     ) {}
 
-    public function getCommands(): array
-    {
-        return [
+    /**
+     * Signature => description, as a constant so the manager can read it
+     * without constructing the command.
+     *
+     * @var array<string, string>
+     */
+    public const COMMANDS = [
             'view:cache' => 'Cache all view templates for improved performance',
             'view:clear' => 'Clear view cache'
         ];
+
+    public function getCommands(): array
+    {
+        return self::COMMANDS;
     }
 
-    public function handle(string $command, array $arguments): void
+    public function handle(string $command, array $arguments): int
     {
-        match ($command) {
+        return match ($command) {
             'view:cache' => $this->cacheViews(),
             'view:clear' => $this->clearViews(),
-            default       => $this->output->error("Unknown view command: {$command}")
+            default       => $this->invalidSignature("Unknown view command: {$command}")
         };
     }
 
-    protected function cacheViews(): void
+    protected function cacheViews(): int
     {
         $this->output->info("Caching views...");
 
@@ -50,14 +59,14 @@ class ViewCommands implements CommandInterface
 
             if (!is_dir($viewsPath)) {
                 $this->output->error("Views directory not found at: $viewsPath");
-                return;
+                return ExitCode::FAILURE;
             }
 
             $viewFiles = $this->getAllViewFiles($viewsPath);
 
             if (empty($viewFiles)) {
                 $this->output->warning("No view files found to cache.");
-                return;
+                return ExitCode::SUCCESS;
             }
 
             $cachedCount  = 0;
@@ -92,6 +101,8 @@ class ViewCommands implements CommandInterface
         } catch (\Exception $exception) {
             $this->output->error("Error caching views: " . $exception->getMessage());
         }
+
+        return ExitCode::SUCCESS;
     }
 
     /**
@@ -117,7 +128,7 @@ class ViewCommands implements CommandInterface
         }
     }
 
-    protected function clearViews(): void
+    protected function clearViews(): int
     {
         $this->output->info("Clearing view cache...");
 
@@ -136,6 +147,8 @@ class ViewCommands implements CommandInterface
         } catch (\Exception $exception) {
             $this->output->error("Error clearing view cache: " . $exception->getMessage());
         }
+
+        return ExitCode::SUCCESS;
     }
 
     protected function getAllViewFiles(string $directory): array
@@ -162,5 +175,12 @@ class ViewCommands implements CommandInterface
         $relativePath = str_replace($viewsPath . DIRECTORY_SEPARATOR, '', $filePath);
         $relativePath = str_replace('.' . $extension, '', $relativePath);
         return str_replace(DIRECTORY_SEPARATOR, '.', $relativePath);
+    }
+    /** Report an unrecognised signature and fail the invocation. */
+    private function invalidSignature(string $message): int
+    {
+        $this->output->error($message);
+
+        return ExitCode::INVALID;
     }
 }

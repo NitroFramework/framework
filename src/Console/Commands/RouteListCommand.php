@@ -2,6 +2,7 @@
 
 namespace Nitro\Console\Commands;
 
+use Nitro\Console\ExitCode;
 use Closure;
 use Nitro\Console\Contracts\CommandInterface;
 use Nitro\Console\OutputFormatter;
@@ -37,14 +38,22 @@ class RouteListCommand implements CommandInterface
         private readonly OutputFormatter $output,
     ) {}
 
-    public function getCommands(): array
-    {
-        return [
+    /**
+     * Signature => description, as a constant so the manager can read it
+     * without constructing the command.
+     *
+     * @var array<string, string>
+     */
+    public const COMMANDS = [
             'route:list' => 'List the application\'s routes (--method --path --name --middleware --except-vendor)',
         ];
+
+    public function getCommands(): array
+    {
+        return self::COMMANDS;
     }
 
-    public function handle(string $command, array $arguments = []): void
+    public function handle(string $command, array $arguments = []): int
     {
         // Not cleared first, unlike route:cache: providers register routes of
         // their own during boot (/livewire/update, the asset routes), and
@@ -57,13 +66,15 @@ class RouteListCommand implements CommandInterface
 
         if ($rows === []) {
             $this->output->warning('No routes matched.');
-            return;
+            return ExitCode::FAILURE;
         }
 
         $this->render($rows);
 
         $this->output->writeln('');
         $this->output->info('  ' . count($rows) . ' route(s)');
+
+        return ExitCode::SUCCESS;
     }
 
     /** @return array<string, string> */
@@ -242,7 +253,7 @@ class RouteListCommand implements CommandInterface
     }
 
     /** @param array<int, array<string, string>> $rows */
-    private function render(array $rows): void
+    private function render(array $rows): int
     {
         $widths = [
             'method' => $this->widest($rows, 'method', 6),
@@ -266,6 +277,8 @@ class RouteListCommand implements CommandInterface
                 $this->output->writeln($indent . $this->output->color($row['middleware'], 'magenta'));
             }
         }
+
+        return ExitCode::SUCCESS;
     }
 
     private function widest(array $rows, string $key, int $minimum): int

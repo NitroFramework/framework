@@ -2,6 +2,7 @@
 
 namespace Nitro\Console\Commands;
 
+use Nitro\Console\ExitCode;
 use Nitro\Console\Contracts\CommandInterface;
 use Nitro\Console\OutputFormatter;
 use Nitro\Foundation\PathRegistry;
@@ -29,24 +30,32 @@ class FactoryCommands implements CommandInterface
         $this->factoriesPath = $paths->factories();
     }
 
-    public function getCommands(): array
-    {
-        return [
+    /**
+     * Signature => description, as a constant so the manager can read it
+     * without constructing the command.
+     *
+     * @var array<string, string>
+     */
+    public const COMMANDS = [
             'make:factory'  => 'Generate a new model factory',
             'factory:make'  => 'Invoke a factory from the CLI to create model row(s)',
         ];
+
+    public function getCommands(): array
+    {
+        return self::COMMANDS;
     }
 
-    public function handle(string $command, array $arguments = []): void
+    public function handle(string $command, array $arguments = []): int
     {
-        match ($command) {
+        return match ($command) {
             'make:factory'  => $this->makeFactory($arguments),
             'factory:make'  => $this->invokeFactory($arguments),
-            default         => $this->output->error("Unknown factory command: {$command}"),
+            default         => $this->invalidSignature("Unknown factory command: {$command}"),
         };
     }
 
-    private function makeFactory(array $arguments): void
+    private function makeFactory(array $arguments): int
     {
         // Positional name = first non-flag arg
         $name = null;
@@ -64,7 +73,7 @@ class FactoryCommands implements CommandInterface
             $this->output->error("Usage: make:factory <Name> [--model=ModelName]");
             $this->output->writeln("Example: make:factory UserFactory");
             $this->output->writeln("Example: make:factory AdminFactory --model=User");
-            return;
+            return ExitCode::SUCCESS;
         }
 
         $class = $this->normalizeClassName($name);
@@ -83,7 +92,7 @@ class FactoryCommands implements CommandInterface
 
         if (file_exists($path)) {
             $this->output->error("File already exists: {$class}.php");
-            return;
+            return ExitCode::FAILURE;
         }
 
         file_put_contents($path, $this->factoryStub($class, $model));
@@ -92,6 +101,8 @@ class FactoryCommands implements CommandInterface
         $this->output->writeln(
             "  Add `use HasFactory;` to App\\Models\\{$model} to enable {$model}::factory()."
         );
+
+        return ExitCode::SUCCESS;
     }
 
     private function normalizeClassName(string $input): string
@@ -120,7 +131,7 @@ class FactoryCommands implements CommandInterface
      *   the first positional arg is treated as a short name and resolved
      *   against App\Models\ (e.g. "User" → "App\Models\User").
      */
-    private function invokeFactory(array $arguments): void
+    private function invokeFactory(array $arguments): int
     {
         // Parse args/flags.
         $modelName = null;
@@ -163,7 +174,7 @@ class FactoryCommands implements CommandInterface
         if (!$modelName && !$fullClass) {
             $this->output->error("Usage: factory:make <Model> [--count=N] [--state=name] [--override=k:v] [--raw] [--json]");
             $this->output->writeln("Example: factory:make User --count=10 --state=admin");
-            return;
+            return ExitCode::FAILURE;
         }
 
         // Resolve the model class.
@@ -171,11 +182,11 @@ class FactoryCommands implements CommandInterface
         if (!class_exists($modelClass)) {
             $this->output->error("Model class not found: {$modelClass}");
             $this->output->writeln("Pass --model=Fully\\Qualified\\ClassName if it lives outside App\\Models.");
-            return;
+            return ExitCode::FAILURE;
         }
         if (!method_exists($modelClass, 'factory')) {
             $this->output->error("{$modelClass} does not expose ::factory() — add `use HasFactory;` to the model.");
-            return;
+            return ExitCode::FAILURE;
         }
 
         // Build the factory chain: ::factory()->count(N)->state(...)->...
@@ -183,13 +194,13 @@ class FactoryCommands implements CommandInterface
             $factory = $modelClass::factory($count);
         } catch (\Throwable $exception) {
             $this->output->error("Failed to construct factory: " . $exception->getMessage());
-            return;
+            return ExitCode::FAILURE;
         }
 
         foreach ($states as $stateName) {
             if (!method_exists($factory, $stateName)) {
                 $this->output->error("Factory has no state method: '{$stateName}()' on " . $factory::class);
-                return;
+                return ExitCode::FAILURE;
             }
             $factory = $factory->{$stateName}();
         }
@@ -201,7 +212,7 @@ class FactoryCommands implements CommandInterface
             $data = $factory->raw($overrideMap);
             $rows = ($count === 1) ? [$data] : $data;
             $this->emitRows($rows, $json, persisted: false);
-            return;
+            return ExitCode::SUCCESS;
         }
 
         try {
@@ -209,7 +220,7 @@ class FactoryCommands implements CommandInterface
         } catch (\Throwable $exception) {
             $this->output->error("Factory ->create() failed: " . $exception->getMessage());
             $this->output->writeln("(Check that the table exists, columns match, and constraints aren't violated.)");
-            return;
+            return ExitCode::FAILURE;
         }
 
         $rows = is_array($created) ? $created : [$created];
@@ -219,6 +230,8 @@ class FactoryCommands implements CommandInterface
             count($rows),
             $modelName ?? $modelClass,
         ));
+
+        return ExitCode::SUCCESS;
     }
 
     /**
@@ -315,5 +328,12 @@ class FactoryCommands implements CommandInterface
         }
 
         PHP;
+    }
+    /** Report an unrecognised signature and fail the invocation. */
+    private function invalidSignature(string $message): int
+    {
+        $this->output->error($message);
+
+        return ExitCode::INVALID;
     }
 }

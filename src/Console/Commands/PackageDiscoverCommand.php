@@ -2,6 +2,7 @@
 
 namespace Nitro\Console\Commands;
 
+use Nitro\Console\ExitCode;
 use Nitro\Console\Contracts\CommandInterface;
 use Nitro\Console\OutputFormatter;
 use Nitro\Foundation\PackageManifest;
@@ -23,14 +24,22 @@ class PackageDiscoverCommand implements CommandInterface
     ) {
     }
 
-    public function getCommands(): array
-    {
-        return [
+    /**
+     * Signature => description, as a constant so the manager can read it
+     * without constructing the command.
+     *
+     * @var array<string, string>
+     */
+    public const COMMANDS = [
             'package:discover' => 'Rebuild the auto-discovered package-provider cache',
         ];
+
+    public function getCommands(): array
+    {
+        return self::COMMANDS;
     }
 
-    public function handle(string $command, array $arguments): void
+    public function handle(string $command, array $arguments): int
     {
         $manifest = new PackageManifest(
             $this->paths->base('vendor'),
@@ -48,5 +57,7 @@ class PackageDiscoverCommand implements CommandInterface
         foreach ($providers as $provider) {
             $this->output->writeln('    ' . $provider);
         }
+
+        return ExitCode::SUCCESS;
     }
 }

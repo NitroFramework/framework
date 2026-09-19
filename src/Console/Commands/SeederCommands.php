@@ -2,6 +2,7 @@
 
 namespace Nitro\Console\Commands;
 
+use Nitro\Console\ExitCode;
 use Nitro\Console\Contracts\CommandInterface;
 use Nitro\Console\OutputFormatter;
 use Nitro\Container\Contracts\ContainerInterface;
@@ -33,32 +34,40 @@ class SeederCommands implements CommandInterface
         $this->seedersPath = $paths->seeders();
     }
 
-    public function getCommands(): array
-    {
-        return [
+    /**
+     * Signature => description, as a constant so the manager can read it
+     * without constructing the command.
+     *
+     * @var array<string, string>
+     */
+    public const COMMANDS = [
             'make:seeder' => 'Generate a new seeder class',
             'db:seed'     => 'Run database seeders (defaults to DatabaseSeeder)',
         ];
+
+    public function getCommands(): array
+    {
+        return self::COMMANDS;
     }
 
-    public function handle(string $command, array $arguments = []): void
+    public function handle(string $command, array $arguments = []): int
     {
-        match ($command) {
+        return match ($command) {
             'make:seeder' => $this->makeSeeder($arguments),
             'db:seed'     => $this->dbSeed($arguments),
-            default       => $this->output->error("Unknown seeder command: {$command}"),
+            default       => $this->invalidSignature("Unknown seeder command: {$command}"),
         };
     }
 
     // ── make:seeder ───────────────────────────────────────────────────
 
-    private function makeSeeder(array $arguments): void
+    private function makeSeeder(array $arguments): int
     {
         $name = $arguments[0] ?? null;
         if (!$name) {
             $this->output->error("Usage: make:seeder <Name>");
             $this->output->writeln("Example: make:seeder UsersSeeder");
-            return;
+            return ExitCode::FAILURE;
         }
 
         // Normalize: PascalCase the class name, append Seeder if missing.
@@ -75,16 +84,18 @@ class SeederCommands implements CommandInterface
 
         if (file_exists($path)) {
             $this->output->error("File already exists: {$class}.php");
-            return;
+            return ExitCode::FAILURE;
         }
 
         file_put_contents($path, $this->seederStub($class));
         $this->output->success("Created: database/seeders/{$class}.php");
+
+        return ExitCode::SUCCESS;
     }
 
     // ── db:seed ───────────────────────────────────────────────────────
 
-    private function dbSeed(array $arguments): void
+    private function dbSeed(array $arguments): int
     {
         $classFlag = $this->flagValue($arguments, '--class');
         $class = $classFlag ?? 'DatabaseSeeder';
@@ -105,17 +116,19 @@ class SeederCommands implements CommandInterface
                 "Looked in " . $this->seedersPath . " — "
                 . "make sure the file exists and the namespace is `Database\\Seeders`."
             );
-            return;
+            return ExitCode::SUCCESS;
         }
         if (!is_subclass_of($fqcn, Seeder::class)) {
             $this->output->error("{$fqcn} does not extend " . Seeder::class);
-            return;
+            return ExitCode::FAILURE;
         }
 
         $this->output->info("Seeding: {$fqcn}");
         $seeder = $this->container->createOrResolve($fqcn);
         $seeder->run();
         $this->output->success("Database seeding completed.");
+
+        return ExitCode::SUCCESS;
     }
 
     // ── helpers ───────────────────────────────────────────────────────
@@ -174,5 +187,12 @@ class SeederCommands implements CommandInterface
         }
 
         PHP;
+    }
+    /** Report an unrecognised signature and fail the invocation. */
+    private function invalidSignature(string $message): int
+    {
+        $this->output->error($message);
+
+        return ExitCode::INVALID;
     }
 }

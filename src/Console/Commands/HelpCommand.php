@@ -2,6 +2,7 @@
 
 namespace Nitro\Console\Commands;
 
+use Nitro\Console\ExitCode;
 use Nitro\Console\Contracts\CommandInterface;
 use Nitro\Console\CommandManager;
 use Nitro\Console\OutputFormatter;
@@ -20,12 +21,20 @@ class HelpCommand implements CommandInterface
         private OutputFormatter $output
     ) {}
 
+    /**
+     * Signature => description, as a constant so the manager can read it
+     * without constructing the command.
+     *
+     * @var array<string, string>
+     */
+    public const COMMANDS = ['help' => 'Show this help message'];
+
     public function getCommands(): array
     {
-        return ['help' => 'Show this help message'];
+        return self::COMMANDS;
     }
 
-    public function handle(string $signature, array $arguments): void
+    public function handle(string $signature, array $arguments): int
     {
         $this->output->writeln($this->output->color("NitroPHP Console Commands", 'cyan', true));
         $this->output->writeln($this->output->color("============================", 'cyan'));
@@ -46,6 +55,8 @@ class HelpCommand implements CommandInterface
 
         $this->output->writeln($this->output->color("Usage:", 'yellow', true) . " php nitro <command>");
         $this->output->writeln("");
+
+        return ExitCode::SUCCESS;
     }
 
     /**

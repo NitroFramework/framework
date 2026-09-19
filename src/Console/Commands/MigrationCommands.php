@@ -2,6 +2,7 @@
 
 namespace Nitro\Console\Commands;
 
+use Nitro\Console\ExitCode;
 use Nitro\Console\Contracts\CommandInterface;
 use Nitro\Console\OutputFormatter;
 use Nitro\Database\DB;
@@ -56,9 +57,13 @@ class MigrationCommands implements CommandInterface
         $this->migrationsPath = $paths->migrations();
     }
 
-    public function getCommands(): array
-    {
-        return [
+    /**
+     * Signature => description, as a constant so the manager can read it
+     * without constructing the command.
+     *
+     * @var array<string, string>
+     */
+    public const COMMANDS = [
             'make:migration'    => 'Generate a new migration file',
             // 'migrate' is the name everybody reaches for first, and getting
             // "Command 'migrate' not found" on a fresh install reads as a
@@ -73,14 +78,18 @@ class MigrationCommands implements CommandInterface
             'migrate:status'    => 'Show the status of each migration',
             'migrate:mark-ran'  => 'Record migration(s) as ran without executing them',
         ];
+
+    public function getCommands(): array
+    {
+        return self::COMMANDS;
     }
 
-    public function handle(string $command, array $arguments = []): void
+    public function handle(string $command, array $arguments = []): int
     {
         // make:migration runs against the filesystem only — no DB needed.
         if ($command === 'make:migration') {
             $this->makeMigration($arguments);
-            return;
+            return ExitCode::SUCCESS;
         }
 
         // Migrations mutate the schema, so the optimize-time schema cache must
@@ -101,7 +110,7 @@ class MigrationCommands implements CommandInterface
                 'migrate:fresh'     => $this->freshMigrations($arguments),
                 'migrate:status'    => $this->showStatus(),
                 'migrate:mark-ran'  => $this->markRan($arguments),
-                default             => $this->output->error("Unknown migration command: {$command}")
+                default             => $this->invalidSignature("Unknown migration command: {$command}")
             };
         } finally {
             // Invalidate the on-disk schema cache after any command that could
@@ -111,17 +120,19 @@ class MigrationCommands implements CommandInterface
                 SchemaCache::clear();
             }
         }
+
+        return ExitCode::SUCCESS;
     }
 
     // ── make:migration ────────────────────────────────────────────────
 
-    private function makeMigration(array $arguments): void
+    private function makeMigration(array $arguments): int
     {
         $name = $arguments[0] ?? null;
         if (!$name) {
             $this->output->error("Usage: make:migration <name>");
             $this->output->writeln("Example: make:migration create_orders_table");
-            return;
+            return ExitCode::FAILURE;
         }
 
         // snake_case the name: split CamelCase first (CreateOrdersTable →
@@ -133,7 +144,7 @@ class MigrationCommands implements CommandInterface
         $snake = trim($snake, '_');
         if ($snake === '') {
             $this->output->error("Migration name must contain at least one alphanumeric char.");
-            return;
+            return ExitCode::FAILURE;
         }
 
         $timestamp = date('Y_m_d_His');
@@ -146,7 +157,7 @@ class MigrationCommands implements CommandInterface
 
         if (file_exists($path)) {
             $this->output->error("File already exists: {$filename}");
-            return;
+            return ExitCode::FAILURE;
         }
 
         // Guess the table from the migration name so the create-stub is useful
@@ -159,6 +170,8 @@ class MigrationCommands implements CommandInterface
             ? $this->migrationStub($tableGuess)
             : $this->blankMigrationStub());
         $this->output->success("Created: database/migrations/{$filename}");
+
+        return ExitCode::SUCCESS;
     }
 
     /** The table a create-migration targets, or null when the name doesn't imply one. */
@@ -225,7 +238,7 @@ class MigrationCommands implements CommandInterface
 
     // ── migrate:run ───────────────────────────────────────────────────
 
-    private function runMigrations(array $arguments): void
+    private function runMigrations(array $arguments): int
     {
         $step    = $this->flag($arguments, '--step');
         $force   = $this->flag($arguments, '--force');
@@ -241,7 +254,7 @@ class MigrationCommands implements CommandInterface
 
         if (empty($pending)) {
             $this->output->success("Nothing to migrate!");
-            return;
+            return ExitCode::SUCCESS;
         }
 
         $batch = $this->getNextBatchNumber();
@@ -259,6 +272,8 @@ class MigrationCommands implements CommandInterface
         $this->output->success($pretend
             ? "\n--pretend complete (no rows written to the migrations table)."
             : "\nMigrations completed successfully!");
+
+        return ExitCode::SUCCESS;
     }
 
     private function runMigration(string $file, int $batch, bool $pretend = false): void
@@ -332,9 +347,9 @@ class MigrationCommands implements CommandInterface
 
     // ── migrate:rollback [--step=N] ───────────────────────────────────
 
-    private function rollbackMigrations(array $arguments): void
+    private function rollbackMigrations(array $arguments): int
     {
-        if (!$this->confirmDestructive('rollback', $arguments)) return;
+        if (!$this->confirmDestructive('rollback', $arguments)) return ExitCode::SUCCESS;
 
         $steps   = (int) ($this->flagValue($arguments, '--step') ?? 1);
         $pretend = $this->flag($arguments, '--pretend');
@@ -347,7 +362,7 @@ class MigrationCommands implements CommandInterface
         $batches = $this->getBatchesDescending();
         if (empty($batches)) {
             $this->output->success("Nothing to rollback!");
-            return;
+            return ExitCode::SUCCESS;
         }
 
         $toRollBack = array_slice($batches, 0, $steps);
@@ -360,6 +375,8 @@ class MigrationCommands implements CommandInterface
         $this->output->success($pretend
             ? "\n--pretend complete (no changes applied)."
             : "\nRollback completed successfully!");
+
+        return ExitCode::SUCCESS;
     }
 
     private function rollbackMigration(string $file, bool $pretend = false): void
@@ -394,16 +411,16 @@ class MigrationCommands implements CommandInterface
 
     // ── migrate:reset ─────────────────────────────────────────────────
 
-    private function resetMigrations(array $arguments): void
+    private function resetMigrations(array $arguments): int
     {
-        if (!$this->confirmDestructive('reset', $arguments)) return;
+        if (!$this->confirmDestructive('reset', $arguments)) return ExitCode::SUCCESS;
 
         $this->output->info("Resetting all migrations...\n");
 
         $batches = $this->getBatchesDescending();
         if (empty($batches)) {
             $this->output->success("Nothing to reset!");
-            return;
+            return ExitCode::SUCCESS;
         }
 
         foreach ($batches as $batch) {
@@ -413,13 +430,15 @@ class MigrationCommands implements CommandInterface
         }
 
         $this->output->success("\nReset completed successfully!");
+
+        return ExitCode::SUCCESS;
     }
 
     // ── migrate:refresh ───────────────────────────────────────────────
 
-    private function refreshMigrations(array $arguments): void
+    private function refreshMigrations(array $arguments): int
     {
-        if (!$this->confirmDestructive('refresh', $arguments)) return;
+        if (!$this->confirmDestructive('refresh', $arguments)) return ExitCode::SUCCESS;
 
         // Pass --force through to the underlying reset/run so we don't
         // prompt twice in the same operation.
@@ -431,13 +450,15 @@ class MigrationCommands implements CommandInterface
         if ($this->flag($arguments, '--seed')) {
             $this->seedAfterMigrations($arguments);
         }
+
+        return ExitCode::SUCCESS;
     }
 
     // ── migrate:fresh ─────────────────────────────────────────────────
 
-    private function freshMigrations(array $arguments): void
+    private function freshMigrations(array $arguments): int
     {
-        if (!$this->confirmDestructive('fresh', $arguments)) return;
+        if (!$this->confirmDestructive('fresh', $arguments)) return ExitCode::SUCCESS;
 
         $this->output->info("Dropping all tables...");
 
@@ -469,6 +490,8 @@ class MigrationCommands implements CommandInterface
         if ($this->flag($arguments, '--seed')) {
             $this->seedAfterMigrations($arguments);
         }
+
+        return ExitCode::SUCCESS;
     }
 
     /**
@@ -491,14 +514,14 @@ class MigrationCommands implements CommandInterface
 
     // ── migrate:status ────────────────────────────────────────────────
 
-    private function showStatus(): void
+    private function showStatus(): int
     {
         $files = $this->getMigrationFiles();
         $ranBatchMap = $this->getRanWithBatches();
 
         if (empty($files)) {
             $this->output->info("No migration files found.");
-            return;
+            return ExitCode::SUCCESS;
         }
 
         $this->output->info("Migration Status:\n");
@@ -524,11 +547,13 @@ class MigrationCommands implements CommandInterface
         $this->output->writeln(str_repeat('-', 90));
         $this->output->writeln(sprintf("Ran: %d   Pending: %d   Total: %d",
             $ranCount, $pendingCount, $ranCount + $pendingCount));
+
+        return ExitCode::SUCCESS;
     }
 
     // ── migrate:mark-ran ──────────────────────────────────────────────
 
-    private function markRan(array $arguments): void
+    private function markRan(array $arguments): int
     {
         $files = $this->getMigrationFiles();
         $ran   = $this->getRanMigrations();
@@ -543,7 +568,7 @@ class MigrationCommands implements CommandInterface
         if (!$all && empty($named)) {
             $this->output->error("Usage: migrate:mark-ran <name> [<name> …]");
             $this->output->writeln("       migrate:mark-ran --all      (marks every pending migration as ran)");
-            return;
+            return ExitCode::FAILURE;
         }
 
         $targets = $all ? $pending : $named;
@@ -554,7 +579,7 @@ class MigrationCommands implements CommandInterface
         foreach ($targets as $name) {
             if (!in_array($name, $files, true)) {
                 $this->output->error("Migration file not found: {$name}");
-                return;
+                return ExitCode::FAILURE;
             }
             if (in_array($name, $ran, true)) {
                 $this->output->warning("Already marked as ran: {$name}");
@@ -571,6 +596,8 @@ class MigrationCommands implements CommandInterface
         }
 
         $this->output->success("Marked {$marked} migration(s) as ran (batch {$batch}).");
+
+        return ExitCode::SUCCESS;
     }
 
     // ── helpers ───────────────────────────────────────────────────────
@@ -705,7 +732,7 @@ class MigrationCommands implements CommandInterface
         return ((int) DB::table($this->migrationsTable)->max('batch')) + 1;
     }
 
-    private function ensureMigrationsTableExists(): void
+    private function ensureMigrationsTableExists(): int
     {
         $schema = $this->schema;
 
@@ -716,6 +743,8 @@ class MigrationCommands implements CommandInterface
                 $table->integer('batch');
             });
         }
+
+        return ExitCode::SUCCESS;
     }
 
     // ── flag parsing + production guard ───────────────────────────────
@@ -761,5 +790,12 @@ class MigrationCommands implements CommandInterface
             . "Re-run as: php nitro migrate:{$verb} --force"
         );
         return false;
+    }
+    /** Report an unrecognised signature and fail the invocation. */
+    private function invalidSignature(string $message): int
+    {
+        $this->output->error($message);
+
+        return ExitCode::INVALID;
     }
 }

@@ -2,6 +2,7 @@
 
 namespace Nitro\Console\Commands;
 
+use Nitro\Console\ExitCode;
 use Nitro\Console\Contracts\CommandInterface;
 use Nitro\Console\OutputFormatter;
 use Nitro\Foundation\PathRegistry;
@@ -71,14 +72,22 @@ class VariableAuditCommand implements CommandInterface
         private OutputFormatter $output,
     ) {}
 
-    public function getCommands(): array
-    {
-        return [
+    /**
+     * Signature => description, as a constant so the manager can read it
+     * without constructing the command.
+     *
+     * @var array<string, string>
+     */
+    public const COMMANDS = [
             'audit:variables' => 'Report short/non-descriptive variable names and write them to a file',
         ];
+
+    public function getCommands(): array
+    {
+        return self::COMMANDS;
     }
 
-    public function handle(string $signature, array $arguments): void
+    public function handle(string $signature, array $arguments): int
     {
         $options = $this->parseArguments($arguments);
 
@@ -87,12 +96,14 @@ class VariableAuditCommand implements CommandInterface
 
         if ($report['total'] === 0) {
             $this->output->success("No variables of {$options['max']} characters or fewer found. Nothing to do.");
-            return;
+            return ExitCode::SUCCESS;
         }
 
         $written = $this->write($report, $options['out'], $options['max'], $roots);
 
         $this->summarise($report, $written, $options['max']);
+
+        return ExitCode::SUCCESS;
     }
 
     // ─── Scanning ───────────────────────────────────────────────────────────
@@ -275,7 +286,7 @@ class VariableAuditCommand implements CommandInterface
     }
 
     /** Print the headline numbers to the terminal. */
-    private function summarise(array $report, string $written, int $max): void
+    private function summarise(array $report, string $written, int $max): int
     {
         $this->output->writeln('');
         $this->output->info(sprintf(
@@ -304,6 +315,8 @@ class VariableAuditCommand implements CommandInterface
 
         $this->output->writeln('');
         $this->output->success("Report written to {$written}");
+
+        return ExitCode::SUCCESS;
     }
 
     // ─── Arguments ──────────────────────────────────────────────────────────

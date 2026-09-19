@@ -2,6 +2,7 @@
 
 namespace Nitro\Console\Commands;
 
+use Nitro\Console\ExitCode;
 use Nitro\Console\Contracts\CommandInterface;
 use Nitro\Console\OutputFormatter;
 use Nitro\Foundation\PathRegistry;
@@ -22,14 +23,22 @@ class ServeCommand implements CommandInterface
         private OutputFormatter $output,
     ) {}
 
-    public function getCommands(): array
-    {
-        return [
+    /**
+     * Signature => description, as a constant so the manager can read it
+     * without constructing the command.
+     *
+     * @var array<string, string>
+     */
+    public const COMMANDS = [
             'serve' => 'Run the app on the PHP development server',
         ];
+
+    public function getCommands(): array
+    {
+        return self::COMMANDS;
     }
 
-    public function handle(string $command, array $arguments): void
+    public function handle(string $command, array $arguments): int
     {
         [$host, $port] = $this->parseHostPort($arguments);
 
@@ -38,7 +47,7 @@ class ServeCommand implements CommandInterface
 
         if (!is_file($public . DIRECTORY_SEPARATOR . 'index.php')) {
             $this->output->writeln($this->output->color("✖ Front controller not found at {$public}/index.php", 'red'));
-            return;
+            return ExitCode::FAILURE;
         }
 
         $this->output->writeln("");
@@ -62,7 +71,7 @@ class ServeCommand implements CommandInterface
         $process = proc_open($cmd, [STDIN, STDOUT, STDERR], $pipes, $this->paths->base(), $env);
         if (!is_resource($process)) {
             $this->output->writeln($this->output->color("✖ Failed to start the development server", 'red'));
-            return;
+            return ExitCode::FAILURE;
         }
 
         $this->forwardSignalsTo($process);
@@ -76,6 +85,8 @@ class ServeCommand implements CommandInterface
         } while (true);
 
         exit(proc_close($process));
+
+        return ExitCode::SUCCESS;
     }
 
     /**
@@ -116,10 +127,10 @@ class ServeCommand implements CommandInterface
      * Forward SIGINT/SIGTERM to the child so Ctrl+C shuts the server down
      * cleanly. No-op on platforms without pcntl (native Windows PHP).
      */
-    private function forwardSignalsTo($process): void
+    private function forwardSignalsTo($process): int
     {
         if (!function_exists('pcntl_signal') || !function_exists('pcntl_async_signals')) {
-            return;
+            return ExitCode::SUCCESS;
         }
 
         pcntl_async_signals(true);
@@ -128,5 +139,7 @@ class ServeCommand implements CommandInterface
         };
         pcntl_signal(SIGINT, $stop);
         pcntl_signal(SIGTERM, $stop);
+
+        return ExitCode::SUCCESS;
     }
 }

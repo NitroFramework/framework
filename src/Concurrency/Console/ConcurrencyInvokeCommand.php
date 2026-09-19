@@ -2,6 +2,7 @@
 
 namespace Nitro\Concurrency\Console;
 
+use Nitro\Console\ExitCode;
 use Nitro\Concurrency\TaskInvoker;
 use Nitro\Console\Contracts\CommandInterface;
 
@@ -17,18 +18,31 @@ class ConcurrencyInvokeCommand implements CommandInterface
     public const OPEN = '@@NC@@';
     public const CLOSE = '@@/NC@@';
 
-    public function getCommands(): array
-    {
-        return [
+    /**
+     * Signature => description, as a constant so the manager can read it
+     * without constructing the command.
+     *
+     * @var array<string, string>
+     */
+    public const COMMANDS = [
             'concurrency:invoke' => 'Internal: run a serialized concurrency task (used by the process driver)',
         ];
+
+    public function getCommands(): array
+    {
+        return self::COMMANDS;
     }
 
-    public function handle(string $command, array $arguments = []): void
+    public function handle(string $command, array $arguments = []): int
     {
         // Write the raw sentinel to STDOUT so it reaches the parent's pipe intact,
         // bypassing any output buffering/decoration the console may apply.
         fwrite(STDOUT, $this->render($arguments[0] ?? ''));
+
+        // Always 0: the task's own success or failure is carried inside the
+        // sentinel the parent parses, so a non-zero exit here would mean the
+        // invoker itself broke, not the task.
+        return ExitCode::SUCCESS;
     }
 
     /** Run the base64 task payload and build the sentinel-wrapped result string. */

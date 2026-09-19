@@ -2,6 +2,7 @@
 
 namespace Nitro\Console\Commands;
 
+use Nitro\Console\ExitCode;
 use Nitro\Foundation\ModuleManifest;
 use Nitro\Console\Contracts\CommandInterface;
 use Nitro\Cache\CacheManager;
@@ -35,24 +36,32 @@ class OptimizeCommand implements CommandInterface
         private Config $config,
     ) {}
 
-    public function getCommands(): array
-    {
-        return [
+    /**
+     * Signature => description, as a constant so the manager can read it
+     * without constructing the command.
+     *
+     * @var array<string, string>
+     */
+    public const COMMANDS = [
             'optimize'       => 'Cache configuration, routes, and views for maximum performance',
             'optimize:clear' => 'Clear all optimization caches'
         ];
+
+    public function getCommands(): array
+    {
+        return self::COMMANDS;
     }
 
-    public function handle(string $command, array $arguments): void
+    public function handle(string $command, array $arguments): int
     {
-        match ($command) {
+        return match ($command) {
             'optimize'       => $this->optimize(),
             'optimize:clear' => $this->clearOptimizations(),
-            default          => $this->output->error("Unknown optimize command: {$command}")
+            default          => $this->invalidSignature("Unknown optimize command: {$command}")
         };
     }
 
-    protected function optimize(): void
+    protected function optimize(): int
     {
         $this->output->writeln("");
         $this->output->writeln($this->output->color("========================================", 'cyan'));
@@ -97,6 +106,8 @@ class OptimizeCommand implements CommandInterface
         $this->output->writeln($this->output->color("Your application is now optimized for production!", 'cyan'));
         $this->output->writeln($this->output->color("Run 'php nitro optimize:clear' to revert.", 'yellow'));
         $this->output->writeln("");
+
+        return ExitCode::SUCCESS;
     }
 
     protected function cacheConfig(): void
@@ -522,7 +533,7 @@ class OptimizeCommand implements CommandInterface
         );
     }
 
-    protected function clearOptimizations(): void
+    protected function clearOptimizations(): int
     {
         $this->output->writeln("");
         $this->output->writeln($this->output->color("========================================", 'yellow'));
@@ -623,5 +634,14 @@ class OptimizeCommand implements CommandInterface
             $this->output->warning("No cache files found to clear.");
         }
         $this->output->writeln("");
+
+        return ExitCode::SUCCESS;
+    }
+    /** Report an unrecognised signature and fail the invocation. */
+    private function invalidSignature(string $message): int
+    {
+        $this->output->error($message);
+
+        return ExitCode::INVALID;
     }
 }

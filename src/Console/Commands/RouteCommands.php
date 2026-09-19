@@ -2,6 +2,7 @@
 
 namespace Nitro\Console\Commands;
 
+use Nitro\Console\ExitCode;
 use Nitro\Console\Contracts\CommandInterface;
 use Nitro\Console\OutputFormatter;
 use Nitro\Foundation\PathRegistry;
@@ -23,31 +24,39 @@ class RouteCommands implements CommandInterface
         private readonly OutputFormatter $output
     ) {}
 
-    public function getCommands(): array
-    {
-        return [
+    /**
+     * Signature => description, as a constant so the manager can read it
+     * without constructing the command.
+     *
+     * @var array<string, string>
+     */
+    public const COMMANDS = [
             'route:cache' => 'Cache all routes for improved performance',
             'route:clear' => 'Clear route cache'
         ];
+
+    public function getCommands(): array
+    {
+        return self::COMMANDS;
     }
 
-    public function handle(string $command, array $arguments): void
+    public function handle(string $command, array $arguments): int
     {
-        match ($command) {
+        return match ($command) {
             'route:cache' => $this->cacheRoutes(),
             'route:clear' => $this->clearRoutes(),
-            default       => $this->output->error("Unknown route command: {$command}")
+            default       => $this->invalidSignature("Unknown route command: {$command}")
         };
     }
 
-    protected function cacheRoutes(): void
+    protected function cacheRoutes(): int
     {
         $this->output->info("Caching routes...");
 
         try {
             if (!$this->routeLoader->hasRouteFiles()) {
                 $this->output->error("No route files found (routes/web.php, routes/api.php, or config/routes.php).");
-                return;
+                return ExitCode::FAILURE;
             }
 
             $this->router->clearRoutes();
@@ -56,7 +65,7 @@ class RouteCommands implements CommandInterface
             $routes = $this->router->getRoutes();
             if (empty($routes)) {
                 $this->output->warning("No routes found to cache.");
-                return;
+                return ExitCode::SUCCESS;
             }
 
             $this->routeLoader->cache($this->router);
@@ -72,9 +81,11 @@ class RouteCommands implements CommandInterface
         } catch (\Exception $exception) {
             $this->output->error("Error caching routes: " . $exception->getMessage());
         }
+
+        return ExitCode::SUCCESS;
     }
 
-    protected function clearRoutes(): void
+    protected function clearRoutes(): int
     {
         $this->output->info("Clearing route cache...");
 
@@ -95,5 +106,14 @@ class RouteCommands implements CommandInterface
         } catch (\Exception $exception) {
             $this->output->error("Error clearing cache: " . $exception->getMessage());
         }
+
+        return ExitCode::SUCCESS;
+    }
+    /** Report an unrecognised signature and fail the invocation. */
+    private function invalidSignature(string $message): int
+    {
+        $this->output->error($message);
+
+        return ExitCode::INVALID;
     }
 }

@@ -90,18 +90,38 @@ class CommandManager
         ];
 
         foreach ($builtIns as $class) {
-            // We temporarily use the container to get the signatures without
-            // "running" the command logic yet.
-            $instance = $this->container->createOrResolve($class);
-            foreach ($instance->getCommands() as $signature => $description) {
-                $this->commands[$signature] = $class;
-                $this->descriptions[$signature] = $description;
-            }
+            $this->mapSignatures($class);
         }
 
         // Special case for help
         $this->commands['help'] = Commands\HelpCommand::class;
         $this->descriptions['help'] = 'Show this help message';
+    }
+
+    /**
+     * Record what a grouped command answers to, without building it.
+     *
+     * Reading the signatures used to mean resolving every command class through
+     * the container — twenty-four constructions, with their dependencies, before
+     * `php nitro help` could print a list. A class that declares its signatures
+     * as the COMMANDS constant is read by reflection instead and is only built
+     * if it is the one invoked.
+     *
+     * Falling back to an instance keeps a command that predates the constant
+     * working; it pays the old cost, and only that command does.
+     *
+     * @param class-string $class
+     */
+    private function mapSignatures(string $class): void
+    {
+        $signatures = defined($class . '::COMMANDS')
+            ? constant($class . '::COMMANDS')
+            : $this->container->createOrResolve($class)->getCommands();
+
+        foreach ($signatures as $signature => $description) {
+            $this->commands[$signature] = $class;
+            $this->descriptions[$signature] = $description;
+        }
     }
 
     /**
@@ -124,18 +144,17 @@ class CommandManager
         // HelpCommand's back-reference to this manager) resolve only on demand.
         $command = is_string($entry) ? $this->container->createOrResolve($entry) : $entry;
 
-        // Two shapes are supported: a Laravel-style single Command (its own
-        // signature + handle()), or a grouped CommandInterface (handle(sig, args)).
-        // Return the command's exit code so the shell sees success/failure —
-        // dropping it made `php nitro …` always exit 0, so CI treats a failed
-        // migration as success.
+        // Two shapes are supported: a single Command (its own signature +
+        // handle()), or a grouped CommandInterface (handle(sig, args)). Both
+        // return an exit code, and both codes reach the shell — a grouped
+        // command used to return void and be reported as 0 whatever it printed,
+        // so a refused db:wipe and a failed migration both looked like success
+        // to CI.
         if ($command instanceof Command) {
             return (int) $command->run($arguments);
         }
 
-        // Grouped CommandInterface::handle() is void — a clean return is success.
-        $command->handle($name, $arguments);
-        return 0;
+        return $command->handle($name, $arguments);
     }
 
     /**
@@ -184,11 +203,7 @@ class CommandManager
         }
 
         if (is_subclass_of($className, Contracts\CommandInterface::class)) {
-            $instance = $this->container->createOrResolve($className);
-            foreach ($instance->getCommands() as $signature => $description) {
-                $this->commands[$signature] = $className;
-                $this->descriptions[$signature] = $description;
-            }
+            $this->mapSignatures($className);
         }
     }
 }

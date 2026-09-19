@@ -2,6 +2,7 @@
 
 namespace Nitro\Console\Commands;
 
+use Nitro\Console\ExitCode;
 use Nitro\Console\Contracts\CommandInterface;
 use Nitro\Cache\CacheManager;
 use Nitro\Console\OutputFormatter;
@@ -29,9 +30,13 @@ class QueueCommands implements CommandInterface
         private OutputFormatter $output,
     ) {}
 
-    public function getCommands(): array
-    {
-        return [
+    /**
+     * Signature => description, as a constant so the manager can read it
+     * without constructing the command.
+     *
+     * @var array<string, string>
+     */
+    public const COMMANDS = [
             'queue:work'    => 'Process jobs from the queue (long-running worker)',
             'queue:failed'  => 'List failed jobs',
             'queue:retry'   => 'Retry a failed job by id (or "all")',
@@ -39,24 +44,28 @@ class QueueCommands implements CommandInterface
             'queue:flush'   => 'Drop all failed jobs',
             'queue:restart' => 'Signal running workers to gracefully exit',
         ];
+
+    public function getCommands(): array
+    {
+        return self::COMMANDS;
     }
 
-    public function handle(string $command, array $arguments = []): void
+    public function handle(string $command, array $arguments = []): int
     {
-        match ($command) {
+        return match ($command) {
             'queue:work'    => $this->work($arguments),
             'queue:failed'  => $this->listFailed(),
             'queue:retry'   => $this->retry($arguments),
             'queue:forget'  => $this->forget($arguments),
             'queue:flush'   => $this->flush(),
             'queue:restart' => $this->restart(),
-            default         => $this->output->error("Unknown queue command: {$command}"),
+            default         => $this->invalidSignature("Unknown queue command: {$command}"),
         };
     }
 
     // ── queue:work ────────────────────────────────────────────────────
 
-    private function work(array $arguments): void
+    private function work(array $arguments): int
     {
         $options = $this->parseWorkOptions($arguments);
         $worker  = $this->container->createOrResolve(Worker::class);
@@ -83,6 +92,8 @@ class QueueCommands implements CommandInterface
         };
 
         $worker->run($options);
+
+        return ExitCode::SUCCESS;
     }
 
     private function parseWorkOptions(array $args): array
@@ -112,14 +123,14 @@ class QueueCommands implements CommandInterface
 
     // ── queue:failed ──────────────────────────────────────────────────
 
-    private function listFailed(): void
+    private function listFailed(): int
     {
         $store = $this->container->createOrResolve(FailedJobStore::class);
         $rows  = $store->all(50);
 
         if (empty($rows)) {
             $this->output->success('No failed jobs.');
-            return;
+            return ExitCode::SUCCESS;
         }
 
         $this->output->info(sprintf("Failed jobs (showing latest %d):\n", count($rows)));
@@ -135,16 +146,18 @@ class QueueCommands implements CommandInterface
             $firstLine = strtok($row['exception'], "\n");
             $this->output->writeln("    " . $firstLine);
         }
+
+        return ExitCode::SUCCESS;
     }
 
     // ── queue:retry ───────────────────────────────────────────────────
 
-    private function retry(array $arguments): void
+    private function retry(array $arguments): int
     {
         $id = $arguments[0] ?? null;
         if (!$id) {
             $this->output->error("Usage: queue:retry <id|all>");
-            return;
+            return ExitCode::FAILURE;
         }
 
         $store   = $this->container->createOrResolve(FailedJobStore::class);
@@ -153,7 +166,7 @@ class QueueCommands implements CommandInterface
         $targets = $id === 'all' ? $store->all(1000) : array_filter([$store->find($id)]);
         if (empty($targets)) {
             $this->output->error("No failed job with id [{$id}].");
-            return;
+            return ExitCode::FAILURE;
         }
 
         $count = 0;
@@ -176,53 +189,68 @@ class QueueCommands implements CommandInterface
         }
 
         $this->output->success("Retried {$count} job(s).");
+
+        return ExitCode::SUCCESS;
     }
 
     // ── queue:forget ──────────────────────────────────────────────────
 
-    private function forget(array $arguments): void
+    private function forget(array $arguments): int
     {
         $id = $arguments[0] ?? null;
         if (!$id) {
             $this->output->error("Usage: queue:forget <id>");
-            return;
+            return ExitCode::FAILURE;
         }
 
         $store = $this->container->createOrResolve(FailedJobStore::class);
         $store->forget($id)
             ? $this->output->success("Forgot failed job {$id}.")
             : $this->output->error("No failed job with id [{$id}].");
+
+        return ExitCode::SUCCESS;
     }
 
     // ── queue:flush ───────────────────────────────────────────────────
 
-    private function flush(): void
+    private function flush(): int
     {
         $store = $this->container->createOrResolve(FailedJobStore::class);
         $cleared = $store->clear();
         $this->output->success("Cleared {$cleared} failed job(s).");
+
+        return ExitCode::SUCCESS;
     }
 
     // ── queue:restart ─────────────────────────────────────────────────
 
-    private function restart(): void
+    private function restart(): int
     {
         if (!$this->container->has(CacheManager::class)) {
             $this->output->error(
                 'queue:restart requires the cache layer. Configure a cache driver in config/cache.php.'
             );
-            return;
+            return ExitCode::FAILURE;
         }
         $cache = $this->container->createOrResolve(CacheManager::class);
         // Workers compare this value to what they read at boot; any
         // change means "exit gracefully so the supervisor restarts me."
         $cache->put('queue:restart', time(), 3600);
         $this->output->success('Sent restart signal to running workers.');
+
+        return ExitCode::SUCCESS;
     }
 
     private function extractClass(string $payload): string
     {
         $decoded = json_decode($payload, true);
         return is_array($decoded) ? ($decoded['class'] ?? 'unknown') : 'unknown';
+    }
+    /** Report an unrecognised signature and fail the invocation. */
+    private function invalidSignature(string $message): int
+    {
+        $this->output->error($message);
+
+        return ExitCode::INVALID;
     }
 }

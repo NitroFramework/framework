@@ -2,6 +2,7 @@
 
 namespace Nitro\Console\Commands;
 
+use Nitro\Console\ExitCode;
 use Nitro\Console\Contracts\CommandInterface;
 use Nitro\Console\OutputFormatter;
 use Nitro\Foundation\PathRegistry;
@@ -19,14 +20,22 @@ class KeyGenerateCommand implements CommandInterface
         private OutputFormatter $output
     ) {}
 
-    public function getCommands(): array
-    {
-        return [
+    /**
+     * Signature => description, as a constant so the manager can read it
+     * without constructing the command.
+     *
+     * @var array<string, string>
+     */
+    public const COMMANDS = [
             'key:generate' => 'Set the application key (APP_KEY) in the .env file',
         ];
+
+    public function getCommands(): array
+    {
+        return self::COMMANDS;
     }
 
-    public function handle(string $signature, array $arguments): void
+    public function handle(string $signature, array $arguments): int
     {
         $show  = in_array('--show', $arguments, true);
         $force = in_array('--force', $arguments, true);
@@ -36,7 +45,7 @@ class KeyGenerateCommand implements CommandInterface
         if ($show) {
             $this->output->writeln($key);
 
-            return;
+            return ExitCode::SUCCESS;
         }
 
         $path = $this->paths->base('.env');
@@ -44,7 +53,7 @@ class KeyGenerateCommand implements CommandInterface
         if (!is_file($path)) {
             $this->output->error('No .env file found. Copy .env.example to .env first.');
 
-            return;
+            return ExitCode::FAILURE;
         }
 
         $contents = (string) file_get_contents($path);
@@ -54,7 +63,7 @@ class KeyGenerateCommand implements CommandInterface
         if (!$force && preg_match('/^APP_KEY=.+$/m', $contents)) {
             $this->output->warning('Application key already set. Use --force to overwrite it.');
 
-            return;
+            return ExitCode::FAILURE;
         }
 
         if (preg_match('/^APP_KEY=.*$/m', $contents)) {
@@ -71,10 +80,12 @@ class KeyGenerateCommand implements CommandInterface
         if (file_put_contents($path, $contents) === false) {
             $this->output->error('Unable to write the application key to .env.');
 
-            return;
+            return ExitCode::FAILURE;
         }
 
         $this->output->success('Application key set successfully.');
+
+        return ExitCode::SUCCESS;
     }
 
     /** A 256-bit random key in Laravel's `base64:` envelope. */

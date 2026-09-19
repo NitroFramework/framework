@@ -2,6 +2,7 @@
 
 namespace Nitro\Console\Commands;
 
+use Nitro\Console\ExitCode;
 use Nitro\Console\Contracts\CommandInterface;
 use Nitro\Console\OutputFormatter;
 use Nitro\Foundation\PathRegistry;
@@ -26,9 +27,13 @@ class MakeCommands implements CommandInterface
         private readonly PathRegistry $paths,
     ) {}
 
-    public function getCommands(): array
-    {
-        return [
+    /**
+     * Signature => description, as a constant so the manager can read it
+     * without constructing the command.
+     *
+     * @var array<string, string>
+     */
+    public const COMMANDS = [
             'make:controller' => 'Create a new controller class (--resource for RESTful stubs)',
             'make:model'      => 'Create a new model class',
             'make:middleware' => 'Create a new middleware class',
@@ -37,14 +42,18 @@ class MakeCommands implements CommandInterface
             'make:command'    => 'Create a new console command class',
             'make:module'     => 'Scaffold a new self-contained module under app/Modules',
         ];
+
+    public function getCommands(): array
+    {
+        return self::COMMANDS;
     }
 
-    public function handle(string $command, array $arguments = []): void
+    public function handle(string $command, array $arguments = []): int
     {
         $name = $arguments[0] ?? null;
         if (!$name || str_starts_with($name, '--')) {
             $this->output->error("Usage: {$command} <Name>");
-            return;
+            return ExitCode::FAILURE;
         }
 
         match ($command) {
@@ -55,11 +64,13 @@ class MakeCommands implements CommandInterface
             'make:action'     => $this->makeAction($name),
             'make:command'    => $this->makeCommand($name),
             'make:module'     => $this->makeModule($name),
-            default           => $this->output->error("Unknown make command: {$command}"),
+            default           => $this->invalidSignature("Unknown make command: {$command}"),
         };
+
+        return ExitCode::SUCCESS;
     }
 
-    private function makeController(string $name, bool $resource): void
+    private function makeController(string $name, bool $resource): int
     {
         [$ns, $class, $rel] = $this->resolve($name, 'App\\Http\\Controllers', 'Controller');
         $body = $resource ? $this->resourceMethods() : "    //\n";
@@ -76,9 +87,11 @@ class MakeCommands implements CommandInterface
         {$body}}
 
         PHP);
+
+        return ExitCode::SUCCESS;
     }
 
-    private function makeCommand(string $name): void
+    private function makeCommand(string $name): int
     {
         [$ns, $class, $rel] = $this->resolve($name, 'App\\Console\\Commands', '');
         $signature = strtolower(preg_replace('/(?<!^)[A-Z]/', '-$0', $class));
@@ -105,9 +118,11 @@ class MakeCommands implements CommandInterface
         }
 
         PHP);
+
+        return ExitCode::SUCCESS;
     }
 
-    private function makeModel(string $name): void
+    private function makeModel(string $name): int
     {
         [$ns, $class, $rel] = $this->resolve($name, 'App\\Models', '');
 
@@ -124,9 +139,11 @@ class MakeCommands implements CommandInterface
         }
 
         PHP);
+
+        return ExitCode::SUCCESS;
     }
 
-    private function makeMiddleware(string $name): void
+    private function makeMiddleware(string $name): int
     {
         [$ns, $class, $rel] = $this->resolve($name, 'App\\Http\\Middleware', 'Middleware');
 
@@ -150,9 +167,11 @@ class MakeCommands implements CommandInterface
         }
 
         PHP);
+
+        return ExitCode::SUCCESS;
     }
 
-    private function makeRequest(string $name): void
+    private function makeRequest(string $name): int
     {
         [$ns, $class, $rel] = $this->resolve($name, 'App\\Http\\Requests', 'Request');
 
@@ -185,9 +204,11 @@ class MakeCommands implements CommandInterface
         }
 
         PHP);
+
+        return ExitCode::SUCCESS;
     }
 
-    private function makeAction(string $name): void
+    private function makeAction(string $name): int
     {
         [$ns, $class, $rel] = $this->resolve($name, 'App\\Actions', '');
 
@@ -211,6 +232,8 @@ class MakeCommands implements CommandInterface
         }
 
         PHP);
+
+        return ExitCode::SUCCESS;
     }
 
     /**
@@ -219,12 +242,12 @@ class MakeCommands implements CommandInterface
      * Generates the auto-wiring provider plus routes.php, config.php and a
      * sample namespaced view; the module registers itself on the next request.
      */
-    private function makeModule(string $name): void
+    private function makeModule(string $name): int
     {
         $module = ucfirst((string) preg_replace('/[^A-Za-z0-9]/', '', $name));
         if ($module === '') {
             $this->output->error("Invalid module name: {$name}");
-            return;
+            return ExitCode::FAILURE;
         }
 
         $slug = strtolower($module);
@@ -281,6 +304,8 @@ class MakeCommands implements CommandInterface
         $this->write("{$base}/src/.gitkeep", '');
 
         $this->output->success("Module '{$module}' scaffolded — it auto-registers on the next request.");
+
+        return ExitCode::SUCCESS;
     }
 
     /**
@@ -340,5 +365,12 @@ class MakeCommands implements CommandInterface
             public function destroy($id) {}
 
         PHP;
+    }
+    /** Report an unrecognised signature and fail the invocation. */
+    private function invalidSignature(string $message): int
+    {
+        $this->output->error($message);
+
+        return ExitCode::INVALID;
     }
 }

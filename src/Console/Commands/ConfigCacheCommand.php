@@ -2,6 +2,7 @@
 
 namespace Nitro\Console\Commands;
 
+use Nitro\Console\ExitCode;
 use Nitro\Console\Contracts\CommandInterface;
 use Nitro\Console\OutputFormatter;
 use Nitro\Foundation\Config;
@@ -17,24 +18,32 @@ class ConfigCacheCommand implements CommandInterface
         private OutputFormatter $output
     ) {}
 
-    public function getCommands(): array
-    {
-        return [
+    /**
+     * Signature => description, as a constant so the manager can read it
+     * without constructing the command.
+     *
+     * @var array<string, string>
+     */
+    public const COMMANDS = [
             'config:cache' => 'Cache all configuration files for improved performance',
             'config:clear' => 'Clear configuration cache',
         ];
+
+    public function getCommands(): array
+    {
+        return self::COMMANDS;
     }
 
-    public function handle(string $command, array $arguments): void
+    public function handle(string $command, array $arguments): int
     {
-        match ($command) {
+        return match ($command) {
             'config:cache' => $this->cacheConfig(),
             'config:clear' => $this->clearConfig(),
-            default        => $this->output->error("Unknown config command: {$command}")
+            default        => $this->invalidSignature("Unknown config command: {$command}")
         };
     }
 
-    protected function cacheConfig(): void
+    protected function cacheConfig(): int
     {
         $this->output->info("Caching configuration...");
 
@@ -63,6 +72,8 @@ class ConfigCacheCommand implements CommandInterface
         } catch (\Throwable $exception) {
             $this->output->error("Error caching configuration: " . $exception->getMessage());
         }
+
+        return ExitCode::SUCCESS;
     }
 
     /** Strip values var_export can't emit (closures/objects) before caching. */
@@ -78,7 +89,7 @@ class ConfigCacheCommand implements CommandInterface
         return $data;
     }
 
-    protected function clearConfig(): void
+    protected function clearConfig(): int
     {
         $this->output->info("Clearing configuration cache...");
 
@@ -99,5 +110,14 @@ class ConfigCacheCommand implements CommandInterface
         } catch (\Exception $exception) {
             $this->output->error("Error clearing configuration cache: " . $exception->getMessage());
         }
+
+        return ExitCode::SUCCESS;
+    }
+    /** Report an unrecognised signature and fail the invocation. */
+    private function invalidSignature(string $message): int
+    {
+        $this->output->error($message);
+
+        return ExitCode::INVALID;
     }
 }

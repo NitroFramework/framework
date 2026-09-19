@@ -2,6 +2,7 @@
 
 namespace Nitro\Cache\Console;
 
+use Nitro\Console\ExitCode;
 use Nitro\Console\Contracts\CommandInterface;
 use Nitro\Console\OutputFormatter;
 use Nitro\Foundation\PathRegistry;
@@ -19,22 +20,30 @@ class CacheTableCommand implements CommandInterface
         private OutputFormatter $output,
     ) {}
 
-    public function getCommands(): array
-    {
-        return [
+    /**
+     * Signature => description, as a constant so the manager can read it
+     * without constructing the command.
+     *
+     * @var array<string, string>
+     */
+    public const COMMANDS = [
             'make:cache-table' => 'Create a migration for the cache database table',
             'cache:table'      => 'Create a migration for the cache database table',
         ];
+
+    public function getCommands(): array
+    {
+        return self::COMMANDS;
     }
 
-    public function handle(string $signature, array $arguments): void
+    public function handle(string $signature, array $arguments): int
     {
         $directory = $this->paths->base('database/migrations');
 
         if (glob($directory . '/*_create_cache_table.php') !== []) {
             $this->output->error('A create_cache_table migration already exists.');
 
-            return;
+            return ExitCode::FAILURE;
         }
 
         if (! is_dir($directory)) {
@@ -46,6 +55,8 @@ class CacheTableCommand implements CommandInterface
         file_put_contents($directory . '/' . $filename, $this->stub());
 
         $this->output->success("Created: database/migrations/{$filename}");
+
+        return ExitCode::SUCCESS;
     }
 
     private function stub(): string

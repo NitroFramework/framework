@@ -2,6 +2,7 @@
 
 namespace Nitro\Console\Commands;
 
+use Nitro\Console\ExitCode;
 use Nitro\Console\Contracts\CommandInterface;
 use Nitro\Console\OutputFormatter;
 use Nitro\Database\DB;
@@ -34,33 +35,41 @@ class DatabaseCommands implements CommandInterface
         private readonly ConfigRepository $config,
     ) {}
 
-    public function getCommands(): array
-    {
-        return [
+    /**
+     * Signature => description, as a constant so the manager can read it
+     * without constructing the command.
+     *
+     * @var array<string, string>
+     */
+    public const COMMANDS = [
             'db:show'  => 'Show rows from a table (ASCII table or --json)',
             'db:count' => 'Count rows in a table',
             'db:wipe'  => 'Delete every row from a table (--force in production)',
         ];
+
+    public function getCommands(): array
+    {
+        return self::COMMANDS;
     }
 
-    public function handle(string $command, array $arguments = []): void
+    public function handle(string $command, array $arguments = []): int
     {
-        match ($command) {
+        return match ($command) {
             'db:show'  => $this->show($arguments),
             'db:count' => $this->count($arguments),
             'db:wipe'  => $this->wipe($arguments),
-            default    => $this->output->error("Unknown db command: {$command}"),
+            default    => $this->invalidSignature("Unknown db command: {$command}"),
         };
     }
 
     // ── db:show ───────────────────────────────────────────────────────
 
-    private function show(array $arguments): void
+    private function show(array $arguments): int
     {
         $table = $this->positional($arguments);
         if (!$table) {
             $this->output->error("Usage: db:show <table> [--limit=10] [--where=col:value] [--json]");
-            return;
+            return ExitCode::FAILURE;
         }
         $limit  = (int) ($this->flagValue($arguments, '--limit') ?? 10);
         $wheres = $this->parseWheres($arguments);
@@ -75,7 +84,7 @@ class DatabaseCommands implements CommandInterface
 
         if (empty($rows)) {
             $this->output->info("No rows.");
-            return;
+            return ExitCode::SUCCESS;
         }
 
         $arrayRows = array_map(fn($row) => (array) $row, $rows);
@@ -84,21 +93,23 @@ class DatabaseCommands implements CommandInterface
             foreach ($arrayRows as $row) {
                 $this->output->writeln(json_encode($row, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
             }
-            return;
+            return ExitCode::SUCCESS;
         }
 
         $this->printAsciiTable($arrayRows);
         $this->output->writeln(sprintf("(%d row(s) — limit=%d)", count($arrayRows), $limit));
+
+        return ExitCode::SUCCESS;
     }
 
     // ── db:count ──────────────────────────────────────────────────────
 
-    private function count(array $arguments): void
+    private function count(array $arguments): int
     {
         $table = $this->positional($arguments);
         if (!$table) {
             $this->output->error("Usage: db:count <table> [--where=col:value]");
-            return;
+            return ExitCode::FAILURE;
         }
         $wheres = $this->parseWheres($arguments);
 
@@ -109,16 +120,18 @@ class DatabaseCommands implements CommandInterface
 
         $count = $query->count();
         $this->output->info("{$table}: {$count} row(s)");
+
+        return ExitCode::SUCCESS;
     }
 
     // ── db:wipe ───────────────────────────────────────────────────────
 
-    private function wipe(array $arguments): void
+    private function wipe(array $arguments): int
     {
         $table = $this->positional($arguments);
         if (!$table) {
             $this->output->error("Usage: db:wipe <table> [--force]");
-            return;
+            return ExitCode::INVALID;
         }
 
         $env = $this->config->get('app.env');
@@ -127,11 +140,13 @@ class DatabaseCommands implements CommandInterface
                 "Refusing to wipe '{$table}' in production without --force. "
                 . "Re-run as: php nitro db:wipe {$table} --force"
             );
-            return;
+            return ExitCode::FAILURE;
         }
 
         $deleted = DB::table($table)->delete();
         $this->output->success("Wiped {$table}: {$deleted} row(s) deleted.");
+
+        return ExitCode::SUCCESS;
     }
 
     // ── helpers ───────────────────────────────────────────────────────
@@ -230,5 +245,12 @@ class DatabaseCommands implements CommandInterface
         if (is_bool($value)) return $value ? 'true' : 'false';
         $formatted = is_scalar($value) ? (string) $value : json_encode($value);
         return strlen($formatted) > 40 ? substr($formatted, 0, 37) . '…' : $formatted;
+    }
+    /** Report an unrecognised signature and fail the invocation. */
+    private function invalidSignature(string $message): int
+    {
+        $this->output->error($message);
+
+        return ExitCode::INVALID;
     }
 }

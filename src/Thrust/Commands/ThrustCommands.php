@@ -2,6 +2,7 @@
 
 namespace Nitro\Thrust\Commands;
 
+use Nitro\Console\ExitCode;
 use Nitro\Console\Contracts\CommandInterface;
 use Nitro\Console\OutputFormatter;
 use Nitro\Foundation\PathRegistry;
@@ -30,18 +31,26 @@ class ThrustCommands implements CommandInterface
         private OutputFormatter $output,
     ) {}
 
-    public function getCommands(): array
-    {
-        return [
+    /**
+     * Signature => description, as a constant so the manager can read it
+     * without constructing the command.
+     *
+     * @var array<string, string>
+     */
+    public const COMMANDS = [
             'thrust:install' => 'Install the FrankenPHP worker server (binary + config)',
             'thrust:start'   => 'Start the FrankenPHP worker server (--host --port --workers --watch)',
             'thrust:stop'    => 'Stop the running worker server',
             'thrust:status'  => 'Show whether the worker server is running',
             'thrust:reload'  => 'Gracefully reload the worker server',
         ];
+
+    public function getCommands(): array
+    {
+        return self::COMMANDS;
     }
 
-    public function handle(string $command, array $arguments): void
+    public function handle(string $command, array $arguments): int
     {
         $options = $this->parseOptions($arguments);
         $server = $options['server'] ?? 'frankenphp';
@@ -51,22 +60,30 @@ class ThrustCommands implements CommandInterface
                 "✖ Thrust currently supports --server=frankenphp (got '{$server}').",
                 'red'
             ));
-            return;
+            return ExitCode::FAILURE;
         }
 
-        match ($command) {
+        return match ($command) {
             'thrust:install' => $this->install($options),
             'thrust:start'   => $this->start($options),
             'thrust:stop'    => $this->stop(),
             'thrust:status'  => $this->status(),
             'thrust:reload'  => $this->reload(),
-            default          => $this->output->writeln("Unknown command: {$command}"),
+            default          => $this->invalidSignature("Unknown command: {$command}"),
         };
+    }
+
+    /** Report an unrecognised signature and fail the invocation. */
+    private function invalidSignature(string $message): int
+    {
+        $this->output->error($message);
+
+        return ExitCode::INVALID;
     }
 
     // ─── install ──────────────────────────────────────────────────────────────
 
-    private function install(array $options): void
+    private function install(array $options): int
     {
         $base = $this->paths->base();
         $force = isset($options['force']);
@@ -79,13 +96,13 @@ class ThrustCommands implements CommandInterface
         if (($binary = $finder->find()) !== null) {
             $this->output->writeln($this->output->color("✔ FrankenPHP binary found: {$binary}", 'green'));
             $this->maybeScaffoldPhpIni($binary);
-            return;
+            return ExitCode::SUCCESS;
         }
 
         $installer = new BinaryInstaller($base);
         if (! $installer->isSupportedPlatform()) {
             $this->printWindowsGuidance();
-            return;
+            return ExitCode::SUCCESS;
         }
 
         $this->output->writeln("Downloading the FrankenPHP binary…");
@@ -102,11 +119,13 @@ class ThrustCommands implements CommandInterface
             $this->output->writeln("");
             $this->output->writeln($this->output->color("✖ Download failed: {$exception->getMessage()}", 'red'));
         }
+
+        return ExitCode::SUCCESS;
     }
 
     // ─── start ────────────────────────────────────────────────────────────────
 
-    private function start(array $options): void
+    private function start(array $options): int
     {
         $base = $this->paths->base();
         $finder = new BinaryFinder($base);
@@ -115,7 +134,7 @@ class ThrustCommands implements CommandInterface
         if ($binary === null) {
             $this->output->writeln($this->output->color("✖ FrankenPHP binary not found.", 'red', true));
             $this->output->writeln("Run " . $this->output->color("php nitro thrust:install", 'green') . " first.");
-            return;
+            return ExitCode::FAILURE;
         }
 
         $stateFile = $this->stateFile();
@@ -123,13 +142,13 @@ class ThrustCommands implements CommandInterface
         if ($inspector->serverIsRunning()) {
             $this->output->writeln($this->output->color("✖ A Thrust server is already running.", 'red'));
             $this->output->writeln("Use " . $this->output->color("php nitro thrust:reload", 'green') . " to reload it.");
-            return;
+            return ExitCode::FAILURE;
         }
 
         $caddyfile = $base . DIRECTORY_SEPARATOR . 'Caddyfile';
         if (! is_file($caddyfile)) {
             $this->output->writeln($this->output->color("✖ Caddyfile not found — run php nitro thrust:install.", 'red'));
-            return;
+            return ExitCode::FAILURE;
         }
 
         $host = $options['host'] ?? '127.0.0.1';
@@ -174,7 +193,7 @@ class ThrustCommands implements CommandInterface
         if (! is_resource($process)) {
             $this->output->writeln($this->output->color("✖ Failed to start FrankenPHP.", 'red'));
             $stateFile->delete();
-            return;
+            return ExitCode::FAILURE;
         }
 
         $status = proc_get_status($process);
@@ -195,11 +214,13 @@ class ThrustCommands implements CommandInterface
         $exit = proc_close($process);
         $stateFile->delete();
         exit($exit);
+
+        return ExitCode::SUCCESS;
     }
 
     // ─── stop / status / reload ─────────────────────────────────────────────────
 
-    private function stop(): void
+    private function stop(): int
     {
         $stateFile = $this->stateFile();
         $inspector = new ProcessInspector($stateFile);
@@ -207,7 +228,7 @@ class ThrustCommands implements CommandInterface
         if (! $inspector->serverIsRunning()) {
             $this->output->writeln($this->output->color("Thrust server is not running.", 'yellow'));
             $stateFile->delete();
-            return;
+            return ExitCode::SUCCESS;
         }
 
         if ($inspector->stopServer()) {
@@ -216,9 +237,11 @@ class ThrustCommands implements CommandInterface
         } else {
             $this->output->writeln($this->output->color("✖ Could not stop the server.", 'red'));
         }
+
+        return ExitCode::SUCCESS;
     }
 
-    private function status(): void
+    private function status(): int
     {
         $stateFile = $this->stateFile();
         $inspector = new ProcessInspector($stateFile);
@@ -230,15 +253,17 @@ class ThrustCommands implements CommandInterface
         } else {
             $this->output->writeln($this->output->color("○ Thrust server is not running.", 'yellow'));
         }
+
+        return ExitCode::SUCCESS;
     }
 
-    private function reload(): void
+    private function reload(): int
     {
         $inspector = new ProcessInspector($this->stateFile());
 
         if (! $inspector->serverIsRunning()) {
             $this->output->writeln($this->output->color("✖ Thrust server is not running.", 'red'));
-            return;
+            return ExitCode::FAILURE;
         }
 
         if ($inspector->reloadServer()) {
@@ -249,6 +274,8 @@ class ThrustCommands implements CommandInterface
                 'red'
             ));
         }
+
+        return ExitCode::SUCCESS;
     }
 
     // ─── helpers ────────────────────────────────────────────────────────────────

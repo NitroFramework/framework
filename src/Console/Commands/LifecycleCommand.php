@@ -2,6 +2,7 @@
 
 namespace Nitro\Console\Commands;
 
+use Nitro\Console\ExitCode;
 use Closure;
 use Nitro\Console\Contracts\CommandInterface;
 use Nitro\Console\OutputFormatter;
@@ -34,14 +35,22 @@ class LifecycleCommand implements CommandInterface
         private OutputFormatter $output,
     ) {}
 
-    public function getCommands(): array
-    {
-        return [
+    /**
+     * Signature => description, as a constant so the manager can read it
+     * without constructing the command.
+     *
+     * @var array<string, string>
+     */
+    public const COMMANDS = [
             'lifecycle' => 'Show the boot + request lifecycle: order, providers, middleware, hooks',
         ];
+
+    public function getCommands(): array
+    {
+        return self::COMMANDS;
     }
 
-    public function handle(string $signature, array $arguments): void
+    public function handle(string $signature, array $arguments): int
     {
         $this->heading('PHASE 1 — BOOT');
         $this->output->writeln('  Runs ONCE per process. Under Thrust that is once per worker,');
@@ -58,11 +67,13 @@ class LifecycleCommand implements CommandInterface
         $this->requestFlow();
 
         $this->deferred();
+
+        return ExitCode::SUCCESS;
     }
 
     // ── Phase 1 ──────────────────────────────────────────────────────────
 
-    private function bootstrappers(): void
+    private function bootstrappers(): int
     {
         $this->label('  Bootstrappers  (runBootstrappers, in order)');
 
@@ -74,9 +85,11 @@ class LifecycleCommand implements CommandInterface
             $this->output->writeln('    ' . ($index + 1) . '. ' . $this->shortName($class));
         }
         $this->output->writeln('');
+
+        return ExitCode::SUCCESS;
     }
 
-    private function providers(): void
+    private function providers(): int
     {
         $registered = $this->app->getServiceProviders();
         $bootable   = $this->app->getBootableProviders();
@@ -99,11 +112,13 @@ class LifecycleCommand implements CommandInterface
             );
         }
         $this->output->writeln('');
+
+        return ExitCode::SUCCESS;
     }
 
     // ── Phase 2 ──────────────────────────────────────────────────────────
 
-    private function requestFlow(): void
+    private function requestFlow(): int
     {
         $hooks = $this->kernel->getLifecycleHooks();
 
@@ -121,6 +136,8 @@ class LifecycleCommand implements CommandInterface
         $this->output->writeln('      |');
         $this->hookStep('terminating', $hooks['terminating'] ?? [], 'after the response is sent');
         $this->output->writeln('');
+
+        return ExitCode::SUCCESS;
     }
 
     private function middleware(): void
@@ -247,11 +264,11 @@ class LifecycleCommand implements CommandInterface
 
     // ── Deferred ─────────────────────────────────────────────────────────
 
-    private function deferred(): void
+    private function deferred(): int
     {
         $deferred = $this->app->getDeferredServices();
         if ($deferred === []) {
-            return;
+            return ExitCode::SUCCESS;
         }
 
         $this->heading('DEFERRED');
@@ -271,15 +288,19 @@ class LifecycleCommand implements CommandInterface
             }
         }
         $this->output->writeln('');
+
+        return ExitCode::SUCCESS;
     }
 
     // ── Formatting ───────────────────────────────────────────────────────
 
-    private function heading(string $text): void
+    private function heading(string $text): int
     {
         $this->output->writeln('');
         $this->output->writeln($this->output->color($text, 'magenta', true));
         $this->output->writeln($this->output->color(str_repeat('=', max(strlen($text), 20)), 'magenta'));
+
+        return ExitCode::SUCCESS;
     }
 
     private function label(string $text): void
