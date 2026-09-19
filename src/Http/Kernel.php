@@ -34,6 +34,17 @@ class Kernel
     protected Router $router;
     protected ContainerInterface $container;
 
+    /**
+     * The global stack, run on every request whether or not it matches a route.
+     *
+     * Empty by default, and filled by providers through {@see pushMiddleware()}.
+     * Naming a class here instead would make constructing a Kernel require
+     * whatever that class needs — the maintenance guard wants a MaintenanceMode,
+     * which is a Foundation service the Http layer should not have to assume
+     * exists.
+     *
+     * @var array<int, string>
+     */
     protected array $middleware = [];
 
     protected array $middlewareGroups = [
@@ -148,8 +159,9 @@ class Kernel
 
             return $this->sendRequestThroughRouter($request);
         } catch (HttpResponseException $exception) {
-            // A helper (e.g. request()->validate()) short-circuited with a
-            // ready response — send it as-is.
+            // Something short-circuited with a ready response — a guard calling
+            // Response::throwResponse(), or a validation failure the handler
+            // converted. Send it as-is.
             return $exception->getResponse();
         } catch (Throwable $exception) {
             return $this->renderException($request, $exception);
@@ -251,6 +263,13 @@ class Kernel
             [$alias, $parameters] = $this->parseMiddlewareName($name);
 
             $middleware = $this->resolveRouteMiddleware($alias);
+
+            // Remembered, not re-resolved later: terminate() must run on the
+            // same instance that handled the request, or anything it collected
+            // on the way through is gone by the time it is asked to finish.
+            if (method_exists($middleware, 'terminate')) {
+                $this->terminableMiddleware[] = $middleware;
+            }
 
             $stages[] = static fn (Request $request, callable $next): Response
                 => $middleware->handle($request, $next, ...$parameters);
@@ -524,10 +543,57 @@ class Kernel
         return $this->renderException($request, new HttpException(404, $message));
     }
 
-    /** Run cleanup tasks after the response has been sent. */
+    /**
+     * Run cleanup tasks after the response has been sent.
+     *
+     * Three things, in order: middleware that declared a terminate(), the hooks
+     * providers registered, and the application's own terminating callbacks.
+     *
+     * Middleware is included because the hooks alone only served the framework —
+     * a provider could register one, but an application's middleware had no way
+     * to defer work past send(), which is the whole reason to write one.
+     *
+     * Every one is isolated. The response is already on the wire, so a failure
+     * here cannot be reported to the client and must not stop the rest of the
+     * cleanup; it goes to the exception handler instead.
+     */
     public function terminate(Request $request, Response $response): void
     {
-        $this->runHooks($this->terminatingHooks, $request, $response);
+        foreach ($this->terminableMiddleware as $middleware) {
+            $this->safely(fn () => $middleware->terminate($request, $response));
+        }
+
+        $this->terminableMiddleware = [];
+
+        foreach ($this->terminatingHooks as $hook) {
+            $this->safely(fn () => $hook($request, $response));
+        }
+
+        $this->safely(fn () => $this->app->terminate());
+    }
+
+    /**
+     * Middleware instances from this request that expose a terminate().
+     *
+     * Cleared at the end of terminate() so a worker does not carry the previous
+     * request's middleware into the next one.
+     *
+     * @var array<int, object>
+     */
+    private array $terminableMiddleware = [];
+
+    /** Run a cleanup step, reporting a failure rather than letting it end the rest. */
+    private function safely(callable $step): void
+    {
+        try {
+            $step();
+        } catch (Throwable $exception) {
+            try {
+                $this->container->createOrResolve(ExceptionHandler::class)->report($exception);
+            } catch (Throwable) {
+                // Nothing left to report through; the response has been sent.
+            }
+        }
     }
 
     // --- Hook Points ---

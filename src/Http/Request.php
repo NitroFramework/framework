@@ -20,10 +20,14 @@ use Nitro\Support\Macroable;
 #[RequestScoped]
 class Request implements ArrayAccess
 {
-    // Lets feature layers (e.g. Validation) bolt methods like validate() onto
-    // the Request without the Http core depending on them. See §3 of the source
-    // guide — same seam the HTMX layer uses on the Router.
+    /**
+     * Lets a feature layer bolt methods onto the Request without the Http core
+     * depending on it — the same seam the HTMX layer uses on the Router.
+     */
     use Macroable;
+
+    /** filled()/boolean()/date()/validate() and the rest of the input surface. */
+    use Concerns\InteractsWithInput;
 
     protected string $method;
     protected string $path;

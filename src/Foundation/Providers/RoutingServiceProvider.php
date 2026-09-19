@@ -5,6 +5,8 @@ namespace Nitro\Foundation\Providers;
 use Nitro\Container\Container;
 use Nitro\Database\Model\Model;
 use Nitro\Exceptions\HttpException;
+use Nitro\Http\Kernel;
+use Nitro\Http\Middleware\PreventRequestsDuringMaintenance;
 use Nitro\Routing\RouteLoader;
 use Nitro\Routing\Contracts\RouterInterface;
 use Nitro\Routing\RouteDispatcher;
@@ -62,8 +64,20 @@ class RoutingServiceProvider extends ServiceProvider
     //     $routeLoader->load($router);
     // }
 
-    public function boot(RouteLoader $routeLoader, Router $router): void
+    public function boot(RouteLoader $routeLoader, Router $router, Kernel $kernel): void
     {
         $routeLoader->load($router);
+
+        /*
+         * Prepended, so a request to a site that is down is answered before any
+         * other global middleware gets to touch it — and so it covers a 404 as
+         * much as a hit, since a routing table being replaced mid-deploy is
+         * exactly what maintenance mode is hiding.
+         *
+         * Registered here rather than declared on the Kernel because the guard
+         * needs a MaintenanceMode, and the Http layer should not require a
+         * Foundation service to exist before a Kernel can be built.
+         */
+        $kernel->prependMiddleware(PreventRequestsDuringMaintenance::class);
     }
 }

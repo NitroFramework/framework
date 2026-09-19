@@ -50,7 +50,7 @@ class CommandManager
         $manifest = new \Nitro\Foundation\PackageManifest(
             $paths->base('vendor'),
             $paths->base(),
-            $paths->cache('packages.php')
+            $paths->cachedPackages()
         );
 
         foreach ($manifest->config('commands') as $class) {
@@ -72,6 +72,7 @@ class CommandManager
             Commands\OptimizeCommand::class,
             Commands\PackageDiscoverCommand::class,
             Commands\KeyGenerateCommand::class,
+            Commands\MaintenanceCommands::class,
             Commands\ServeCommand::class,
             ThrustCommands::class,
             Commands\QueueCommands::class,
