@@ -3,6 +3,7 @@
 namespace Nitro\Console\Commands;
 
 use Nitro\Console\ExitCode;
+use Nitro\Console\Concerns\ConfirmsInProduction;
 use Nitro\Console\Contracts\CommandInterface;
 use Nitro\Console\OutputFormatter;
 use Nitro\Database\DB;
@@ -30,6 +31,8 @@ use Nitro\Foundation\Contracts\ConfigRepository;
  */
 class DatabaseCommands implements CommandInterface
 {
+    use ConfirmsInProduction;
+
     public function __construct(
         private readonly OutputFormatter $output,
         private readonly ConfigRepository $config,
@@ -134,12 +137,7 @@ class DatabaseCommands implements CommandInterface
             return ExitCode::INVALID;
         }
 
-        $env = $this->config->get('app.env');
-        if ($env === 'production' && !$this->flag($arguments, '--force')) {
-            $this->output->error(
-                "Refusing to wipe '{$table}' in production without --force. "
-                . "Re-run as: php nitro db:wipe {$table} --force"
-            );
+        if (! $this->confirmToProceed("wipe '{$table}'", $arguments, "db:wipe {$table}")) {
             return ExitCode::FAILURE;
         }
 

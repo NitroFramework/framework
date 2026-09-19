@@ -2,6 +2,7 @@
 
 namespace Nitro\Console\Commands;
 
+use Nitro\Console\Concerns\ConfirmsInProduction;
 use Nitro\Console\ExitCode;
 use Nitro\Console\Contracts\CommandInterface;
 use Nitro\Console\OutputFormatter;
@@ -40,6 +41,8 @@ use Nitro\Foundation\PathRegistry;
  */
 class MigrationCommands implements CommandInterface
 {
+    use ConfirmsInProduction;
+
     private string $migrationsPath;
     private string $migrationsTable = 'migrations';
 
@@ -772,24 +775,13 @@ class MigrationCommands implements CommandInterface
 
     /**
      * Destructive commands abort in production unless --force is passed.
-     * In other environments they run unconditionally — local/dev is
-     * where these get used most. The check is intentionally narrow:
-     * "are we in production?" not "is this a destructive verb?"
+     *
+     * The gate itself lives in ConfirmsInProduction so every destructive verb
+     * in the framework asks the same question; this names the verb for it.
      */
     private function confirmDestructive(string $verb, array $args): bool
     {
-        $env = $this->config->get('app.env');
-        if ($env !== 'production') {
-            return true;
-        }
-        if ($this->flag($args, '--force')) {
-            return true;
-        }
-        $this->output->error(
-            "Refusing to {$verb} in production without --force. "
-            . "Re-run as: php nitro migrate:{$verb} --force"
-        );
-        return false;
+        return $this->confirmToProceed($verb, $args, "migrate:{$verb}");
     }
     /** Report an unrecognised signature and fail the invocation. */
     private function invalidSignature(string $message): int
