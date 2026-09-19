@@ -5,7 +5,7 @@ namespace Nitro\Foundation\Providers;
 use Nitro\Database\DB;
 use Nitro\Database\Connection;
 use Nitro\Database\Migration\MigrationPathRegistry;
-use Nitro\Database\Model\Model;
+use Nitro\Database\Model\ModelState;
 use Nitro\Database\Query\Paginator;
 use Nitro\Database\Query\QueryRegistry;
 use Nitro\Database\Schema\SchemaBuilder;
@@ -26,24 +26,44 @@ class DatabaseServiceProvider extends ServiceProvider
         $this->container->singleton(Connection::class, fn() => DB::connection());
         $this->container->alias('db', Connection::class);
 
-        // A model's booted() hook registers its listeners against whichever
-        // dispatcher was current when it ran, but the flag saying it has booted
-        // is static and outlives the application that set that dispatcher.
-        // Build a second application in the same process — every test does, and
-        // so does a worker that rebuilds the app — and the models stay marked
-        // booted while their listeners sit on a dispatcher nothing fires any
-        // more. Every model-level guard then silently stops applying: an
-        // immutable record accepts an update and reports success.
-        Model::clearBootedModels();
+        /*
+         * A model's booted() hook registers its listeners against whichever
+         * dispatcher was current when it ran, but the flag saying it has booted
+         * is static and outlives the application that set that dispatcher.
+         * Build a second application in the same process — every test does, and
+         * so does a worker that rebuilds the app — and the models stay marked
+         * booted while their listeners sit on a dispatcher nothing fires any
+         * more. Every model-level guard then silently stops applying: an
+         * immutable record accepts an update and reports success.
+         *
+         * Set on ModelState rather than through Model's forwarders: Model
+         * composes six Concerns traits, and touching one of its statics would
+         * load all seven files here — on every request, including those that
+         * never build a model. ModelState carries the two slots and nothing else.
+         *
+         * The dispatcher is wired in register(), before any provider boot(), so
+         * model-event listeners registered in a provider's boot() land on it.
+         */
+        ModelState::clearBooted();
+        ModelState::setDispatcher($this->container->createOrResolve('events'));
 
-        // Route model lifecycle events through the app event bus. Set in register()
-        // (before any provider boot()) so model-event listeners registered in a
-        // provider's boot() land on the dispatcher.
-        Model::setEventDispatcher($this->container->createOrResolve('events'));
+        /*
+         * Named-query registry (query('name')), built on first use.
+         *
+         * Definitions auto-load from app/Queries/, and that scan is the reason
+         * this is a closure rather than a plain singleton: loading it from
+         * boot() meant a glob of the directory plus an autoload of every query
+         * class in it, on every request, whether or not the request named a
+         * query. Registering the factory here defers the whole thing to the
+         * first query() call — and an app with no app/Queries/ never pays for
+         * the directory check at all.
+         */
+        $this->container->singleton(QueryRegistry::class, function ($container) {
+            $registry = new QueryRegistry();
+            $registry->loadFrom($container->createOrResolve('paths')->base('app/Queries'));
 
-        // Named-query registry (query('name')). Definitions auto-load from
-        // app/Queries/ in boot(); apps needn't have that directory.
-        $this->container->singleton(QueryRegistry::class);
+            return $registry;
+        });
 
         // SchemaBuilder's methods are static and hold no state; the instance
         // exists so 'schema' can be resolved as a service and reached through
@@ -90,8 +110,5 @@ class DatabaseServiceProvider extends ServiceProvider
                 'query' => (array) $request->query(),
             ];
         });
-
-        // Auto-load named-query definitions from app/Queries/*.php (no-op if absent).
-        $container->createOrResolve(QueryRegistry::class)->loadFrom($container->createOrResolve('paths')->base('app/Queries'));
     }
 }

@@ -407,17 +407,6 @@ abstract class Model implements \ArrayAccess, \JsonSerializable
     protected array $castCache = [];
 
     /**
-     * Classes whose boot() has already run, keyed by class name.
-     *
-     * Keyed rather than a flat list because booting is per concrete class: a
-     * parent and its subclass each get their own boot(), and a subclass must not
-     * be considered booted just because its parent was.
-     *
-     * @var array<class-string, true>
-     */
-    protected static array $booted = [];
-
-    /**
      * New model, optionally mass-assigned from $attributes (respecting
      * $fillable/$guarded) — Laravel's `new User([...])`. Hydration from the DB
      * goes through newFromObject(), not this, so it bypasses fillable.
@@ -443,11 +432,11 @@ abstract class Model implements \ArrayAccess, \JsonSerializable
      */
     protected function bootIfNotBooted(): void
     {
-        if (isset(static::$booted[static::class])) {
+        if (ModelState::hasBooted(static::class)) {
             return;
         }
 
-        static::$booted[static::class] = true;
+        ModelState::markBooted(static::class);
 
         static::boot();
     }
@@ -500,7 +489,7 @@ abstract class Model implements \ArrayAccess, \JsonSerializable
      */
     public static function clearBootedModels(): void
     {
-        static::$booted = [];
+        ModelState::clearBooted();
     }
 
     // ─── Polymorphic type names ───────────────────────────

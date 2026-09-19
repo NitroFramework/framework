@@ -83,13 +83,11 @@ class GlobalScopeTest extends TestCase
      */
     private function forgetScopes(): void
     {
-        $model = new \ReflectionClass(Model::class);
+        $property = (new \ReflectionClass(Model::class))->getProperty('globalScopes');
+        $property->setAccessible(true);
+        $property->setValue(null, []);
 
-        foreach (['globalScopes', 'booted'] as $name) {
-            $property = $model->getProperty($name);
-            $property->setAccessible(true);
-            $property->setValue(null, []);
-        }
+        Model::clearBootedModels();
     }
 
     // ─── Registration ─────────────────────────────────────

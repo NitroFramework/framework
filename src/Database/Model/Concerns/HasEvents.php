@@ -2,6 +2,7 @@
 
 namespace Nitro\Database\Model\Concerns;
 
+use Nitro\Database\Model\ModelState;
 use Nitro\Events\Dispatcher;
 
 /**
@@ -26,8 +27,6 @@ use Nitro\Events\Dispatcher;
  */
 trait HasEvents
 {
-    protected static ?Dispatcher $dispatcher = null;
-
     /** Events a model (incl. soft deletes) may fire. */
     protected static array $observableEvents = [
         'creating', 'created', 'updating', 'updated',
@@ -39,17 +38,17 @@ trait HasEvents
 
     public static function setEventDispatcher(Dispatcher $dispatcher): void
     {
-        static::$dispatcher = $dispatcher;
+        ModelState::setDispatcher($dispatcher);
     }
 
     public static function getEventDispatcher(): ?Dispatcher
     {
-        return static::$dispatcher;
+        return ModelState::dispatcher();
     }
 
     public static function unsetEventDispatcher(): void
     {
-        static::$dispatcher = null;
+        ModelState::setDispatcher(null);
     }
 
     public static function creating(callable $callback): void { static::registerModelEvent('creating', $callback); }
@@ -80,7 +79,7 @@ trait HasEvents
 
     protected static function registerModelEvent(string $event, callable $callback): void
     {
-        static::$dispatcher?->listen(static::modelEventKey($event), $callback);
+        ModelState::dispatcher()?->listen(static::modelEventKey($event), $callback);
     }
 
     /**
@@ -89,23 +88,25 @@ trait HasEvents
      */
     protected function fireModelEvent(string $event): bool
     {
-        if (static::$dispatcher === null) {
+        $dispatcher = ModelState::dispatcher();
+
+        if ($dispatcher === null) {
             return true;
         }
 
         // Object event (external/wildcard/queued listeners) — fire-and-forget.
         if (isset($this->dispatchesEvents[$event])) {
-            static::$dispatcher->dispatch(new $this->dispatchesEvents[$event]($this));
+            $dispatcher->dispatch(new $this->dispatchesEvents[$event]($this));
         }
 
         $key = static::modelEventKey($event);
 
         // "*ing" events halt: the first non-null (false) response vetoes.
         if (in_array($event, static::$haltingEvents, true)) {
-            return static::$dispatcher->until($key, $this) !== false;
+            return $dispatcher->until($key, $this) !== false;
         }
 
-        static::$dispatcher->dispatch($key, $this);
+        $dispatcher->dispatch($key, $this);
 
         return true;
     }
@@ -119,12 +120,14 @@ trait HasEvents
     /** Drop all of this model's registered listeners (test isolation). */
     public static function flushEventListeners(): void
     {
-        if (static::$dispatcher === null) {
+        $dispatcher = ModelState::dispatcher();
+
+        if ($dispatcher === null) {
             return;
         }
 
         foreach (static::$observableEvents as $event) {
-            static::$dispatcher->forget(static::modelEventKey($event));
+            $dispatcher->forget(static::modelEventKey($event));
         }
     }
 }
