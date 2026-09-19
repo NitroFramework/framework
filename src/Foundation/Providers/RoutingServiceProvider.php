@@ -87,32 +87,72 @@ class RoutingServiceProvider extends ServiceProvider
                 return Container::PARAM_UNRESOLVED;
             }
 
-            $model = (new $type())->resolveRouteBinding($value, $this->bindingField($container, $name));
+            $route = $this->currentRoute($container);
+            $model = $this->bindModel($type, $value, $name, $route);
 
-            if ($model === null) {
-                throw new HttpException(404, "No query results for model [{$type}] {$value}.");
+            if ($model !== null) {
+                /*
+                 * Written back so a scoped child can resolve through it: the
+                 * container binds arguments in signature order, which for a
+                 * scoped route is the order the path declares them.
+                 */
+                $route?->setParameter($name, $model);
+
+                return $model;
             }
 
-            return $model;
+            if ($route !== null && ($handler = $route->missingHandler()) !== null) {
+                return $handler($value, $name);
+            }
+
+            throw new HttpException(404, "No query results for model [{$type}] {$value}.");
         });
     }
 
     /**
-     * The column the matched route asked this parameter to bind by, if any.
+     * Find the model a route parameter refers to.
      *
-     * Read off the current request rather than the router, so a swapped-in
-     * router is not required to expose a current-route accessor; a request
-     * that has not been routed yet simply has no field.
+     * A scoped route resolves through the parameter declared before this one,
+     * so a comment is looked up on its post rather than globally.
      */
-    protected function bindingField(ContainerInterface $container, string $name): ?string
+    protected function bindModel(string $type, mixed $value, string $name, ?Route $route): ?Model
     {
-        if ($name === '' || ! $container->has(Request::class)) {
+        $field = $route?->getBindingField($name);
+
+        if ($route !== null && $route->isScoped()) {
+            $parent = $route->parameter((string) $route->parentParameter($name));
+
+            if ($parent instanceof Model) {
+                return $parent->resolveChildRouteBinding($name, $value, $field);
+            }
+        }
+
+        if ($route !== null && $route->includesTrashed() && method_exists($type, 'withTrashed')) {
+            $instance = new $type();
+
+            return $type::withTrashed()
+                ->where($field ?? $instance->getRouteKeyName(), $value)
+                ->first();
+        }
+
+        return (new $type())->resolveRouteBinding($value, $field);
+    }
+
+    /**
+     * The route being served, or null outside a request.
+     *
+     * Read off the request rather than the router, so a swapped-in router is
+     * not required to expose a current-route accessor.
+     */
+    protected function currentRoute(ContainerInterface $container): ?Route
+    {
+        if (! $container->has(Request::class)) {
             return null;
         }
 
         $route = $container->resolve(Request::class)->route();
 
-        return $route instanceof Route ? $route->getBindingField($name) : null;
+        return $route instanceof Route ? $route : null;
     }
 
     // we need to inject the router and router manager, only DI here, no service locator

@@ -3,6 +3,7 @@
 namespace Nitro\Database\Model;
 
 use Nitro\Support\Collection;
+use Nitro\Support\Str;
 use Nitro\Database\DB;
 use Nitro\Database\Query\QueryBuilder;
 use Nitro\Database\Model\Concerns\HasAttributes;
@@ -174,10 +175,20 @@ abstract class Model implements \ArrayAccess, \JsonSerializable
             ->first();
     }
 
-    /** Find a nested record, scoped to its parent. */
+    /**
+     * Find a nested record, scoped to its parent.
+     *
+     * A route parameter is singular — {comment} — while the relation holding
+     * it is usually plural, so the plural is tried first.
+     *
+     * @param string $childType The child's route parameter name, e.g. 'comment'.
+     */
     public function resolveChildRouteBinding(string $childType, mixed $value, ?string $field = null): mixed
     {
-        $relation = $this->resolveRelationMethod($childType);
+        $name = Str::camel($childType);
+
+        $relation = $this->resolveRelationMethod(Str::plural($name))
+            ?? $this->resolveRelationMethod($name);
 
         if ($relation === null) {
             return null;

@@ -89,6 +89,9 @@ class Router implements RouterInterface, ExtendableRouter, ReportsAllowedMethods
     protected string $currentName = '';
     protected string $currentDomain = '';
 
+    /** Whether the enclosing group asked for scoped bindings. */
+    protected bool $currentScopeBindings = false;
+
     /**
      * Routes constrained to a host, keyed by method.
      *
@@ -349,6 +352,7 @@ class Router implements RouterInterface, ExtendableRouter, ReportsAllowedMethods
             'namespace' => $this->currentNamespace,
             'name' => $this->currentName,
             'domain' => $this->currentDomain,
+            'scopeBindings' => $this->currentScopeBindings,
         ];
 
         // Apply group attributes
@@ -364,6 +368,7 @@ class Router implements RouterInterface, ExtendableRouter, ReportsAllowedMethods
         $this->currentNamespace = $previous['namespace'];
         $this->currentName = $previous['name'];
         $this->currentDomain = $previous['domain'];
+        $this->currentScopeBindings = $previous['scopeBindings'];
 
         return $this;
     }
@@ -472,6 +477,42 @@ class Router implements RouterInterface, ExtendableRouter, ReportsAllowedMethods
             }
             unset($bucket);
         }
+    }
+
+    /**
+     * Resolve a nested model through its parent's relation.
+     *
+     *   Route::get('/posts/{post}/comments/{comment}', …)->scopeBindings();
+     *
+     * Without it, /posts/1/comments/99 returns comment 99 whatever post it
+     * belongs to. With it, a comment from another post is a 404.
+     */
+    public function scopeBindings(): static
+    {
+        $this->setOnLastRoute('scoped', true);
+
+        return $this;
+    }
+
+    /** Bind soft-deleted models too, rather than treating them as missing. */
+    public function withTrashed(bool $withTrashed = true): static
+    {
+        $this->setOnLastRoute('with_trashed', $withTrashed);
+
+        return $this;
+    }
+
+    /**
+     * Answer with this instead of a 404 when a bound model is not found.
+     *
+     * The callable is stored on the route, so a route using it cannot be
+     * cached — the same all-or-nothing rule a closure handler falls under.
+     */
+    public function missing(callable $handler): static
+    {
+        $this->setOnLastRoute('missing', $handler);
+
+        return $this;
     }
 
     // ─── Explicit model binding ───────────────────────────────────────────
@@ -1182,6 +1223,17 @@ class Router implements RouterInterface, ExtendableRouter, ReportsAllowedMethods
             $routeData['binding_fields'] = $bindingFields;
         }
 
+        /* Declaration order, which is what a scoped child resolves through. */
+        $order = $this->extractParameterNames($fullPath);
+
+        if ($order !== []) {
+            $routeData['param_order'] = $order;
+        }
+
+        if ($this->currentScopeBindings) {
+            $routeData['scoped'] = true;
+        }
+
         $this->storeRoute($method, $fullPath, $routeData);
 
         if ($this->currentDomain !== '') {
@@ -1341,6 +1393,10 @@ class Router implements RouterInterface, ExtendableRouter, ReportsAllowedMethods
 
         if (isset($attributes['domain'])) {
             $this->currentDomain = (string) $attributes['domain'];
+        }
+
+        if (isset($attributes['scopeBindings'])) {
+            $this->currentScopeBindings = (bool) $attributes['scopeBindings'];
         }
 
         if (isset($attributes['name'])) {
@@ -1668,7 +1724,13 @@ class Router implements RouterInterface, ExtendableRouter, ReportsAllowedMethods
     protected function createRoute(array $routeData, array $parameters = []): Route
     {
         return $this->buildRoute($routeData, $parameters)
-            ->setBindingFields($routeData['binding_fields'] ?? []);
+            ->setBindingFields($routeData['binding_fields'] ?? [])
+            ->setBindingBehaviour(
+                (bool) ($routeData['scoped'] ?? false),
+                (bool) ($routeData['with_trashed'] ?? false),
+                $routeData['missing'] ?? null,
+                $routeData['param_order'] ?? [],
+            );
     }
 
     /**

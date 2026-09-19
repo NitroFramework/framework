@@ -27,6 +27,22 @@ class Route
      */
     protected array $bindingFields = [];
 
+    /** Whether a nested model resolves through its parent's relation. */
+    protected bool $scoped = false;
+
+    /** Whether a soft-deleted model still binds. */
+    protected bool $withTrashed = false;
+
+    /** Called instead of a 404 when a bound model is not found. */
+    protected mixed $missing = null;
+
+    /**
+     * Parameter names in the order the path declares them.
+     *
+     * @var array<int, string>
+     */
+    protected array $parameterOrder = [];
+
     /**
      * Route types
      */
@@ -439,6 +455,50 @@ class Route
     public function getBindingFields(): array
     {
         return $this->bindingFields;
+    }
+
+    /**
+     * Record the binding behaviour the route was registered with.
+     *
+     * @param array<int, string> $order Parameter names as the path declares them.
+     */
+    public function setBindingBehaviour(bool $scoped, bool $withTrashed, mixed $missing, array $order = []): static
+    {
+        $this->scoped = $scoped;
+        $this->withTrashed = $withTrashed;
+        $this->missing = $missing;
+        $this->parameterOrder = $order;
+
+        return $this;
+    }
+
+    /** Whether a nested model resolves through its parent's relation. */
+    public function isScoped(): bool
+    {
+        return $this->scoped;
+    }
+
+    /** Whether a soft-deleted model still binds. */
+    public function includesTrashed(): bool
+    {
+        return $this->withTrashed;
+    }
+
+    /** What to call instead of 404ing when a bound model is not found. */
+    public function missingHandler(): ?callable
+    {
+        return is_callable($this->missing) ? $this->missing : null;
+    }
+
+    /**
+     * The parameter a scoped child resolves through — the one declared before
+     * it — or null for the first parameter, which has no parent.
+     */
+    public function parentParameter(string $name): ?string
+    {
+        $index = array_search($name, $this->parameterOrder, true);
+
+        return $index === false || $index === 0 ? null : $this->parameterOrder[$index - 1];
     }
 
     /**
