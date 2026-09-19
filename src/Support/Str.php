@@ -317,6 +317,69 @@ class Str
     }
 
     /**
+     * The singular of an English word — the inverse of {@see plural()}.
+     *
+     * Rule-based for the same reason and with the same escape hatch. It exists
+     * because the obvious rtrim($word, 's') strips every trailing s at once:
+     * address becomes addre, status becomes statu, and a resource route ends
+     * up with a parameter nobody typed.
+     *
+     * The rules below run in order, each undoing one of plural()'s:
+     *
+     *   uncountable   series, news            unchanged
+     *   irregular     people → person         from the table
+     *   -ies          categories → category   but not series, caught above
+     *   -lves/-rves   shelves → shelf         knives → knife
+     *   sibilant -es  boxes → box             the only case taking off two
+     *   -ss -us -is   address, status, basis  already singular, left alone
+     *   trailing -s   users → user            everything else
+     *
+     * The second-to-last rule is the one that matters: -ss, -us and -is are all
+     * singular endings and no English plural uses them, so a word wearing one
+     * must survive untouched.
+     */
+    public static function singular(string $value): string
+    {
+        $lower = mb_strtolower($value);
+
+        if (in_array($lower, self::UNCOUNTABLE, true)) {
+            return $value;
+        }
+
+        $irregular = array_search($lower, self::IRREGULAR_PLURALS, true);
+
+        if ($irregular !== false) {
+            return self::matchCase($value, $irregular);
+        }
+
+        if (preg_match('/[^aeiou]ies$/i', $value)) {
+            return self::matchCase($value, substr($value, 0, -3) . 'y');
+        }
+
+        if (preg_match('/([lr])ves$/i', $value)) {
+            return self::matchCase($value, substr($value, 0, -3) . 'f');
+        }
+
+        if (preg_match('/([^f])ves$/i', $value)) {
+            return self::matchCase($value, substr($value, 0, -3) . 'fe');
+        }
+
+        if (preg_match('/(ss|s|x|z|ch|sh)es$/i', $value)) {
+            return self::matchCase($value, substr($value, 0, -2));
+        }
+
+        if (preg_match('/(ss|us|is)$/i', $value)) {
+            return $value;
+        }
+
+        if (str_ends_with($lower, 's')) {
+            return self::matchCase($value, substr($value, 0, -1));
+        }
+
+        return $value;
+    }
+
+    /**
      * Give the plural the capitalisation of the original, so Category
      * pluralises to Categories rather than to categories.
      */

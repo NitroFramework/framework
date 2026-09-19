@@ -44,7 +44,7 @@ class RouteHelperTest extends TestCase
         $router->get('/courses/{slug}', fn () => 'course')->name('courses.show');
         $router->get('/basket', fn () => 'basket')->name('basket');
 
-        Container::reset();
+        Container::setInstance(new Container());
         $container = Container::getInstance();
         $container->instance('router', $router);
         $container->instance(ConfigRepository::class, $config);
@@ -53,7 +53,7 @@ class RouteHelperTest extends TestCase
 
     protected function tearDown(): void
     {
-        Container::reset();
+        Container::setInstance(new Container());
 
         parent::tearDown();
     }

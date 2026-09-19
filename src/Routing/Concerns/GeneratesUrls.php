@@ -77,16 +77,27 @@ trait GeneratesUrls
 
         $path = $route['path'];
 
+        /*
+         * Placeholder text by parameter name, so "{post:slug}" is reachable as
+         * 'post' — the same name the route binds it under. Looking for a
+         * literal "{post}" would miss it and quietly append ?post=… instead.
+         */
+        $placeholders = [];
+
+        foreach ($this->rawParameters($path) as $raw) {
+            $placeholders[$this->parseParameter($raw)['name']] = '{' . $raw . '}';
+        }
+
         // Positional parameters: route('courses.show', ['food-hygiene']) fills
         // the placeholders left to right, so a single-parameter route does not
         // have to name its parameter.
         if ($parameters !== [] && array_is_list($parameters)) {
-            preg_match_all('/\{([^}]+)\}/', $path, $placeholders);
+            $names = array_keys($placeholders);
 
             $named = [];
-            foreach ($placeholders[1] as $index => $placeholder) {
+            foreach ($names as $index => $name) {
                 if (array_key_exists($index, $parameters)) {
-                    $named[rtrim($placeholder, '?')] = $parameters[$index];
+                    $named[$name] = $parameters[$index];
                 }
             }
 
@@ -98,9 +109,9 @@ trait GeneratesUrls
         $query = [];
 
         foreach ($parameters as $key => $value) {
-            $placeholder = '{' . $key . '}';
+            $placeholder = $placeholders[$key] ?? null;
 
-            if (! str_contains($path, $placeholder)) {
+            if ($placeholder === null) {
                 // Not a path parameter, so it belongs in the query string. This
                 // is what makes route('courses.index', ['categories' => [...]])
                 // produce ?categories[]=food-safety; previously it was dropped,
@@ -111,6 +122,18 @@ trait GeneratesUrls
             }
 
             $path = str_replace($placeholder, rawurlencode($this->routeParameterValue($value)), $path);
+        }
+
+        /*
+         * An optional placeholder nobody filled simply goes away, with the
+         * slash that introduced it: "/posts/{page?}" is "/posts" when no page
+         * is given. It used to survive to the check below and be reported as
+         * a missing parameter, which is the one thing optional cannot mean.
+         */
+        $path = preg_replace('#/?\{[^}]+\?\}#', '', $path) ?? $path;
+
+        if ($path === '') {
+            $path = '/';
         }
 
         // Check for unreplaced parameters

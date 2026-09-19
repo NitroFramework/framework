@@ -4,10 +4,9 @@ namespace Nitro\Routing;
 
 use Closure;
 use Nitro\Actions\Action;
-use Nitro\Container\Contracts\ContainerInterface;
+use Nitro\Container\Contracts\ContainerInterface as Container;
 use Nitro\Http\ViewResponse;
 use Nitro\Http\Request;
-use Nitro\Http\Response;
 use RuntimeException;
 
 /**
@@ -15,17 +14,22 @@ use RuntimeException;
  *
  * Resolves and invokes controllers, closures and callables through the
  * container (so dependencies and route parameters auto-wire), and turns view
- * routes into a {@see ViewResponse} DTO for the HTTP kernel to render. This is
- * framework infrastructure, not a developer-facing API.
+ * routes into a {@see ViewResponse} DTO for the HTTP kernel to render. Any
+ * other kind of route belongs to the layer that defined it, and is handed
+ * back to it through {@see RouteTypes}. This is framework infrastructure,
+ * not a developer-facing API.
  */
 class RouteDispatcher
 {
     /**
-     * @param ContainerInterface $container Used to resolve controllers and to
+     * @param Container  $container  Used to resolve controllers and to
      *        invoke handlers with dependency/parameter injection.
+     * @param RouteTypes $routeTypes The kinds of route feature layers added;
+     *        consulted only for a type this class has no arm for.
      */
     public function __construct(
-        protected ContainerInterface $container,
+        protected Container $container,
+        protected RouteTypes $routeTypes = new RouteTypes(),
     ) {}
 
     /**
@@ -41,9 +45,24 @@ class RouteDispatcher
             Route::TYPE_CLOSURE    => $this->executeClosure($route),
             Route::TYPE_CALLABLE   => $this->executeCallable($route),
             Route::TYPE_VIEW       => $this->renderView($route),
-            Route::TYPE_LIVEWIRE   => $this->renderComponent($route),
-            default => throw new RuntimeException("Unknown route type: {$route->getType()}")
+            default => $this->dispatchToContributedType($route, $request),
         };
+    }
+
+    /**
+     * Hand a route of a contributed kind back to the layer that defined it.
+     *
+     * @throws RuntimeException When no layer claims the type.
+     */
+    protected function dispatchToContributedType(Route $route, Request $request): mixed
+    {
+        $type = $this->routeTypes->get($route->getType());
+
+        if ($type === null) {
+            throw new RuntimeException("Unknown route type: {$route->getType()}");
+        }
+
+        return $type->dispatch($route, $request);
     }
 
     /**
@@ -58,19 +77,6 @@ class RouteDispatcher
         return new ViewResponse(
             $route->getViewName(),
             $route->getData()
-        );
-    }
-
-    /**
-     * Render a full-page Livewire component named by the route.
-     *
-     * Named rather than closed over so the route can be cached; a closure route
-     * disables route caching for the whole application.
-     */
-    protected function renderComponent(Route $route): Response
-    {
-        return Response::html(
-            $this->container->createOrResolve('livewire')->page($route->getComponentName())
         );
     }
 
@@ -94,7 +100,7 @@ class RouteDispatcher
         // doesn't exist; Container::call throws if the method doesn't exist.
         // Pre-validating with class_exists / method_exists duplicates that work
         // on the hot path for every dispatch.
-        $controller = $this->container->createOrResolve($controllerClass);
+        $controller = $this->container->resolve($controllerClass);
 
         // Single-action classes run through their own pipeline (authorize →
         // validate → body → response negotiation) instead of a plain call.

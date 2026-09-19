@@ -6,15 +6,22 @@ use Closure;
 use InvalidArgumentException;
 use Nitro\Exceptions\HttpException;
 use Nitro\Events\Concerns\DispatchesEvents;
-use Nitro\Events\CoreEvents;
+use Nitro\Events\Contracts\ReceivesDispatcher;
 use Nitro\Foundation\Contracts\ConfigRepository;
 use Nitro\Http\Request;
+use Nitro\Routing\Contracts\ExtendableRouter;
+use Nitro\Routing\Contracts\ReportsAllowedMethods;
 use Nitro\Routing\Contracts\RouterInterface;
+use Nitro\Routing\Contracts\SignsUrls;
+use Nitro\Routing\Events\RouteEvent;
+use Nitro\Routing\Events\RoutingEvents;
 use Nitro\Routing\Concerns\CompilesRoutePatterns;
 use Nitro\Routing\Concerns\GeneratesUrls;
+use Nitro\Routing\Concerns\GeneratesSignedUrls;
 use Nitro\Routing\Concerns\ManagesRouteCache;
 use Nitro\Support\Logger;
 use Nitro\Support\Macroable;
+use Nitro\Support\Str;
 use RuntimeException;
 
 
@@ -27,17 +34,32 @@ use RuntimeException;
  * cache (de)serialization) lives in the Concerns traits to keep this class
  * focused on registration and matching.
  *
- * The router is {@see Macroable}: feature layers register extra registration
- * helpers from their service provider, so the core router depends on no
- * feature layer.
+ * The router names no feature layer, and there are two seams for keeping it
+ * that way. A layer adds a registration verb through {@see ExtendableRouter}
+ * (the router is {@see Macroable}), and a whole new kind of route through
+ * {@see RouteTypes} — so the four types below are the only ones this class
+ * will ever need to know.
  */
-class Router implements RouterInterface
+class Router implements RouterInterface, ExtendableRouter, ReportsAllowedMethods, SignsUrls, ReceivesDispatcher
 {
     use CompilesRoutePatterns,
         ManagesRouteCache,
         GeneratesUrls,
+        GeneratesSignedUrls,
         DispatchesEvents,
         Macroable;
+
+    /**
+     * Register a route-registration verb, as {@see ExtendableRouter} describes.
+     *
+     * Macros are this router's way of storing one, but that is an implementation
+     * detail: a feature layer asks the router it was given to extend itself, and
+     * never names a class to call macro() on statically.
+     */
+    public function extend(string $name, Closure $handler): void
+    {
+        static::macro($name, $handler);
+    }
 
     /** Original unified storage (maintained for backward compatibility) */
     protected array $routes = [];
@@ -106,7 +128,8 @@ class Router implements RouterInterface
      * config.
      */
     public function __construct(
-        protected ConfigRepository $config
+        protected ConfigRepository $config,
+        protected RouteTypes $routeTypes = new RouteTypes(),
     ) {
         $this->namespace = $config->get('app.controllers_namespace');
         $this->debugLogging = (bool) $config->get('app.debug');
@@ -229,18 +252,23 @@ class Router implements RouterInterface
     {
         $name  = trim($name, '/');
         $base  = '/' . $name;
-        $param = $this->singularize($name);
+        $param = $options['parameter'] ?? $this->singularize($name);
         $wild  = $base . '/{' . $param . '}';
         $named = str_replace('/', '.', $name);
 
+        /*
+         * update takes PUT and PATCH both: a full replacement and a partial
+         * one are the same controller action, and an HTML form that spoofs
+         * PATCH would otherwise 405 against a PUT-only route.
+         */
         $actions = [
-            'index'   => ['GET',    $base],
-            'create'  => ['GET',    $base . '/create'],
-            'store'   => ['POST',   $base],
-            'show'    => ['GET',    $wild],
-            'edit'    => ['GET',    $wild . '/edit'],
-            'update'  => ['PUT',    $wild],
-            'destroy' => ['DELETE', $wild],
+            'index'   => ['GET',            $base],
+            'create'  => ['GET',            $base . '/create'],
+            'store'   => ['POST',           $base],
+            'show'    => ['GET',            $wild],
+            'edit'    => ['GET',            $wild . '/edit'],
+            'update'  => [['PUT', 'PATCH'], $wild],
+            'destroy' => ['DELETE',         $wild],
         ];
 
         if (!empty($options['only'])) {
@@ -250,22 +278,39 @@ class Router implements RouterInterface
             $actions = array_diff_key($actions, array_flip((array) $options['except']));
         }
 
-        foreach ($actions as $action => [$method, $path]) {
-            $this->addRoute($method, $path, [$controller, $action])->name("{$named}.{$action}");
+        foreach ($actions as $action => [$methods, $path]) {
+            foreach ((array) $methods as $index => $method) {
+                $route = $this->addRoute($method, $path, [$controller, $action]);
+
+                /*
+                 * Only the first verb carries the name: two routes sharing one
+                 * name would have the second overwrite the first in the named
+                 * table, and route('posts.update') must keep meaning PUT.
+                 */
+                if ($index === 0) {
+                    $route->name("{$named}.{$action}");
+                }
+            }
         }
 
         return $this;
     }
 
     /**
-     * Naive singularisation for resource route parameters (photos → photo).
-     * Mirrors the trailing-"s" heuristic used elsewhere (e.g. the unique rule);
-     * good enough for conventional resource names.
+     * The parameter name for a resource's member routes (photos → photo).
+     *
+     * Delegates to {@see Str::singular()}. It used to be rtrim($name, 's'),
+     * which strips every trailing s at once: Route::resource('address', …)
+     * registered /address/{addre}, and 'status' gave {statu}.
+     *
+     * Override an unhappy result with the 'parameter' option rather than
+     * teaching the inflector a one-off word.
      */
     protected function singularize(string $name): string
     {
         $segment = str_contains($name, '/') ? substr(strrchr($name, '/'), 1) : $name;
-        return rtrim($segment, 's') ?: $segment;
+
+        return Str::singular($segment) ?: $segment;
     }
 
     /**
@@ -1131,6 +1176,12 @@ class Router implements RouterInterface
         $routeData = $this->parseHandler($handler);
         $routeData['middleware'] = $this->currentMiddleware;
 
+        $bindingFields = $this->extractBindingFields($fullPath);
+
+        if ($bindingFields !== []) {
+            $routeData['binding_fields'] = $bindingFields;
+        }
+
         $this->storeRoute($method, $fullPath, $routeData);
 
         if ($this->currentDomain !== '') {
@@ -1211,10 +1262,15 @@ class Router implements RouterInterface
             return ['type' => 'closure', 'handler' => $handler];
         }
 
-        // A named component rather than a closure, so the route survives being
-        // cached. See Route::livewire().
-        if (is_array($handler) && isset($handler['livewire'])) {
-            return ['type' => 'livewire', 'component' => (string) $handler['livewire']];
+        /*
+         * Offer it to the layers before interpreting it ourselves. A handler
+         * the router has no reading for still means something to whoever put
+         * it there, and that layer is the only thing that can say what.
+         */
+        $contributed = $this->routeTypes->parse($handler);
+
+        if ($contributed !== null) {
+            return $contributed;
         }
 
         if (is_string($handler) && str_contains($handler, '@')) {
@@ -1361,7 +1417,7 @@ class Router implements RouterInterface
     public function findMatchingRoute(Request $request): ?Route
     {
         $method = $request->method();
-        $path = $request->path();
+        $path = $this->normalizePath($request->path());
 
         $this->currentRoute = null;
         $this->currentRequest = $request;
@@ -1377,10 +1433,18 @@ class Router implements RouterInterface
         }
 
         // Event payloads built lazily — skipped entirely when no listener bound.
-        $this->eventLazy(CoreEvents::ROUTE_MATCHED, fn() => [
-            'method' => $method,
-            'path'   => $path,
-        ]);
+        /**
+         * Emit point — route.matched
+         *
+         * Once per request, as matching begins. Named for the moment rather
+         * than the outcome: nothing has been found yet, so the route's name
+         * and kind are still null — route.dispatching carries those.
+         * Payload: {@see RouteEvent}.
+         */
+        $this->eventLazy(
+            RoutingEvents::MATCHED,
+            fn (): RouteEvent => new RouteEvent(method: $method, path: $path),
+        );
 
         // Host-constrained routes are more specific than path-only ones, so
         // they are consulted first. The list is empty in apps that never call
@@ -1400,11 +1464,21 @@ class Router implements RouterInterface
         if (isset($this->staticRoutes[$method][$path])) {
             $resolved = $this->createRoute($this->staticRoutes[$method][$path]);
 
-            $this->eventLazy(CoreEvents::ROUTE_DISPATCHING, fn() => [
-                'type'    => 'static',
-                'route'   => $path,
-                'handler' => $resolved->getType(),
-            ]);
+            /**
+             * Emit point — route.dispatching
+             *
+             * A route was found and is about to be handed to the kernel.
+             * $strategy says how it was matched — 'static' is the O(1) table
+             * hit, which is about matching and not about the route's kind.
+             * Payload: {@see RouteEvent}.
+             */
+            $this->eventLazy(RoutingEvents::DISPATCHING, fn (): RouteEvent => new RouteEvent(
+                method: $method,
+                path: $path,
+                name: $resolved->getName(),
+                type: $resolved->getType(),
+                strategy: 'static',
+            ));
 
             // Per-request logging is expensive on hot paths; only log when the
             // app is in debug mode.
@@ -1423,16 +1497,81 @@ class Router implements RouterInterface
         if ($routeData) {
             $resolved = $this->createRoute($routeData['handler'], $routeData['parameters']);
 
-            $this->eventLazy(CoreEvents::ROUTE_DISPATCHING, fn() => [
-                'type'       => 'dynamic',
-                'parameters' => $routeData['parameters'],
-                'handler'    => $resolved->getType(),
-            ]);
+            /**
+             * Emit point — route.dispatching
+             *
+             * As above, for a route matched by compiled pattern rather than
+             * from the static table. This is the arm that carries bound URL
+             * parameters.
+             * Payload: {@see RouteEvent}.
+             */
+            $this->eventLazy(RoutingEvents::DISPATCHING, fn (): RouteEvent => new RouteEvent(
+                method: $method,
+                path: $path,
+                name: $resolved->getName(),
+                type: $resolved->getType(),
+                strategy: 'dynamic',
+                parameters: $resolved->parameters(),
+            ));
 
             return $this->currentRoute = $resolved;
         }
 
         return null;
+    }
+
+    /**
+     * The form of a request path that routes are matched against.
+     *
+     * A trailing slash is not a different resource: /about/ and /about are the
+     * same page, and a link with one used to 404. The root keeps its slash,
+     * since trimming it would leave nothing to match.
+     */
+    protected function normalizePath(string $path): string
+    {
+        if ($path === '' || $path === '/') {
+            return '/';
+        }
+
+        return rtrim($path, '/') ?: '/';
+    }
+
+    /**
+     * The verbs that have a route at this path, as {@see ReportsAllowedMethods}
+     * describes.
+     *
+     * Host-constrained routes are left out: whether one applies depends on the
+     * host, which a path alone does not carry, and naming a verb that a
+     * different host answers would be worse than naming none.
+     */
+    public function allowedMethods(string $path): array
+    {
+        $path = $this->normalizePath($path);
+
+        $methods = array_unique(array_merge(
+            array_keys($this->staticRoutes),
+            array_keys($this->dynamicRoutes),
+        ));
+
+        $allowed = [];
+
+        foreach ($methods as $method) {
+            if (isset($this->staticRoutes[$method][$path]) || $this->findDynamicRoute($method, $path) !== null) {
+                $allowed[] = $method;
+            }
+        }
+
+        /*
+         * HEAD is served wherever GET is, so a client asking what it may do
+         * should be told so even though nobody registered a HEAD route.
+         */
+        if (in_array('GET', $allowed, true) && ! in_array('HEAD', $allowed, true)) {
+            $allowed[] = 'HEAD';
+        }
+
+        sort($allowed);
+
+        return $allowed;
     }
 
     /**
@@ -1522,11 +1661,24 @@ class Router implements RouterInterface
 
     /**
      * Build the {@see Route} value object for a stored route, dispatching on
-     * its type (controller, closure, callable or view).
+     * its type — the four the router understands, or one a layer contributed.
      *
      * @throws RuntimeException When the route type is unrecognized.
      */
     protected function createRoute(array $routeData, array $parameters = []): Route
+    {
+        return $this->buildRoute($routeData, $parameters)
+            ->setBindingFields($routeData['binding_fields'] ?? []);
+    }
+
+    /**
+     * The {@see Route} for a stored route, before its custom route keys are
+     * attached — those are the same for every type, so they are applied once
+     * in {@see createRoute()} rather than threaded through five constructors.
+     *
+     * @throws RuntimeException When the route type is unrecognized.
+     */
+    protected function buildRoute(array $routeData, array $parameters): Route
     {
         return match ($routeData['type']) {
             'controller' => Route::controller(
@@ -1548,12 +1700,6 @@ class Router implements RouterInterface
                 $routeData['middleware'] ?? [],
                 $routeData['name'] ?? null
             ),
-            'livewire' => Route::livewire(
-                $routeData['component'],
-                $parameters,
-                $routeData['middleware'] ?? [],
-                $routeData['name'] ?? null
-            ),
             'view' => Route::view(
                 $routeData['view'],
                 $routeData['data'] ?? [],
@@ -1561,8 +1707,33 @@ class Router implements RouterInterface
                 $routeData['middleware'] ?? [],
                 $routeData['name'] ?? null
             ),
-            default => throw new RuntimeException("Unknown route type: {$routeData['type']}")
+            default => $this->createContributedRoute($routeData, $parameters),
         };
+    }
+
+    /**
+     * Rebuild a route of a kind a feature layer contributed.
+     *
+     * Reached both on a fresh match and on a route read back from the cache,
+     * which is why nothing here asks the type to reconstruct anything: the
+     * handler it chose at registration is stored verbatim and handed back.
+     *
+     * @throws RuntimeException When no layer claims the type — which on a warm
+     *         cache means the route outlived the provider that registered it.
+     */
+    protected function createContributedRoute(array $routeData, array $parameters): Route
+    {
+        if ($this->routeTypes->get($routeData['type']) === null) {
+            throw new RuntimeException("Unknown route type: {$routeData['type']}");
+        }
+
+        return Route::ofType(
+            $routeData['type'],
+            $routeData['handler'],
+            $parameters,
+            $routeData['middleware'] ?? [],
+            $routeData['name'] ?? null
+        );
     }
 
     /**

@@ -3,13 +3,20 @@
 namespace Nitro\Foundation\Providers;
 
 use Nitro\Container\Container;
+use Nitro\Container\Contracts\ContainerInterface;
 use Nitro\Database\Model\Model;
+use Nitro\Events\Contracts\Dispatcher as EventDispatcher;
+use Nitro\Events\Contracts\ReceivesDispatcher;
 use Nitro\Exceptions\HttpException;
 use Nitro\Http\Kernel;
+use Nitro\Http\Request;
+use Nitro\Routing\Route;
 use Nitro\Http\Middleware\PreventRequestsDuringMaintenance;
+use Nitro\Http\Middleware\ValidateSignature;
 use Nitro\Routing\RouteLoader;
 use Nitro\Routing\Contracts\RouterInterface;
 use Nitro\Routing\RouteDispatcher;
+use Nitro\Routing\RouteTypes;
 use Nitro\Routing\Router;
 
 /**
@@ -19,6 +26,12 @@ class RoutingServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
+       /*
+        * Before the router, which is handed it: a layer registering a route
+        * type and the router reading one must be looking at the same registry.
+        */
+       $this->container->singleton(RouteTypes::class, RouteTypes::class);
+
        $this->container->singleton(Router::class, Router::class);
 
         $this->container->singleton(RouteLoader::class, RouteLoader::class);
@@ -33,21 +46,48 @@ class RoutingServiceProvider extends ServiceProvider
     }
 
     /**
+     * Hand the routing layer and the kernel the bus they raise events on.
+     *
+     * Both emitted lifecycle events from the day they were written and neither
+     * had ever fired, because an emitter with no dispatcher does not fail — it
+     * goes quiet. Asked for rather than assumed, so anything that does not emit
+     * events is simply not offered one.
+     */
+    protected function wireEventDispatcher(Router $router, Kernel $kernel): void
+    {
+        $events = $this->container->resolve(EventDispatcher::class);
+
+        foreach ([$router, $kernel] as $emitter) {
+            if ($emitter instanceof ReceivesDispatcher) {
+                $emitter->setDispatcher($events);
+            }
+        }
+    }
+
+    /**
      * Implicit route-model binding: a controller/closure parameter type-hinted
      * as a model whose name matches a route segment (e.g. /users/{user} →
-     * show(User $user)) is resolved via Model::find(), 404-ing when missing.
+     * show(User $user)) is resolved through the model, 404-ing when missing.
+     *
+     * The lookup goes through {@see Model::resolveRouteBinding()} rather than
+     * find(), so a model can override how it is found and a route can name the
+     * column itself with "{post:slug}". Calling find() here meant neither ever
+     * ran: getRouteKeyName() and resolveRouteBinding() existed on the model and
+     * nothing in the framework reached them.
      *
      * Registered as a container parameter binder so the core stays unaware of
      * the Database/HTTP layers — the policy lives here, in the composition root.
      */
     protected function registerRouteModelBinding(): void
     {
-        $this->container->bindParametersUsing(function (string $type, mixed $value) {
+        $container = $this->container;
+
+        $container->bindParametersUsing(function (string $type, mixed $value, string $name = '') use ($container) {
             if (!is_subclass_of($type, Model::class)) {
                 return Container::PARAM_UNRESOLVED;
             }
 
-            $model = $type::find($value);
+            $model = (new $type())->resolveRouteBinding($value, $this->bindingField($container, $name));
 
             if ($model === null) {
                 throw new HttpException(404, "No query results for model [{$type}] {$value}.");
@@ -55,6 +95,24 @@ class RoutingServiceProvider extends ServiceProvider
 
             return $model;
         });
+    }
+
+    /**
+     * The column the matched route asked this parameter to bind by, if any.
+     *
+     * Read off the current request rather than the router, so a swapped-in
+     * router is not required to expose a current-route accessor; a request
+     * that has not been routed yet simply has no field.
+     */
+    protected function bindingField(ContainerInterface $container, string $name): ?string
+    {
+        if ($name === '' || ! $container->has(Request::class)) {
+            return null;
+        }
+
+        $route = $container->resolve(Request::class)->route();
+
+        return $route instanceof Route ? $route->getBindingField($name) : null;
     }
 
     // we need to inject the router and router manager, only DI here, no service locator
@@ -66,6 +124,11 @@ class RoutingServiceProvider extends ServiceProvider
 
     public function boot(RouteLoader $routeLoader, Router $router, Kernel $kernel): void
     {
+        /* Registered before routes load: a route may declare ->middleware('signed'). */
+        $router->aliasMiddleware('signed', ValidateSignature::class);
+
+        $this->wireEventDispatcher($router, $kernel);
+
         $routeLoader->load($router);
 
         /*

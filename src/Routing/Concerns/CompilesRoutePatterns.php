@@ -40,25 +40,91 @@ trait CompilesRoutePatterns
     }
 
     /**
-     * Extract the ordered list of parameter names from a route pattern
-     * (e.g. ["id"] for "/users/{id}").
+     * Split a raw placeholder into the three things it can declare.
      *
-     * A trailing "?" marks the parameter optional and is not part of its name.
+     * "{post:slug?}" is a parameter named post, bound by the slug column,
+     * and optional. The colon half is the custom route key: without it a
+     * model binds by its own {@see \Nitro\Database\Model\Model::getRouteKeyName()}.
+     *
+     * @return array{name: string, field: string|null, optional: bool}
+     */
+    protected function parseParameter(string $raw): array
+    {
+        $optional = str_ends_with($raw, '?');
+
+        if ($optional) {
+            $raw = substr($raw, 0, -1);
+        }
+
+        $field = null;
+
+        if (str_contains($raw, ':')) {
+            [$raw, $field] = explode(':', $raw, 2);
+        }
+
+        return ['name' => $raw, 'field' => $field, 'optional' => $optional];
+    }
+
+    /**
+     * Extract the ordered list of parameter names from a route pattern
+     * (e.g. ["id"] for "/users/{id}", ["post"] for "/posts/{post:slug}").
      */
     protected function extractParameterNames(string $pattern): array
     {
-        preg_match_all('/\{([^}]+)\}/', $pattern, $matches);
-
         return array_map(
-            static fn (string $name) => rtrim($name, '?'),
-            $matches[1] ?? []
+            fn (string $raw): string => $this->parseParameter($raw)['name'],
+            $this->rawParameters($pattern),
         );
     }
 
-    /** Whether a parameter is declared optional, as "{slug?}". */
+    /**
+     * The custom route key each parameter declares, by parameter name.
+     *
+     * "/posts/{post:slug}/{comment}" gives ['post' => 'slug'] — a parameter
+     * without a colon is absent rather than null, so the map is empty for the
+     * overwhelming majority of routes and costs nothing to carry.
+     *
+     * @return array<string, string>
+     */
+    protected function extractBindingFields(string $pattern): array
+    {
+        $fields = [];
+
+        foreach ($this->rawParameters($pattern) as $raw) {
+            $parsed = $this->parseParameter($raw);
+
+            if ($parsed['field'] !== null) {
+                $fields[$parsed['name']] = $parsed['field'];
+            }
+        }
+
+        return $fields;
+    }
+
+    /** Whether a parameter is declared optional, as "{slug?}" or "{post:slug?}". */
     protected function parameterIsOptional(string $pattern, string $name): bool
     {
-        return str_contains($pattern, '{' . $name . '?}');
+        foreach ($this->rawParameters($pattern) as $raw) {
+            $parsed = $this->parseParameter($raw);
+
+            if ($parsed['name'] === $name) {
+                return $parsed['optional'];
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * The contents of every "{...}" in a pattern, unparsed.
+     *
+     * @return array<int, string>
+     */
+    protected function rawParameters(string $pattern): array
+    {
+        preg_match_all('/\{([^}]+)\}/', $pattern, $matches);
+
+        return $matches[1] ?? [];
     }
 
     /**
@@ -92,8 +158,7 @@ trait CompilesRoutePatterns
             $literal = substr($pattern, $offset, $position - $offset);
             $raw = $matches[1][$index][0];
 
-            $optional = str_ends_with($raw, '?');
-            $name = rtrim($raw, '?');
+            ['name' => $name, 'optional' => $optional] = $this->parseParameter($raw);
 
             $group = '(' . ($wheres[$name] ?? self::DEFAULT_SEGMENT) . ')';
 

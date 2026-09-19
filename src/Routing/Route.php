@@ -21,13 +21,19 @@ class Route
     protected ?string $action;
 
     /**
+     * Custom route keys from "{post:slug}", by parameter name.
+     *
+     * @var array<string, string>
+     */
+    protected array $bindingFields = [];
+
+    /**
      * Route types
      */
     const TYPE_CONTROLLER = 'controller';
     const TYPE_CLOSURE = 'closure';
     const TYPE_CALLABLE = 'callable';
     const TYPE_VIEW = 'view';
-    const TYPE_LIVEWIRE = 'livewire';
 
     /**
      * Constructor
@@ -182,11 +188,6 @@ class Route
         return $this->type === self::TYPE_VIEW;
     }
 
-    public function isLivewire(): bool
-    {
-        return $this->type === self::TYPE_LIVEWIRE;
-    }
-
     /**
      * Create controller route match
      */
@@ -266,32 +267,29 @@ class Route
     }
 
     /**
-     * Create a route that renders a full-page Livewire component.
+     * Create a route of a kind a feature layer contributed.
      *
-     * The component is named rather than closed over, which is the whole point:
-     * a closure cannot be serialized, and one closure route turns off route
-     * caching for the entire application.
+     * The four constructors above cover what the router itself understands;
+     * this covers everything a {@see \Nitro\Routing\Contracts\RouteType} adds.
+     * The handler is whatever that type asked to store, and is kept as-is —
+     * so it should be a name or an id rather than a closure, or the route
+     * cannot be cached.
      */
-    public static function livewire(
-        string $component,
+    public static function ofType(
+        string $type,
+        mixed $handler,
         array $parameters = [],
         array $middleware = [],
         ?string $name = null
     ): self {
         return new self(
-            self::TYPE_LIVEWIRE,
-            $component,
+            $type,
+            $handler,
             $parameters,
             [],
             $middleware,
             $name
         );
-    }
-
-    /** The component this route renders (for livewire routes). */
-    public function getComponentName(): ?string
-    {
-        return $this->isLivewire() && is_string($this->handler) ? $this->handler : null;
     }
 
     /**
@@ -412,6 +410,35 @@ class Route
         $this->parameters[$name] = $value;
 
         return $this;
+    }
+
+    /**
+     * Record the custom route keys the path declared, by parameter name.
+     *
+     * @param array<string, string> $fields
+     */
+    public function setBindingFields(array $fields): static
+    {
+        $this->bindingFields = $fields;
+
+        return $this;
+    }
+
+    /**
+     * The column a parameter binds by, as declared by "{post:slug}".
+     *
+     * Null means the parameter named no column, and a model should be looked
+     * up by its own route key.
+     */
+    public function getBindingField(string $parameter): ?string
+    {
+        return $this->bindingFields[$parameter] ?? null;
+    }
+
+    /** @return array<string, string> */
+    public function getBindingFields(): array
+    {
+        return $this->bindingFields;
     }
 
     /**

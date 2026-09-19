@@ -8,8 +8,11 @@ use Nitro\Http\Response;
 use Nitro\Livewire\Compilation\IslandCompiler;
 use Nitro\Livewire\Compilation\LivewireTagCompiler;
 use Nitro\Livewire\Features\SupportsFileUploads;
+use Nitro\Livewire\Routing\LivewireRouteType;
 use Nitro\Livewire\Runtime\LivewireManager;
-use Nitro\Routing\Router;
+use Nitro\Routing\Contracts\ExtendableRouter;
+use Nitro\Routing\Contracts\RouterInterface;
+use Nitro\Routing\RouteTypes;
 use Nitro\View\Blade;
 use Nitro\View\Contracts\ViewFinder;
 
@@ -28,8 +31,22 @@ class LivewireServiceProvider extends ServiceProvider
         });
         $this->container->alias('livewire', LivewireManager::class);
 
-        // Router macros must exist before routes load (during boot).
+        /* Both must exist before routes load (during boot). */
+        $this->registerRouteType();
         $this->registerRouterMacro();
+    }
+
+    /**
+     * Teach the routing layer what a full-page component route is.
+     *
+     * The core router recognizes four kinds of route and none of them is this
+     * one; rather than adding a fifth to the framework, the layer registers
+     * its own and keeps the knowledge on this side of the line.
+     */
+    protected function registerRouteType(): void
+    {
+        $this->container->resolve(RouteTypes::class)
+            ->add(new LivewireRouteType($this->container));
     }
 
     public function boot(): void
@@ -47,7 +64,7 @@ class LivewireServiceProvider extends ServiceProvider
     {
         // The finder, not the engine: a namespace is a lookup path, and asking
         // the engine for one would build the compiler in boot() on every request.
-        $finder = $this->container->createOrResolve(ViewFinder::class);
+        $finder = $this->container->resolve(ViewFinder::class);
         $finder->addNamespace('livewire', __DIR__ . '/views');
 
         // Compiled single-file component views live here.
@@ -65,11 +82,25 @@ class LivewireServiceProvider extends ServiceProvider
      * cannot be serialized, and the route cache is all-or-nothing: one closure
      * route turns caching off for every route in the application, so a single
      * full-page component used to cost an app its route cache entirely.
+     *
+     * The verb is asked for, not assumed. Router::macro() named the framework's
+     * concrete router, which made this whole layer unusable with any other one;
+     * a router that cannot take a new verb is simply not given one, and the
+     * application registers the route the long way instead.
+     *
+     * The handler calls get() rather than addRoute() — the same call one level
+     * up, and on the contract, so its body works on any router.
      */
     protected function registerRouterMacro(): void
     {
-        Router::macro('livewire', function (string $path, string $name) {
-            return $this->addRoute('GET', $path, ['livewire' => $name]);
+        $router = $this->container->resolve(RouterInterface::class);
+
+        if (! $router instanceof ExtendableRouter) {
+            return;
+        }
+
+        $router->extend('livewire', function (string $path, string $name) {
+            return $this->get($path, ['livewire' => $name]);
         });
     }
 
@@ -95,10 +126,10 @@ class LivewireServiceProvider extends ServiceProvider
     protected function registerAssetRoute(): void
     {
         $container = $this->container;
-        $router = $this->container->createOrResolve('router');
+        $router = $this->container->resolve(RouterInterface::class);
 
         $router->get('/livewire/livewire.js', function () use ($container): Response {
-            return $container->createOrResolve(LivewireManager::class)->scriptResponse();
+            return $container->resolve(LivewireManager::class)->scriptResponse();
         });
     }
 
@@ -106,7 +137,7 @@ class LivewireServiceProvider extends ServiceProvider
     protected function registerUpdateRoute(): void
     {
         $container = $this->container;
-        $router = $this->container->createOrResolve('router');
+        $router = $this->container->resolve(RouterInterface::class);
         $path = config('livewire.update_uri', '/livewire/update');
 
         // Behind the 'web' group so CSRF is verified (VerifyCsrfToken reads the
@@ -123,7 +154,7 @@ class LivewireServiceProvider extends ServiceProvider
                 // into $_POST — read and decode it directly.
                 $payload = json_decode((string) file_get_contents('php://input'), true) ?: [];
 
-                $result = $container->createOrResolve(LivewireManager::class)->update($payload);
+                $result = $container->resolve(LivewireManager::class)->update($payload);
 
                 return Response::json($result);
             });
@@ -137,7 +168,7 @@ class LivewireServiceProvider extends ServiceProvider
      */
     protected function registerUploadRoute(): void
     {
-        $router = $this->container->createOrResolve('router');
+        $router = $this->container->resolve(RouterInterface::class);
 
         // Uploads are state-changing → behind 'web' for CSRF too (livewire.js
         // sends X-CSRF-TOKEN on the upload request).
@@ -150,7 +181,7 @@ class LivewireServiceProvider extends ServiceProvider
                 // allFiles() returns the same $_FILES-shaped array (name/tmp_name/
                 // size/type/error), so the multi- vs single-file handling below is
                 // unchanged, but it's worker-safe and consistent with the rest.
-                $files = $this->container->createOrResolve('request')->allFiles()['files'] ?? null;
+                $files = $this->container->resolve(Request::class)->allFiles()['files'] ?? null;
 
                 if (is_array($files) && is_array($files['name'])) {
                     for ($i = 0, $count = count($files['name']); $i < $count; $i++) {

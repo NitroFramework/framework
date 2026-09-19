@@ -4,7 +4,11 @@ namespace Tests\Unit\Routing;
 
 use Nitro\Foundation\Config;
 use Nitro\Foundation\PathRegistry;
+use Nitro\Http\Request;
+use Nitro\Routing\Contracts\RouteType;
+use Nitro\Routing\Route;
 use Nitro\Routing\RouteLoader;
+use Nitro\Routing\RouteTypes;
 use Nitro\Routing\Router;
 use PHPUnit\Framework\TestCase;
 
@@ -49,11 +53,11 @@ class RouteLoaderClosureCacheTest extends TestCase
         return new RouteLoader($this->paths(), $config);
     }
 
-    private function router(): Router
+    private function router(?RouteTypes $types = null): Router
     {
         $config = $this->createMock(Config::class);
         $config->method('get')->willReturn('App\\Controllers\\');
-        return new Router($config);
+        return new Router($config, $types ?? new RouteTypes());
     }
 
     private function cacheFile(): string
@@ -89,30 +93,67 @@ class RouteLoaderClosureCacheTest extends TestCase
     }
 
     /**
-     * A full-page Livewire route must not cost the application its route cache.
+     * A route a feature layer contributed must not cost the application its
+     * route cache.
      *
-     * Route::livewire() used to register a closure that captured the container,
-     * which made every route in the application uncacheable — one component on
-     * one page was enough. The component is named instead, so the route is data
-     * and survives being written out.
+     * The layer this seam replaced used to register a closure that captured
+     * the container, which made every route in the application uncacheable —
+     * one such page was enough. A {@see RouteType} stores a name instead, so
+     * the route is data and survives being written out.
      */
-    public function test_a_livewire_route_is_cacheable(): void
+    public function test_a_contributed_route_type_is_cacheable(): void
     {
-        $router = $this->router();
-        $router->get('/users', 'UserController@index');
+        $types = (new RouteTypes())->add($this->namedFeedType());
 
-        // The shape Route::livewire() registers, without needing the Livewire
-        // provider booted to register its macro.
-        $router->get('/basket', ['livewire' => 'basket']);
+        $router = $this->router($types);
+        $router->get('/users', 'UserController@index');
+        $router->get('/basket', ['feed' => 'basket']);
 
         $skipped = $this->loader()->cache($router);
 
-        $this->assertSame(0, $skipped, 'a named component route must not block caching');
+        $this->assertSame(0, $skipped, 'a route storing a name must not block caching');
         $this->assertFileExists($this->cacheFile());
 
         $data = require $this->cacheFile();
 
-        $this->assertSame('livewire', $data['routes']['GET']['/basket']['type']);
-        $this->assertSame('basket', $data['routes']['GET']['/basket']['component']);
+        $this->assertSame('feed', $data['routes']['GET']['/basket']['type']);
+        $this->assertSame('basket', $data['routes']['GET']['/basket']['handler']);
+
+        /*
+         * And the half that matters on a warm boot: read back, matched, and
+         * handed to the layer — the router rebuilding a route whose kind it
+         * still does not know.
+         */
+        $warm = $this->router($types);
+        $warm->loadCachedRoutes($data);
+
+        $route = $warm->findMatchingRoute(new Request('GET', '/basket'));
+
+        $this->assertNotNull($route, 'a cached contributed route must still match');
+        $this->assertSame('feed', $route->getType());
+        $this->assertSame('basket', $route->getHandler());
+    }
+
+    /** A route type that stores a name, the shape every cacheable one has. */
+    private function namedFeedType(): RouteType
+    {
+        return new class implements RouteType {
+            public function name(): string
+            {
+                return 'feed';
+            }
+
+            public function parse(mixed $handler): mixed
+            {
+                return is_array($handler) && isset($handler['feed'])
+                    ? (string) $handler['feed']
+                    : null;
+            }
+
+            public function dispatch(Route $route, Request $request): mixed
+            {
+                return 'feed: ' . $route->getHandler();
+            }
+        };
     }
 }
