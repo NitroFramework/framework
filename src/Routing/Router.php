@@ -495,6 +495,28 @@ class Router implements RouterInterface, ExtendableRouter, ReportsAllowedMethods
     }
 
     /**
+     * Begin a group, collecting its attributes fluently.
+     *
+     *   Route::withMiddleware('auth')->prefix('admin')->group(fn () => …);
+     *
+     * Named apart from {@see middleware()}, which applies to the route just
+     * registered: reusing that name would make this silently attach to the
+     * previous route whenever one existed.
+     *
+     * @param string|array<int, string> $middleware
+     */
+    public function withMiddleware(string|array $middleware): RouteRegistrar
+    {
+        return (new RouteRegistrar($this))->middleware($middleware);
+    }
+
+    /** Begin a group under a path prefix. See {@see withMiddleware()}. */
+    public function withPrefix(string $prefix): RouteRegistrar
+    {
+        return (new RouteRegistrar($this))->prefix($prefix);
+    }
+
+    /**
      * Drop middleware the route's groups would otherwise contribute.
      *
      *   Route::post('/hooks/stripe', …)->middleware('web')->withoutMiddleware('csrf');
