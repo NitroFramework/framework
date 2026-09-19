@@ -2,6 +2,8 @@
 
 namespace Nitro\View\Engines;
 
+use Nitro\Events\Concerns\DispatchesEvents;
+use Nitro\Events\Contracts\ReceivesDispatcher;
 use Nitro\Foundation\Contracts\ConfigRepository;
 use Nitro\Foundation\Contracts\ResetsBetweenRequests;
 use Nitro\Foundation\PathRegistry;
@@ -17,6 +19,8 @@ use Nitro\View\Contracts\TagCompiler;
 use Nitro\View\Contracts\TemplateCache;
 use Nitro\View\Contracts\TemplateCompiler;
 use Nitro\View\Contracts\ViewFinder;
+use Nitro\View\Events\ViewEvent;
+use Nitro\View\Events\ViewEvents;
 use Nitro\View\FileViewFinder;
 use Nitro\View\Support\DebugRenderPipeline;
 use Nitro\View\Support\Htmlable;
@@ -30,8 +34,10 @@ use RuntimeException;
  * A compiled template runs in this object's scope, so most of this class exists
  * to be called from inside a template rather than from outside.
  */
-class CompilerEngine implements EngineContract, ResetsBetweenRequests
+class CompilerEngine implements EngineContract, ResetsBetweenRequests, ReceivesDispatcher
 {
+    use DispatchesEvents;
+
     use ManagesLayouts;
     use ManagesStacks;
     use ManagesFragments;
@@ -131,9 +137,36 @@ class CompilerEngine implements EngineContract, ResetsBetweenRequests
             }
         }
 
+        /**
+         * Emit point — view.rendering
+         *
+         * Before a template is compiled and executed. Fires for every view,
+         * including each partial and component a page pulls in — so a single
+         * page raises it many times, and renderCount says how deep this one
+         * is. Zero means the page itself.
+         * Payload: {@see ViewEvent}.
+         */
+        $this->eventLazy(
+            ViewEvents::RENDERING,
+            fn (): ViewEvent => new ViewEvent($view, $this->context->renderCount),
+        );
+
         $result = ($this->debugRender && $isTopLevel)
             ? $this->debugRender($view, $data)
             : $this->renderFromFile($view, $data);
+
+        /**
+         * Emit point — view.rendered
+         *
+         * After the template produced its markup, with how much of it there
+         * is. Pairs with view.rendering; a template that threw raises only the
+         * first of the two.
+         * Payload: {@see ViewEvent}.
+         */
+        $this->eventLazy(
+            ViewEvents::RENDERED,
+            fn (): ViewEvent => new ViewEvent($view, $this->context->renderCount, strlen($result)),
+        );
 
         if (DebugRenderPipeline::isEnabled()) {
             DebugRenderPipeline::exit('render', ['output_length' => strlen($result)]);
@@ -163,7 +196,7 @@ class CompilerEngine implements EngineContract, ResetsBetweenRequests
 
         $container = app();
         if ($container->has('request')) {
-            $request = $container->createOrResolve('request');
+            $request = $container->resolve('request');
             if (! empty($request->query('_fragment'))) {
                 return false;
             }

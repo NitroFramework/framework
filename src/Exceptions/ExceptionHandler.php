@@ -4,9 +4,10 @@ namespace Nitro\Exceptions;
 
 use Throwable;
 use WeakMap;
+use Nitro\Events\CoreEvents;
 use Nitro\Foundation\Application;
 use Nitro\Foundation\Contracts\ConfigRepository;
-use Nitro\Container\Contracts\ContainerInterface;
+use Nitro\Container\Contracts\ContainerInterface as Container;
 use Nitro\Support\Logger;
 
 /**
@@ -54,7 +55,7 @@ class ExceptionHandler
     public static ?int $requestObLevel = null;
 
     private ConfigRepository $config;
-    private ContainerInterface $container;
+    private Container $container;
 
     /** @var array<string, callable> Custom handlers keyed by exception class */
     private array $customHandlers = [];
@@ -131,7 +132,7 @@ class ExceptionHandler
 
     private int $contextLines = 10;
 
-    public function __construct(ConfigRepository $config, ContainerInterface $container)
+    public function __construct(ConfigRepository $config, Container $container)
     {
         $this->config = $config;
         $this->container = $container;
@@ -224,7 +225,7 @@ class ExceptionHandler
      * Register a custom reporter for a specific exception type.
      * 
      * $handler->reportUsing(PaymentException::class, function ($exception, $container) {
-     *     $container->createOrResolve(SlackNotifier::class)->send($exception->getMessage());
+     *     $container->resolve(SlackNotifier::class)->send($exception->getMessage());
      * });
      */
     public function reportUsing(string $exceptionClass, callable $reporter): self
@@ -371,6 +372,17 @@ class ExceptionHandler
         $this->unwindOutputBuffers();
 
         $exception = $this->mapException($exception);
+
+        /**
+         * Emit point — exception.handled
+         *
+         * The exception is about to be turned into a page for the client, so
+         * it was not fatal to the request. Unlike exception.occurred this
+         * fires only for exceptions that reach the renderer — one reported and
+         * swallowed elsewhere raises the first without the second.
+         * Payload: {@see ExceptionEvent}.
+         */
+        $this->raiseEvent(CoreEvents::EXCEPTION_HANDLED, $exception, $this->getStatusCode($exception));
 
         // An exception may render itself — the most idiomatic place to put the
         // behaviour, since it lives with the thing it describes.
@@ -588,9 +600,46 @@ class ExceptionHandler
      * (a validation failure) still goes through the same reporting rules as one
      * that renders a page.
      */
+    /**
+     * Raise an exception-lifecycle event without ever making things worse.
+     *
+     * Unlike every other emitter in the framework this one does not take a
+     * dispatcher: the handler runs when something has already gone wrong,
+     * possibly before the container has an event bus at all, and a listener
+     * that throws here would replace the original exception with its own. So
+     * it resolves defensively and swallows everything.
+     */
+    private function raiseEvent(string $event, Throwable $exception, ?int $status = null): void
+    {
+        try {
+            if (! $this->container->has('events')) {
+                return;
+            }
+
+            $dispatcher = $this->container->resolve('events');
+
+            if ($dispatcher->hasListeners($event)) {
+                $dispatcher->dispatch($event, new ExceptionEvent($exception, $status));
+            }
+        } catch (Throwable) {
+            /* Reporting a failure must not become the failure. */
+        }
+    }
+
     public function report(Throwable $exception): void
     {
         $exception = $this->mapException($exception);
+
+        /**
+         * Emit point — exception.occurred
+         *
+         * Every exception that reaches the handler, before the shouldntReport
+         * filter — so a listener sees the ones the log deliberately ignores
+         * (404s, validation failures) as well as the ones it keeps. Filter on
+         * the class if that is not what you want.
+         * Payload: {@see ExceptionEvent}.
+         */
+        $this->raiseEvent(CoreEvents::EXCEPTION_OCCURRED, $exception);
 
         if ($this->shouldntReport($exception)) {
             return;
@@ -681,7 +730,7 @@ class ExceptionHandler
         }
 
         try {
-            $limiter = new \Nitro\Cache\RateLimiter($this->container->createOrResolve('cache'));
+            $limiter = new \Nitro\Cache\RateLimiter($this->container->resolve('cache'));
 
             // attempt() runs the callback and returns false once the budget for
             // this window is spent — so "not allowed through" means throttled.
@@ -880,7 +929,7 @@ class ExceptionHandler
             return null;
         }
 
-        $request = $this->container->createOrResolve('request');
+        $request = $this->container->resolve('request');
 
         return $request instanceof \Nitro\Http\Request ? $request : null;
     }
@@ -959,7 +1008,7 @@ class ExceptionHandler
                 return null;
             }
 
-            $engine = $this->container->createOrResolve(\Nitro\View\Contracts\Engine::class);
+            $engine = $this->container->resolve(\Nitro\View\Contracts\Engine::class);
 
             $candidates = [
                 "errors.{$code}",

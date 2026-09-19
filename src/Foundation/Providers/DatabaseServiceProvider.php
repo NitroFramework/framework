@@ -9,6 +9,7 @@ use Nitro\Database\Model\ModelState;
 use Nitro\Database\Query\Paginator;
 use Nitro\Database\Query\QueryRegistry;
 use Nitro\Database\Schema\SchemaBuilder;
+use Nitro\Events\Contracts\Dispatcher as EventDispatcher;
 use Nitro\Foundation\Contracts\ConfigRepository;
 
 /**
@@ -18,7 +19,7 @@ class DatabaseServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        $config = $this->container->createOrResolve(ConfigRepository::class);
+        $config = $this->container->resolve(ConfigRepository::class);
         $dbConfig = $config->get('database');
         $default = $dbConfig['default'] ?? 'mysql';
         DB::configure($dbConfig['connections'][$default]);
@@ -45,7 +46,14 @@ class DatabaseServiceProvider extends ServiceProvider
          * model-event listeners registered in a provider's boot() land on it.
          */
         ModelState::clearBooted();
-        ModelState::setDispatcher($this->container->createOrResolve('events'));
+        ModelState::setDispatcher($this->container->resolve('events'));
+
+        /*
+         * The connection raises query and transaction events, so it needs the
+         * same bus. Wired here rather than in boot() for the reason above: a
+         * listener registered in a provider's boot() must find it already set.
+         */
+        DB::connection()->setDispatcher($this->container->resolve(EventDispatcher::class));
 
         /*
          * Named-query registry (query('name')), built on first use.
@@ -60,7 +68,7 @@ class DatabaseServiceProvider extends ServiceProvider
          */
         $this->container->singleton(QueryRegistry::class, function ($container) {
             $registry = new QueryRegistry();
-            $registry->loadFrom($container->createOrResolve('paths')->base('app/Queries'));
+            $registry->loadFrom($container->resolve('paths')->base('app/Queries'));
 
             return $registry;
         });
@@ -76,7 +84,7 @@ class DatabaseServiceProvider extends ServiceProvider
         // commands read all() to discover migrations across the app and modules.
         $this->container->singleton(MigrationPathRegistry::class, function ($container) {
             $registry = new MigrationPathRegistry();
-            $registry->add($container->createOrResolve('paths')->migrations());
+            $registry->add($container->resolve('paths')->migrations());
             return $registry;
         });
     }
@@ -93,7 +101,7 @@ class DatabaseServiceProvider extends ServiceProvider
 
         Paginator::currentPageResolverUsing(static function (string $pageName) use ($container) {
             return $container->has('request')
-                ? $container->createOrResolve('request')->query($pageName)
+                ? $container->resolve('request')->query($pageName)
                 : null;
         });
 
@@ -103,7 +111,7 @@ class DatabaseServiceProvider extends ServiceProvider
                 return ['path' => '/', 'query' => []];
             }
 
-            $request = $container->createOrResolve('request');
+            $request = $container->resolve('request');
 
             return [
                 'path'  => $request->path(),

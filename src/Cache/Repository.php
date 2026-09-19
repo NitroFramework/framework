@@ -5,12 +5,18 @@ namespace Nitro\Cache;
 use Nitro\Cache\Contracts\StoreInterface;
 use Nitro\Cache\Contracts\TaggableStoreInterface;
 use Nitro\Cache\Tags\TaggedCache;
+use Nitro\Events\Concerns\DispatchesEvents;
+use Nitro\Events\Contracts\ReceivesDispatcher;
+use Nitro\Cache\Events\CacheEvent;
+use Nitro\Cache\Events\CacheEvents;
 
 /**
  * The developer-facing cache API (get/put/remember/forget) over a store.
  */
-class Repository
+class Repository implements ReceivesDispatcher
 {
+    use DispatchesEvents;
+
     /**
      * @param StoreInterface $store
      */
@@ -44,7 +50,24 @@ class Repository
     {
         $value = $this->store->get($key);
 
-        return $value !== null ? $value : $default;
+        /**
+         * Emit point — cache.hit / cache.missed
+         *
+         * Once per lookup, on every read the application makes, so this is a
+         * hot path. Exactly one of the pair fires. A missing key and a stored
+         * null are the same thing here, which is the store contract, not a
+         * decision taken at this line.
+         * Payload: {@see CacheEvent}.
+         */
+        if ($value !== null) {
+            $this->eventLazy(CacheEvents::HIT, fn (): CacheEvent => new CacheEvent($key, $value));
+
+            return $value;
+        }
+
+        $this->eventLazy(CacheEvents::MISSED, fn (): CacheEvent => new CacheEvent($key));
+
+        return $default;
     }
 
     /**
@@ -98,7 +121,24 @@ class Repository
             return $this->forget($key);
         }
 
-        return $this->store->put($key, $value, $ttl);
+        $stored = $this->store->put($key, $value, $ttl);
+
+        /**
+         * Emit point — cache.written
+         *
+         * After a successful write with a TTL. put() with a null TTL routes to
+         * forever() and a non-positive one to forget(), so those raise their
+         * own events rather than this one. A failed write raises nothing.
+         * Payload: {@see CacheEvent}.
+         */
+        if ($stored) {
+            $this->eventLazy(
+                CacheEvents::WRITTEN,
+                fn (): CacheEvent => new CacheEvent($key, $value, $ttl),
+            );
+        }
+
+        return $stored;
     }
 
     /**
@@ -283,7 +323,21 @@ class Repository
      */
     public function forget(string $key): bool
     {
-        return $this->store->forget($key);
+        $forgotten = $this->store->forget($key);
+
+        /**
+         * Emit point — cache.forgotten
+         *
+         * After a key was removed. Also fires for put() with a non-positive
+         * TTL, which means "expire now" and is a delete. Forgetting a key that
+         * was never there raises nothing.
+         * Payload: {@see CacheEvent}.
+         */
+        if ($forgotten) {
+            $this->eventLazy(CacheEvents::FORGOTTEN, fn (): CacheEvent => new CacheEvent($key));
+        }
+
+        return $forgotten;
     }
 
     /**

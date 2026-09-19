@@ -2,6 +2,11 @@
 
 namespace Nitro\Database;
 
+use Closure;
+use Nitro\Database\Events\DatabaseEvents;
+use Nitro\Database\Events\QueryEvent;
+use Nitro\Events\Concerns\DispatchesEvents;
+use Nitro\Events\Contracts\ReceivesDispatcher;
 use PDO;
 use PDOStatement;
 use PDOException;
@@ -9,8 +14,10 @@ use PDOException;
 /**
  * A database connection — wraps PDO and runs queries, statements and transactions.
  */
-class Connection
+class Connection implements ReceivesDispatcher
 {
+    use DispatchesEvents;
+
     private ?PDO $pdo = null;
     protected array $config;
     private array $log = [];
@@ -280,11 +287,31 @@ class Connection
 
     private function run(string $sql, array $bindings, callable $callback): mixed
     {
-        $start = $this->logging ? microtime(true) : 0;
+        /*
+         * One clock read, shared by the query log and query.executed, and
+         * taken only if one of them will use it. This is the hottest path in
+         * the framework — a page doing forty queries runs it forty times.
+         */
+        $timed = $this->logging || $this->listeningFor(DatabaseEvents::QUERY_EXECUTED);
+        $start = $timed ? microtime(true) : 0;
 
         if (!empty($bindings)) {
             $bindings = $this->prepareBindings($bindings);
         }
+
+        /**
+         * Emit point — query.executing
+         *
+         * Before the statement runs, on every query the framework issues —
+         * the single funnel select(), selectOne() and statement() all pass
+         * through. Fires whether or not the query succeeds, so a listener
+         * counting queries must not assume a matching query.executed.
+         * Payload: {@see QueryEvent}.
+         */
+        $this->eventLazy(
+            DatabaseEvents::QUERY_EXECUTING,
+            fn (): QueryEvent => new QueryEvent($sql, $bindings),
+        );
 
         try {
             $stmt = $this->prepareCached($sql);
@@ -300,15 +327,56 @@ class Connection
             );
         }
 
+        $elapsed = $timed ? round((microtime(true) - $start) * 1000, 2) : 0.0;
+
         if ($this->logging) {
             $this->log[] = [
                 'sql' => $sql,
                 'bindings' => $bindings,
-                'time' => round((microtime(true) - $start) * 1000, 2),
+                'time' => $elapsed,
             ];
         }
 
+        /**
+         * Emit point — query.executed
+         *
+         * After the statement ran and the result was read, with how long it
+         * took in milliseconds. This is where a slow-query log belongs. Does
+         * not fire when the query threw — that surfaces as an exception, not
+         * as an executed query.
+         * Payload: {@see QueryEvent}.
+         */
+        $this->eventLazy(
+            DatabaseEvents::QUERY_EXECUTED,
+            fn (): QueryEvent => new QueryEvent($sql, $bindings, $elapsed),
+        );
+
         return $result;
+    }
+
+    /**
+     * Whether anything is listening for an event, without building a payload.
+     *
+     * Lets a caller skip work that only an event would need — a clock read on
+     * a hot path — rather than paying for it on every query in case somebody
+     * is watching.
+     */
+    protected function listeningFor(string $event): bool
+    {
+        return $this->dispatcher !== null && $this->dispatcher->hasListeners($event);
+    }
+
+    /**
+     * Raise a database lifecycle event on this connection's bus.
+     *
+     * Public so {@see \Nitro\Database\Query\Transaction} can use it. Its work
+     * runs through this connection and belongs to the same event stream, and
+     * giving it separate wiring for three events that only happen here would
+     * be a second thing to remember to connect.
+     */
+    public function raise(string $event, Closure $payload): void
+    {
+        $this->eventLazy($event, $payload);
     }
 
     /**

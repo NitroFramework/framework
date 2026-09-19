@@ -2,6 +2,8 @@
 
 namespace Nitro\Foundation\Providers;
 
+use Nitro\Events\Contracts\Dispatcher as EventDispatcher;
+use Nitro\Events\Contracts\ReceivesDispatcher;
 use Nitro\Foundation\PathRegistry;
 use Nitro\View\Blade;
 use Nitro\View\Compiler\BladeCompiler;
@@ -35,7 +37,22 @@ class ViewServiceProvider extends ServiceProvider
         $this->container->singleton(BladeCompiler::class, BladeCompiler::class);
         $this->container->singleton(CompiledTemplateCache::class, CompiledTemplateCache::class);
         $this->container->singleton(ComposerResolver::class, ComposerResolver::class);
-        $this->container->singleton(CompilerEngine::class, CompilerEngine::class);
+        /*
+         * A closure rather than a plain singleton so the engine can be handed
+         * the event bus it raises view.rendering/rendered on. build() autowires
+         * without consulting this binding, so the engine is still constructed
+         * exactly once and only when something actually renders — resolving it
+         * in boot() instead would load the compiler on every request.
+         */
+        $this->container->singleton(CompilerEngine::class, function ($container) {
+            $engine = $container->build(CompilerEngine::class);
+
+            if ($engine instanceof ReceivesDispatcher) {
+                $engine->setDispatcher($container->resolve(EventDispatcher::class));
+            }
+
+            return $engine;
+        });
 
         /*
          * Resolves view names to template files. A singleton because it
@@ -44,7 +61,7 @@ class ViewServiceProvider extends ServiceProvider
          */
         $this->container->singleton(ViewFinder::class, function ($container) {
             return new FileViewFinder(
-                $container->createOrResolve('paths')->views(),
+                $container->resolve('paths')->views(),
                 (string) config('view.extension', 'blade.php'),
             );
         });
@@ -75,16 +92,16 @@ class ViewServiceProvider extends ServiceProvider
         // ── Component renderer (lazy to avoid circular resolution) ──
         $this->container->singleton(ComponentRenderer::class, function ($container) {
             return new ComponentRenderer(
-                fn() => $container->createOrResolve(Engine::class),
+                fn() => $container->resolve(Engine::class),
             );
         });
 
         // ── Factory ──
         $this->container->singleton(Factory::class, function ($container) {
             return new Factory(
-                $container->createOrResolve(Engine::class),
+                $container->resolve(Engine::class),
                 $container,
-                $container->createOrResolve(ViewComposerResolver::class),
+                $container->resolve(ViewComposerResolver::class),
             );
         });
 
@@ -102,7 +119,7 @@ class ViewServiceProvider extends ServiceProvider
         // expression-aware callbacks. (Directives are intentionally not cached:
         // a callback's output depends on the invocation's $expression, so a
         // cached snapshot for one expression can't stand in for all calls.)
-        $paths = $this->container->createOrResolve(PathRegistry::class);
+        $paths = $this->container->resolve(PathRegistry::class);
         $this->loadCustomDirectives($paths);
     }
 

@@ -3,6 +3,8 @@
 namespace Nitro\Cache;
 
 use Nitro\Cache\Contracts\StoreInterface;
+use Nitro\Events\Contracts\Dispatcher as EventDispatcher;
+use Nitro\Events\Contracts\ReceivesDispatcher;
 use Nitro\Foundation\Providers\ServiceProvider;
 
 /**
@@ -21,20 +23,32 @@ class CacheServiceProvider extends ServiceProvider
         $this->container->alias('cache', CacheManager::class);
 
         $this->container->bind('cache.store', function ($container) {
-            return $container->createOrResolve('cache')->store();
+            return $container->resolve('cache')->store();
         });
 
         $this->container->bind(StoreInterface::class, function ($container) {
-            return $container->createOrResolve('cache')->store()->getStore();
+            return $container->resolve('cache')->store()->getStore();
         });
 
         $this->container->bind(Repository::class, function ($container) {
-            return $container->createOrResolve('cache')->store();
+            $repository = $container->resolve('cache')->store();
+
+            /*
+             * The repository raises cache.hit/missed/written/forgotten, so it
+             * needs the bus. Done here because the manager builds repositories
+             * on demand, one per store — there is no single instance for a
+             * provider's boot() to reach.
+             */
+            if ($repository instanceof ReceivesDispatcher) {
+                $repository->setDispatcher($container->resolve(EventDispatcher::class));
+            }
+
+            return $repository;
         });
 
         // Cache-backed rate limiter (login lockout, throttle middleware, …).
         $this->container->singleton(RateLimiter::class, function ($container) {
-            return new RateLimiter($container->createOrResolve(Repository::class));
+            return new RateLimiter($container->resolve(Repository::class));
         });
     }
 }
