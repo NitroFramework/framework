@@ -16,12 +16,12 @@ class RequestHelpersTest extends TestCase
 {
     protected function setUp(): void
     {
-        Container::reset();
+        Container::setInstance(new Container());
     }
 
     protected function tearDown(): void
     {
-        Container::reset();
+        Container::setInstance(new Container());
         $_GET = $_POST = $_FILES = [];
         unset($_SERVER['HTTP_HOST'], $_SERVER['HTTPS']);
     }

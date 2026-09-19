@@ -2,7 +2,7 @@
 
 namespace Nitro\Queue\Batching;
 
-use Nitro\Container\Contracts\ContainerInterface;
+use Nitro\Container\Contracts\ContainerInterface as Container;
 use Throwable;
 
 /**
@@ -14,7 +14,7 @@ use Throwable;
 class BatchCallbacks
 {
     public function __construct(
-        private ContainerInterface $container,
+        private Container $container,
     ) {}
 
     /** Run before the batch's jobs are pushed. */
@@ -75,6 +75,6 @@ class BatchCallbacks
     {
         [$class, $method] = is_array($callback) ? $callback : [$callback, '__invoke'];
 
-        $this->container->createOrResolve($class)->{$method}(...$arguments);
+        $this->container->resolve($class)->{$method}(...$arguments);
     }
 }

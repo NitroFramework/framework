@@ -24,7 +24,7 @@ class BroadcastTest extends TestCase
     {
         parent::setUp();
 
-        Container::reset();
+        Container::setInstance(new Container());
 
         $this->spy = new SpyBroadcaster();
         $this->broadcast = new BroadcastManager(Container::getInstance(), 'null');
@@ -34,7 +34,7 @@ class BroadcastTest extends TestCase
 
     protected function tearDown(): void
     {
-        Container::reset();
+        Container::setInstance(new Container());
         parent::tearDown();
     }
 

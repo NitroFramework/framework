@@ -2,7 +2,7 @@
 
 namespace Nitro\Livewire\Runtime;
 
-use Nitro\Container\Contracts\ContainerInterface;
+use Nitro\Container\Contracts\ContainerInterface as Container;
 use Nitro\Livewire\Attributes\RenderRegion;
 use Nitro\Livewire\Component;
 use Nitro\Validation\ValidationException;
@@ -28,7 +28,7 @@ class ActionInvoker
         'updating', 'updated', 'rendering', 'rendered',
     ];
 
-    public function __construct(protected ContainerInterface $container) {}
+    public function __construct(protected Container $container) {}
 
     /** Invoke a browser-called action, rejecting anything not a public component method. */
     public function call(Component $component, string $method, array $params): void

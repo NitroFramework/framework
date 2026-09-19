@@ -35,7 +35,7 @@ class NotificationServiceProvider extends ServiceProvider
         });
 
         $this->container->singleton('notification', function ($container) {
-            return new NotificationSender($container->createOrResolve(ChannelManager::class));
+            return new NotificationSender($container->resolve(ChannelManager::class));
         });
 
         $this->container->alias(NotificationSender::class, 'notification');
@@ -47,7 +47,7 @@ class NotificationServiceProvider extends ServiceProvider
             return;
         }
 
-        $this->container->createOrResolve(ViewFinder::class)
+        $this->container->resolve(ViewFinder::class)
             ->addNamespace('nitro', __DIR__ . '/resources/views');
     }
 }

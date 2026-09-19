@@ -17,7 +17,7 @@ class OptimizedBootstrapTest extends TestCase
 {
     protected function setUp(): void
     {
-        Container::reset();
+        Container::setInstance(new Container());
         BladeCompiler::clearCustomDirectives();
     }
 

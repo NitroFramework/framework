@@ -38,7 +38,7 @@ class CapturedStateTest extends TestCase
     {
         $this->container->singleton(Keeper::class);
 
-        $keeper = $this->container->make(Keeper::class);
+        $keeper = $this->container->resolve(Keeper::class);
         $this->container->instance(Keeper::class, $keeper);
 
         // Nothing in the wiring says this happens: the constructor is empty and
@@ -54,7 +54,7 @@ class CapturedStateTest extends TestCase
     {
         $this->container->singleton(Keeper::class);
 
-        $keeper = $this->container->make(Keeper::class);
+        $keeper = $this->container->resolve(Keeper::class);
         $this->container->instance(Keeper::class, $keeper);
         $keeper->rememberTheSession($this->container);
 
@@ -75,7 +75,7 @@ class CapturedStateTest extends TestCase
         // collaborator is what kept the request-scoped object.
         $this->container->singleton(Owner::class);
 
-        $owner = $this->container->make(Owner::class);
+        $owner = $this->container->resolve(Owner::class);
         $this->container->instance(Owner::class, $owner);
         $owner->keeper->rememberTheSession($this->container);
 
@@ -87,7 +87,7 @@ class CapturedStateTest extends TestCase
     public function test_a_singleton_holding_nothing_of_the_request_passes(): void
     {
         $this->container->singleton(Keeper::class);
-        $this->container->instance(Keeper::class, $this->container->make(Keeper::class));
+        $this->container->instance(Keeper::class, $this->container->resolve(Keeper::class));
 
         $this->host->resetForWorkerMode(new WorkerMode());
 
@@ -98,7 +98,7 @@ class CapturedStateTest extends TestCase
     {
         $this->container->singleton(Keeper::class);
 
-        $keeper = $this->container->make(Keeper::class);
+        $keeper = $this->container->resolve(Keeper::class);
         $this->container->instance(Keeper::class, $keeper);
 
         // Held from request one, and still held — but request one is over, so
@@ -126,7 +126,7 @@ class CapturedStateTest extends TestCase
         $container->scoped('session', fn () => new SessionState());
         $container->singleton(Keeper::class);
 
-        $keeper = $container->make(Keeper::class);
+        $keeper = $container->resolve(Keeper::class);
         $container->instance(Keeper::class, $keeper);
         $keeper->rememberTheSession($container);
 

@@ -62,7 +62,7 @@ class Kernel
             $container = Container::getInstance();
 
             return $container->has(ExceptionHandler::class)
-                ? $container->createOrResolve(ExceptionHandler::class)
+                ? $container->resolve(ExceptionHandler::class)
                 : null;
         } catch (Throwable) {
             return null;

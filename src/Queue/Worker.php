@@ -3,7 +3,7 @@
 namespace Nitro\Queue;
 
 use Nitro\Cache\CacheManager;
-use Nitro\Container\Contracts\ContainerInterface;
+use Nitro\Container\Contracts\ContainerInterface as Container;
 use Nitro\Queue\Batching\Batch;
 use Nitro\Queue\Batching\BatchCallbacks;
 use Nitro\Queue\Batching\BatchRepository;
@@ -51,7 +51,7 @@ class Worker
     public function __construct(
         private QueueManager $queues,
         private FailedJobStore $failedStore,
-        private ContainerInterface $container,
+        private Container $container,
         private ?CacheManager $cache = null,
         private ?BatchRepository $batches = null,
         private ?BatchCallbacks $batchCallbacks = null,
@@ -216,7 +216,7 @@ class Worker
             return;
         }
 
-        $this->container->createOrResolve(UniqueLock::class)->release($job);
+        $this->container->resolve(UniqueLock::class)->release($job);
     }
 
     /** Dispatch a lifecycle event, when anything is listening. */
@@ -226,7 +226,7 @@ class Worker
             return;
         }
 
-        $this->container->createOrResolve('events')->dispatch($event);
+        $this->container->resolve('events')->dispatch($event);
     }
 
     /** The batch a job belongs to, or null when it is not batched. */
@@ -283,7 +283,7 @@ class Worker
         foreach ($reflector->getParameters() as $param) {
             $type = $param->getType();
             if ($type instanceof \ReflectionNamedType && !$type->isBuiltin()) {
-                $args[] = $this->container->createOrResolve($type->getName());
+                $args[] = $this->container->resolve($type->getName());
             } elseif ($param->isDefaultValueAvailable()) {
                 $args[] = $param->getDefaultValue();
             } else {

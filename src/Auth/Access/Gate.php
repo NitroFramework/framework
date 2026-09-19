@@ -3,7 +3,7 @@
 namespace Nitro\Auth\Access;
 
 use Nitro\Auth\Exceptions\AuthorizationException;
-use Nitro\Container\Contracts\ContainerInterface;
+use Nitro\Container\Contracts\ContainerInterface as Container;
 use Throwable;
 
 /**
@@ -33,7 +33,7 @@ class Gate
     protected mixed $userResolver = null;
 
     public function __construct(
-        protected ContainerInterface $container,
+        protected Container $container,
         ?callable $userResolver = null,
     ) {
         $this->userResolver = $userResolver;
@@ -75,7 +75,7 @@ class Gate
 
         foreach ($this->policies as $covered => $policy) {
             if ($class === $covered || is_subclass_of($class, $covered)) {
-                return $this->container->createOrResolve($policy);
+                return $this->container->resolve($policy);
             }
         }
 
@@ -220,7 +220,7 @@ class Gate
                 ? explode('@', $callback, 2)
                 : [$callback, $ability];
 
-            return (bool) $this->container->createOrResolve($class)->{$method}($user, ...$arguments);
+            return (bool) $this->container->resolve($class)->{$method}($user, ...$arguments);
         }
 
         return (bool) $callback($user, ...$arguments);
@@ -234,7 +234,7 @@ class Gate
         }
 
         try {
-            return $this->container->createOrResolve('auth')->user();
+            return $this->container->resolve('auth')->user();
         } catch (Throwable) {
             return null;
         }

@@ -8,7 +8,7 @@ use Nitro\Console\Contracts\CommandInterface;
 use Nitro\Console\OutputFormatter;
 use Nitro\Foundation\PathRegistry;
 use Nitro\Routing\RouteLoader;
-use Nitro\Routing\Router;
+use Nitro\Routing\Contracts\RouterInterface as Router;
 
 /**
  * Print the application's route table.

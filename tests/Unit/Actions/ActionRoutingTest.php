@@ -29,7 +29,7 @@ class ActionRoutingTest extends TestCase
 
     protected function setUp(): void
     {
-        Container::reset();
+        Container::setInstance(new Container());
         $this->app = new Application(dirname(__DIR__, 3));
         $this->app->bootstrap();
     }

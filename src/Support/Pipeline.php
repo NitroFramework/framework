@@ -3,7 +3,7 @@
 namespace Nitro\Support;
 
 use Closure;
-use Nitro\Container\Contracts\ContainerInterface;
+use Nitro\Container\Contracts\ContainerInterface as Container;
 use RuntimeException;
 
 /**
@@ -30,11 +30,11 @@ class Pipeline
     protected string $method = 'handle';
 
     public function __construct(
-        protected ?ContainerInterface $container = null,
+        protected ?Container $container = null,
     ) {}
 
     /** A pipeline that resolves class-name stages from the given container. */
-    public static function make(?ContainerInterface $container = null): static
+    public static function make(?Container $container = null): static
     {
         return new static($container);
     }
@@ -148,7 +148,7 @@ class Pipeline
     protected function resolve(string $pipe): object
     {
         if ($this->container !== null) {
-            return $this->container->createOrResolve($pipe);
+            return $this->container->resolve($pipe);
         }
 
         if (! class_exists($pipe)) {

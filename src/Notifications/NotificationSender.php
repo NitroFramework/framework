@@ -90,7 +90,7 @@ class NotificationSender
         $container = app();
 
         if ($container->has('events')) {
-            $container->createOrResolve('events')->dispatch($event);
+            $container->resolve('events')->dispatch($event);
         }
     }
 

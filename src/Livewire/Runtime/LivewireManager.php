@@ -2,7 +2,7 @@
 
 namespace Nitro\Livewire\Runtime;
 
-use Nitro\Container\Contracts\ContainerInterface;
+use Nitro\Container\Contracts\ContainerInterface as Container;
 use Nitro\Http\Response;
 use Nitro\Livewire\Compilation\SingleFileComponent;
 use Nitro\Livewire\Component;
@@ -91,7 +91,7 @@ class LivewireManager
     protected ?UpdatePipeline $pipeline = null;
     protected ?AssetController $assets = null;
 
-    public function __construct(protected ContainerInterface $container) {}
+    public function __construct(protected Container $container) {}
 
     // ─── Collaborators ──────────────────────────────────────────────────────
 

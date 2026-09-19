@@ -121,7 +121,7 @@ trait ManagesBindings
      */
     public function makeWith(string $abstract, array $parameters = []): mixed
     {
-        return $this->make($abstract, $parameters);
+        return $this->resolve($abstract, $parameters);
     }
 
     /** Drop a cached instance, so the next resolution builds a fresh one. */
@@ -214,7 +214,7 @@ trait ManagesBindings
 
     public function offsetGet(mixed $offset): mixed
     {
-        return $this->make((string) $offset);
+        return $this->resolve((string) $offset);
     }
 
     public function offsetSet(mixed $offset, mixed $value): void

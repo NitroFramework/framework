@@ -2,7 +2,7 @@
 
 namespace Nitro\Actions;
 
-use Nitro\Container\Contracts\ContainerInterface;
+use Nitro\Container\Contracts\ContainerInterface as Container;
 use Nitro\Exceptions\HttpException;
 use Nitro\Http\Request;
 use Nitro\Validation\ValidationException;
@@ -88,7 +88,7 @@ abstract class Action
      *
      * @param array<string, mixed> $parameters Route parameters, by name.
      */
-    public function runAsController(Request $request, array $parameters, ContainerInterface $container): mixed
+    public function runAsController(Request $request, array $parameters, Container $container): mixed
     {
         $this->request = $request;
 

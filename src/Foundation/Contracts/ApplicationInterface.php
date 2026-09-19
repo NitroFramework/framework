@@ -2,7 +2,7 @@
 
 namespace Nitro\Foundation\Contracts;
 
-use Nitro\Container\Contracts\ContainerInterface;
+use Nitro\Container\Contracts\ContainerInterface as Container;
 use Nitro\Foundation\PathRegistry;
 use Nitro\Foundation\Providers\ServiceProvider;
 
@@ -10,7 +10,7 @@ use Nitro\Foundation\Providers\ServiceProvider;
  * What the rest of the framework may ask of the application.
  *
  * The Application was the one service with no contract — ConfigRepository and
- * ContainerInterface both have one, so every layer that needed the application
+ * Container both have one, so every layer that needed the application
  * took the concrete class and inherited the whole composition root with it.
  *
  * Deliberately narrower than the class: registering providers, running
@@ -22,7 +22,7 @@ use Nitro\Foundation\Providers\ServiceProvider;
 interface ApplicationInterface
 {
     /** The container this application is assembled in. */
-    public function getContainer(): ContainerInterface;
+    public function getContainer(): Container;
 
     /** Every application path, derived from the base path. */
     public function paths(): PathRegistry;

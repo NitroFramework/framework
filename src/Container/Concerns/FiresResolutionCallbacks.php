@@ -171,7 +171,7 @@ trait FiresResolutionCallbacks
 
         $this->reboundCallbacks[$abstract][] = $callback;
 
-        return $this->bound($abstract) ? $this->make($abstract) : null;
+        return $this->bound($abstract) ? $this->resolve($abstract) : null;
     }
 
     /**
@@ -200,7 +200,7 @@ trait FiresResolutionCallbacks
         $abstract = $this->normalizeAbstract($abstract);
 
         foreach ($this->reboundCallbacks[$abstract] ?? [] as $callback) {
-            $callback($instance ?? $this->make($abstract), $this);
+            $callback($instance ?? $this->resolve($abstract), $this);
         }
     }
 

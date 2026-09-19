@@ -84,7 +84,7 @@ if (!function_exists('route')) {
 
         if ($router === null || $from !== $container) {
             $from = $container;
-            $router = $container->createOrResolve('router');
+            $router = $container->resolve('router');
         }
 
         return $router->route($name, $parameters);

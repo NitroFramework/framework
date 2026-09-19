@@ -41,7 +41,7 @@ class FormRequestTest extends TestCase
 {
     private function bind(array $body): NativeSession
     {
-        Container::reset();
+        Container::setInstance(new Container());
         $c = Container::getInstance();
 
         $session = new NativeSession('test_session');
@@ -59,7 +59,7 @@ class FormRequestTest extends TestCase
 
     protected function tearDown(): void
     {
-        Container::reset();
+        Container::setInstance(new Container());
     }
 
     #[RunInSeparateProcess]

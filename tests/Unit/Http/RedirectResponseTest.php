@@ -26,7 +26,7 @@ class RedirectResponseTest extends TestCase
             session_write_close();
         }
 
-        Container::reset();
+        Container::setInstance(new Container());
         $container = Container::getInstance();
 
         $this->session = new NativeSession('test_session');
@@ -45,7 +45,7 @@ class RedirectResponseTest extends TestCase
 
     protected function tearDown(): void
     {
-        Container::reset();
+        Container::setInstance(new Container());
     }
 
     #[RunInSeparateProcess]

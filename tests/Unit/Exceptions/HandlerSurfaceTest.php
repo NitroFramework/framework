@@ -20,7 +20,7 @@ class HandlerSurfaceTest extends TestCase
     {
         parent::setUp();
 
-        Container::reset();
+        Container::setInstance(new Container());
 
         $config = new class implements ConfigRepository {
             public function get(string $key, mixed $default = null): mixed { return $default; }

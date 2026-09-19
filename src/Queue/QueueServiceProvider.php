@@ -46,31 +46,31 @@ class QueueServiceProvider extends ServiceProvider
         $this->container->singleton(QueueManager::class, function ($container) {
             return new QueueManager(
                 $container,
-                $container->createOrResolve(ConfigRepository::class),
+                $container->resolve(ConfigRepository::class),
             );
         });
 
         $this->container->alias('queue', QueueManager::class);
 
         $this->container->singleton(FailedJobStore::class, function ($container) {
-            $config = $container->createOrResolve(ConfigRepository::class);
+            $config = $container->resolve(ConfigRepository::class);
             $table = $config->get('queue.failed.table');
             return new DatabaseFailedJobStore($table);
         });
 
         $this->container->singleton(UniqueLock::class, function ($container) {
-            return new UniqueLock($container->createOrResolve(CacheRepository::class));
+            return new UniqueLock($container->resolve(CacheRepository::class));
         });
 
         $this->container->singleton(BatchFactory::class, function ($container) {
-            return new BatchFactory($container->createOrResolve(QueueManager::class));
+            return new BatchFactory($container->resolve(QueueManager::class));
         });
 
         $this->container->singleton(BatchRepository::class, function ($container) {
-            $config = $container->createOrResolve(ConfigRepository::class);
+            $config = $container->resolve(ConfigRepository::class);
 
             return new DatabaseBatchRepository(
-                $container->createOrResolve(BatchFactory::class),
+                $container->resolve(BatchFactory::class),
                 $config->get('queue.batching.table') ?? 'job_batches'
             );
         });
@@ -81,16 +81,16 @@ class QueueServiceProvider extends ServiceProvider
 
         $this->container->singleton(Worker::class, function ($container) {
             return new Worker(
-                $container->createOrResolve(QueueManager::class),
-                $container->createOrResolve(FailedJobStore::class),
+                $container->resolve(QueueManager::class),
+                $container->resolve(FailedJobStore::class),
                 $container,
                 // Cache is optional — present in most apps, but the
                 // worker degrades gracefully if it isn't.
                 $container->has(CacheManager::class)
-                    ? $container->createOrResolve(CacheManager::class)
+                    ? $container->resolve(CacheManager::class)
                     : null,
-                $container->createOrResolve(BatchRepository::class),
-                $container->createOrResolve(BatchCallbacks::class),
+                $container->resolve(BatchRepository::class),
+                $container->resolve(BatchCallbacks::class),
             );
         });
     }

@@ -35,7 +35,7 @@ class LivewireRenderAttributesTest extends TestCase
 
     private function lw(): LivewireManager
     {
-        return Container::getInstance()->make('livewire');
+        return Container::getInstance()->resolve('livewire');
     }
 
     /** Run a single action against a fresh probe and return its effects. */

@@ -17,12 +17,12 @@ class RedirectorTest extends TestCase
 {
     protected function setUp(): void
     {
-        Container::reset();
+        Container::setInstance(new Container());
     }
 
     protected function tearDown(): void
     {
-        Container::reset();
+        Container::setInstance(new Container());
     }
 
     public function test_redirect_helper_returns_redirector_or_response(): void

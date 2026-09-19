@@ -17,7 +17,7 @@ class DeferredProviderTest extends TestCase
 {
     protected function setUp(): void
     {
-        Container::reset();
+        Container::setInstance(new Container());
         DeferredProviderTracker::reset();
     }
 
@@ -45,7 +45,7 @@ class DeferredProviderTest extends TestCase
 
         // Container::make probes the deferred resolver; that loads the
         // provider, runs register() then boot(), and returns the bound service.
-        $result = $app->getContainer()->make('cache.deferred');
+        $result = $app->getContainer()->resolve('cache.deferred');
 
         $this->assertTrue(DeferredProviderTracker::$registered);
         $this->assertTrue(DeferredProviderTracker::$booted);
@@ -70,7 +70,7 @@ class DeferredProviderTest extends TestCase
         $app = $this->app();
         $app->register(DeferredCacheProvider::class);
 
-        $app->getContainer()->make('cache.deferred');
+        $app->getContainer()->resolve('cache.deferred');
 
         $prop = new ReflectionProperty(Application::class, 'deferredServices');
         $map = $prop->getValue($app);
@@ -86,8 +86,8 @@ class DeferredProviderTest extends TestCase
         $app = $this->app();
         $app->register(DeferredCacheProvider::class);
 
-        $app->getContainer()->make('cache.deferred');
-        $app->getContainer()->make('cache.deferred.alias');
+        $app->getContainer()->resolve('cache.deferred');
+        $app->getContainer()->resolve('cache.deferred.alias');
 
         $this->assertSame(1, DeferredProviderTracker::$registerCalls);
         $this->assertSame(1, DeferredProviderTracker::$bootCalls);

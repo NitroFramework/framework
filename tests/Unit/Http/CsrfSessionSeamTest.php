@@ -26,7 +26,7 @@ class CsrfSessionSeamTest extends TestCase
 
     protected function setUp(): void
     {
-        Container::reset();
+        Container::setInstance(new Container());
         $this->session = new Store('test_sess', new ArraySessionHandler());
         $this->session->start();
         Container::getInstance()->instance('session', $this->session);
@@ -34,7 +34,7 @@ class CsrfSessionSeamTest extends TestCase
 
     protected function tearDown(): void
     {
-        Container::reset();
+        Container::setInstance(new Container());
     }
 
     public function test_token_is_stable_and_stored_in_the_session_store(): void

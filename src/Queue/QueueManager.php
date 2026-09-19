@@ -2,7 +2,7 @@
 
 namespace Nitro\Queue;
 
-use Nitro\Container\Contracts\ContainerInterface;
+use Nitro\Container\Contracts\ContainerInterface as Container;
 use Nitro\Foundation\Contracts\ConfigRepository;
 use Nitro\Queue\Batching\BatchRepository;
 use Nitro\Queue\Batching\PendingBatch;
@@ -35,7 +35,7 @@ class QueueManager
     private array $connections = [];
 
     public function __construct(
-        private ContainerInterface $container,
+        private Container $container,
         private ConfigRepository $config,
     ) {}
 
@@ -128,7 +128,7 @@ class QueueManager
         return new PendingBatch(
             $this->container,
             $this,
-            $this->container->createOrResolve(BatchRepository::class),
+            $this->container->resolve(BatchRepository::class),
             $jobs
         );
     }

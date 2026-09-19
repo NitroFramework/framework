@@ -2,7 +2,7 @@
 
 namespace Nitro\Livewire\Runtime;
 
-use Nitro\Container\Contracts\ContainerInterface;
+use Nitro\Container\Contracts\ContainerInterface as Container;
 use Nitro\Livewire\Attributes\Layout;
 use Nitro\Livewire\Component;
 use Nitro\Livewire\Features\SupportsLazyLoading;
@@ -24,7 +24,7 @@ use ReflectionObject;
 class Mounter
 {
     public function __construct(
-        protected ContainerInterface $container,
+        protected Container $container,
         protected ComponentRegistry $registry,
         protected Renderer $renderer,
         protected Snapshotter $snapshotter,
@@ -114,7 +114,7 @@ class Mounter
             return $this->renderComponentLayout($layout[0], $html);
         }
 
-        return $this->container->createOrResolve(Engine::class)->render('livewire::page', [
+        return $this->container->resolve(Engine::class)->render('livewire::page', [
             '__layout'  => $layout[0],
             '__section' => $layout[1],
             '__slot'    => $html,
@@ -140,7 +140,7 @@ class Mounter
     {
         $name = substr($layout, strlen('components.'));
 
-        $engine = $this->container->createOrResolve(Engine::class);
+        $engine = $this->container->resolve(Engine::class);
 
         // The bound Engine may be the renderer itself or a factory holding
         // one; both shapes are in use.

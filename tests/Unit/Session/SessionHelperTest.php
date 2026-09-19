@@ -22,7 +22,7 @@ class SessionHelperTest extends TestCase
     {
         parent::setUp();
 
-        Container::reset();
+        Container::setInstance(new Container());
 
         $this->store = new Store('nitro_session', new \Nitro\Session\ArraySessionHandler());
         $this->store->start();
@@ -32,7 +32,7 @@ class SessionHelperTest extends TestCase
 
     protected function tearDown(): void
     {
-        Container::reset();
+        Container::setInstance(new Container());
         parent::tearDown();
     }
 

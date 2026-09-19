@@ -58,5 +58,5 @@ $container = $app->getContainer();
 $container->instance(WorkerMode::class, new WorkerMode());
 $container->instance(FrankenPhpAdapter::class, new FrankenPhpAdapter());
 
-$runner = $container->createOrResolve(Runner::class);
+$runner = $container->resolve(Runner::class);
 $runner->run();

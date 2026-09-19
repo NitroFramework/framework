@@ -73,7 +73,7 @@ class SessionServiceProvider extends ServiceProvider
 
         // Scoped: one Store per worker request; the binding declares its own
         // lifecycle rather than relying on a central reset list.
-        $this->container->scoped('session', fn($container) => $container->createOrResolve(SessionManager::class)->driver());
+        $this->container->scoped('session', fn($container) => $container->resolve(SessionManager::class)->driver());
         $this->container->alias(Session::class, 'session');
         $this->container->alias(Store::class, 'session');
 
@@ -98,7 +98,7 @@ class SessionServiceProvider extends ServiceProvider
             return;
         }
 
-        $path = (string) ($config['files'] ?? $this->container->createOrResolve('paths')->storage('framework/sessions'));
+        $path = (string) ($config['files'] ?? $this->container->resolve('paths')->storage('framework/sessions'));
 
         if (! is_dir($path)) {
             @mkdir($path, 0755, true);
@@ -130,14 +130,14 @@ class SessionServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        $kernel = $this->container->createOrResolve(Kernel::class);
+        $kernel = $this->container->resolve(Kernel::class);
 
         // Emit the session cookie BEFORE the response is sent so the browser
         // returns the id next request — without this, file/array sessions minted
         // a fresh id every request and never persisted. responseReady runs
         // pre-send (and on the error path too).
         $kernel->responseReady(function (Request $request, Response $response): void {
-            $session = $this->container->createOrResolve('session');
+            $session = $this->container->resolve('session');
 
             if ($session->isStarted() && ! $session instanceof NativeSession) {
                 $response->header(
@@ -148,7 +148,7 @@ class SessionServiceProvider extends ServiceProvider
         });
 
         $kernel->terminating(function (Request $request, Response $response): void {
-            $session = $this->container->createOrResolve('session');
+            $session = $this->container->resolve('session');
 
             // Untouched by StartSession => this route has no session; nothing
             // to flush and nothing to sweep.

@@ -94,7 +94,7 @@ $bootStart = hrtime(true);
 $app = Application::create($appDir);
 $app->bootstrap();
 $container = $app->getContainer();
-$kernel = $container->createOrResolve(Kernel::class);
+$kernel = $container->resolve(Kernel::class);
 
 $bootMs = (hrtime(true) - $bootStart) / 1e6;
 

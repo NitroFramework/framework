@@ -12,12 +12,12 @@ if (!function_exists('app')) {
      *
      * `app()` is the container (as in Laravel) — the canonical way to reach it
      * from OUTSIDE a class that has one. Inside a class that holds a container,
-     * use it: `$this->container->createOrResolve(...)`. That split is the rule
+     * use it: `$this->container->resolve(...)`. That split is the rule
      * the framework's own code follows — a global lookup where there is nothing
      * to inject (helpers, compiled Blade output, static entry points), the
      * injected container everywhere else.
      *
-     * Resolution goes through createOrResolve(), so an unbound-but-constructible
+     * Resolution goes through resolve(), so an unbound-but-constructible
      * class is auto-wired rather than throwing.
      *
      * The Application is a distinct object; ask for it by name when you need it:
@@ -34,6 +34,6 @@ if (!function_exists('app')) {
             return $container;
         }
 
-        return $container->createOrResolve($abstract);
+        return $container->resolve($abstract);
     }
 }

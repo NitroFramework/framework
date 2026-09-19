@@ -18,7 +18,7 @@ class SchemaCacheTest extends TestCase
 
     protected function setUp(): void
     {
-        Container::reset();
+        Container::setInstance(new Container());
         (new Application(dirname(__DIR__, 3)))->bootstrap();
 
         $this->cacheFile = Container::getInstance()->get('paths')->cache('schema.php');
@@ -42,7 +42,7 @@ class SchemaCacheTest extends TestCase
         SchemaCache::flushMemo();
         restore_error_handler();
         restore_exception_handler();
-        Container::reset();
+        Container::setInstance(new Container());
     }
 
     private ?string $backup = null;

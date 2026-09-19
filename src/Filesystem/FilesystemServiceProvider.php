@@ -21,7 +21,7 @@ class FilesystemServiceProvider extends ServiceProvider
         $this->container->alias(FilesystemManager::class, 'filesystem');
 
         $this->container->bind(Filesystem::class, function ($container) {
-            return $container->createOrResolve('filesystem')->disk();
+            return $container->resolve('filesystem')->disk();
         });
     }
 }

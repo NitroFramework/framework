@@ -71,7 +71,7 @@ trait RefreshDatabase
     protected function flushCacheForFreshDatabase(): void
     {
         try {
-            $cache = $this->app?->getContainer()->createOrResolve('cache');
+            $cache = $this->app?->getContainer()->resolve('cache');
 
             // is_callable, not method_exists: 'cache' resolves to the manager,
             // which forwards flush() to the default store through __call and

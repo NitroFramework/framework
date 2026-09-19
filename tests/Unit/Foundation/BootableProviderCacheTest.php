@@ -17,7 +17,7 @@ class BootableProviderCacheTest extends TestCase
 {
     protected function setUp(): void
     {
-        Container::reset();
+        Container::setInstance(new Container());
     }
 
     protected function makeApp(): Application

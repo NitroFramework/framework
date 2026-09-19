@@ -26,7 +26,7 @@ class TranslationServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->container->singleton(Translator::class, function ($container) {
-            $paths = $container->createOrResolve(PathRegistry::class);
+            $paths = $container->resolve(PathRegistry::class);
 
             return new Translator(
                 $paths->base('lang'),

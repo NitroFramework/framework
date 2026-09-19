@@ -2,7 +2,7 @@
 
 namespace Nitro\Queue\Drivers;
 
-use Nitro\Container\Contracts\ContainerInterface;
+use Nitro\Container\Contracts\ContainerInterface as Container;
 use Nitro\Queue\Contracts\Queue;
 use Nitro\Queue\QueuedJob;
 
@@ -26,7 +26,7 @@ use Nitro\Queue\QueuedJob;
  */
 class SyncQueue implements Queue
 {
-    public function __construct(private ContainerInterface $container) {}
+    public function __construct(private Container $container) {}
 
     public function push(QueuedJob $job, string $queue = 'default'): int|string
     {
@@ -84,7 +84,7 @@ class SyncQueue implements Queue
         foreach ($reflector->getParameters() as $param) {
             $type = $param->getType();
             if ($type instanceof \ReflectionNamedType && !$type->isBuiltin()) {
-                $args[] = $this->container->createOrResolve($type->getName());
+                $args[] = $this->container->resolve($type->getName());
             } elseif ($param->isDefaultValueAvailable()) {
                 $args[] = $param->getDefaultValue();
             } else {

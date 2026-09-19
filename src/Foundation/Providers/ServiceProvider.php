@@ -2,7 +2,7 @@
 
 namespace Nitro\Foundation\Providers;
 
-use Nitro\Container\Contracts\ContainerInterface;
+use Nitro\Container\Contracts\ContainerInterface as Container;
 use Nitro\Database\Migration\MigrationPathRegistry;
 use Nitro\Routing\RouteLoader;
 use Nitro\View\Contracts\ViewFinder;
@@ -19,7 +19,7 @@ use Nitro\View\Contracts\ViewFinder;
 class ServiceProvider
 {
     /** The container instance. */
-    protected ContainerInterface $container;
+    protected Container $container;
 
     /**
      * Defer registration until one of provides() is resolved from the container.
@@ -27,7 +27,7 @@ class ServiceProvider
      */
     protected bool $defer = false;
 
-    public function __construct(ContainerInterface $container)
+    public function __construct(Container $container)
     {
         $this->container = $container;
     }
@@ -69,7 +69,7 @@ class ServiceProvider
      */
     protected function loadRoutesFrom(string $path, string $prefix = ''): void
     {
-        $this->container->createOrResolve(RouteLoader::class)->addRouteFile($path, $prefix);
+        $this->container->resolve(RouteLoader::class)->addRouteFile($path, $prefix);
     }
 
     /**
@@ -83,7 +83,7 @@ class ServiceProvider
         // The finder owns the namespace map; the engine only forwards to it.
         // Asking the engine would build the compiler, the template cache and
         // every Manages* concern in boot() — on requests that render nothing.
-        $this->container->createOrResolve(ViewFinder::class)->addNamespace($namespace, $path);
+        $this->container->resolve(ViewFinder::class)->addNamespace($namespace, $path);
     }
 
     /**
@@ -93,7 +93,7 @@ class ServiceProvider
      */
     protected function loadMigrationsFrom(string $path): void
     {
-        $this->container->createOrResolve(MigrationPathRegistry::class)->add($path);
+        $this->container->resolve(MigrationPathRegistry::class)->add($path);
     }
 
     /**
@@ -114,7 +114,7 @@ class ServiceProvider
             return;
         }
 
-        $config   = $this->container->createOrResolve('config');
+        $config   = $this->container->resolve('config');
         $existing = $config->get($key, []);
 
         $config->set($key, array_replace_recursive(

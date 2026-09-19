@@ -36,7 +36,7 @@ class ExceptionServiceProvider extends ServiceProvider
         // Registered on the finder, which is what actually holds the namespace
         // map. Going through the engine would construct the whole Blade stack
         // during boot just to record a path that only an error page reads.
-        $this->container->createOrResolve(ViewFinder::class)
+        $this->container->resolve(ViewFinder::class)
             ->addNamespace('nitro-errors', __DIR__ . '/../../Exceptions/views');
     }
 
@@ -50,7 +50,7 @@ class ExceptionServiceProvider extends ServiceProvider
      *   });
      * 
      *   $handler->reportUsing(PaymentException::class, function ($exception, $container) {
-     *       $container->createOrResolve(SlackNotifier::class)->alert($exception->getMessage());
+     *       $container->resolve(SlackNotifier::class)->alert($exception->getMessage());
      *   });
      * 
      *   $handler->dontReport([

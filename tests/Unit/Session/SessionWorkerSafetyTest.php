@@ -32,7 +32,7 @@ class SessionWorkerSafetyTest extends TestCase
 
     private function container(bool $workerMode): Container
     {
-        Container::reset();
+        Container::setInstance(new Container());
         $c = Container::getInstance();
         $c->instance('config', Config::fromArray([
             'session' => ['driver' => 'native', 'cookie' => 'test_sess'],
@@ -47,18 +47,18 @@ class SessionWorkerSafetyTest extends TestCase
 
     protected function tearDown(): void
     {
-        Container::reset();
+        Container::setInstance(new Container());
     }
 
     public function test_native_driver_is_kept_outside_worker_mode(): void
     {
-        $session = $this->container(workerMode: false)->make('session');
+        $session = $this->container(workerMode: false)->resolve('session');
         $this->assertInstanceOf(NativeSession::class, $session);
     }
 
     public function test_worker_mode_swaps_native_for_the_worker_safe_store(): void
     {
-        $session = $this->container(workerMode: true)->make('session');
+        $session = $this->container(workerMode: true)->resolve('session');
 
         $this->assertNotInstanceOf(
             NativeSession::class,

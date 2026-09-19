@@ -17,10 +17,13 @@ use Nitro\Context\ContextServiceProvider;
 use Nitro\Context\Repository as ContextRepository;
 use Nitro\Cookie\CookieServiceProvider;
 use Nitro\Encryption\EncryptionServiceProvider;
-use Nitro\Events\Dispatcher as EventDispatcher;
+use Nitro\Events\Contracts\Dispatcher as EventDispatcher;
+use Nitro\Events\CoreEvents;
+use Nitro\Events\Dispatcher as BundledEventDispatcher;
 use Nitro\Filesystem\FilesystemServiceProvider;
 use Nitro\Foundation\Bootstrap\BootstrapperInterface;
 use Nitro\Foundation\Contracts\ApplicationInterface;
+use Nitro\Foundation\Events\ProviderEvent;
 use Nitro\Foundation\Providers\AuthServiceProvider;
 use Nitro\Foundation\Providers\ConsoleServiceProvider;
 use Nitro\Foundation\Providers\DatabaseServiceProvider;
@@ -167,10 +170,14 @@ class Application implements ApplicationInterface
     {
         $this->paths = new PathRegistry($basePath);
 
+        /* Adopt an established container, or create and publish the first. */
         if ($container) {
             $this->container = $container;
-        } else {
+        } elseif (Container::hasInstance()) {
             $this->container = Container::getInstance();
+        } else {
+            $this->container = new Container();
+            Container::setInstance($this->container);
         }
 
         $this->registerBaseBindings();
@@ -238,7 +245,7 @@ class Application implements ApplicationInterface
      */
     public function handle(string $kernelClass): void
     {
-        $kernel = $this->container->createOrResolve($kernelClass);
+        $kernel = $this->container->resolve($kernelClass);
         $kernel->run();
     }
 
@@ -310,13 +317,57 @@ class Application implements ApplicationInterface
             throw new RuntimeException('Application already bootstrapped');
         }
 
+        /**
+         * Emit point — app.bootstrapping
+         *
+         * The earliest event there is. Almost nothing is bound yet and the
+         * dispatcher itself may not exist, so this is usually heard only by a
+         * listener attached before bootstrap() was called — a profiler
+         * wrapping the whole boot, for instance. Payload: none.
+         */
+        $this->raise(CoreEvents::APP_BOOTSTRAPPING);
+
         $this->runHooks($this->bootingHooks);
         $this->runBootstrappers();
         $this->bootProviders();
         $this->runHooks($this->bootedHooks);
 
         $this->bootstrapped = true;
+
+        /**
+         * Emit point — app.bootstrapped
+         *
+         * Every provider has registered and booted and the container is fully
+         * populated. The first point at which a listener registered by an
+         * application's own provider can be sure everything it needs exists.
+         * Payload: none.
+         */
+        $this->raise(CoreEvents::APP_BOOTSTRAPPED);
+
         return $this;
+    }
+
+    /**
+     * Raise a framework lifecycle event, if anything can hear it yet.
+     *
+     * The application is where the dispatcher comes from, so it cannot be
+     * handed one the way other layers are — it asks its own container. Early
+     * bootstrap runs before that container has an 'events' binding at all, and
+     * a listener registered by a provider cannot hear an event raised before
+     * that provider ran. Both cases are silence by design, and neither is ever
+     * the reason a boot fails.
+     */
+    private function raise(string $event, mixed $payload = []): void
+    {
+        if (! $this->container->has('events')) {
+            return;
+        }
+
+        $dispatcher = $this->container->resolve('events');
+
+        if ($dispatcher->hasListeners($event)) {
+            $dispatcher->dispatch($event, $payload);
+        }
     }
 
     /**
@@ -364,13 +415,19 @@ class Application implements ApplicationInterface
          * to reach the queue for a listener that should not run in the request.
          */
         $this->container->singleton('events', function ($container) {
-            $dispatcher = new EventDispatcher();
+            $dispatcher = new BundledEventDispatcher();
             $dispatcher->setContainer($container);
 
             return $dispatcher;
         });
 
+        /*
+         * The contract is the name the framework resolves by; the concrete is
+         * aliased too so an application that named it keeps working. Binding
+         * something else to the contract replaces the bus everywhere.
+         */
         $this->container->alias(EventDispatcher::class, 'events');
+        $this->container->alias(BundledEventDispatcher::class, 'events');
 
         /*
          * A singleton so that a fake installed in a test is the same instance
@@ -538,7 +595,7 @@ class Application implements ApplicationInterface
     protected function runBootstrappers(): void
     {
         foreach ($this->bootstrappers as $bootstrapper) {
-            $instance = $this->container->createOrResolve($bootstrapper);
+            $instance = $this->container->resolve($bootstrapper);
 
             if ($instance instanceof BootstrapperInterface) {
                 $instance->bootstrap($this);
@@ -687,6 +744,16 @@ class Application implements ApplicationInterface
             return $instance;
         }
 
+        /**
+         * Emit point — provider.registering
+         *
+         * Once per non-deferred provider, before its register() runs. A
+         * deferred provider raises this too, but only when something actually
+         * resolves one of its services — which is the point of deferring it.
+         * Payload: {@see ProviderEvent}.
+         */
+        $this->raise(CoreEvents::PROVIDER_REGISTERING, new ProviderEvent($className));
+
         $instance->register();
 
         $this->serviceProviders[] = $instance;
@@ -695,6 +762,16 @@ class Application implements ApplicationInterface
         if (method_exists($instance, 'boot')) {
             $this->bootableProviders[] = $instance;
         }
+
+        /**
+         * Emit point — provider.registered
+         *
+         * After register() returns and the provider has been recorded. Its
+         * bindings exist but nothing has booted yet, so resolving a service
+         * here may pull the rest of the graph in earlier than intended.
+         * Payload: {@see ProviderEvent}.
+         */
+        $this->raise(CoreEvents::PROVIDER_REGISTERED, new ProviderEvent($className));
 
         return $instance;
     }
@@ -742,7 +819,28 @@ class Application implements ApplicationInterface
     public function bootProviders(): void
     {
         foreach ($this->bootableProviders as $provider) {
+            $name = is_object($provider) ? $provider::class : (string) $provider;
+
+            /**
+             * Emit point — provider.booting
+             *
+             * Once per bootable provider, immediately before its boot() runs.
+             * Pairs with provider.booted to time a slow provider.
+             * Payload: {@see ProviderEvent}.
+             */
+            $this->raise(CoreEvents::PROVIDER_BOOTING, new ProviderEvent($name));
+
             $this->container->call([$provider, 'boot']);
+
+            /**
+             * Emit point — provider.booted
+             *
+             * Once per bootable provider, after its boot() returns. A listener
+             * waiting on one specific provider's services can act here rather
+             * than waiting for app.bootstrapped.
+             * Payload: {@see ProviderEvent}.
+             */
+            $this->raise(CoreEvents::PROVIDER_BOOTED, new ProviderEvent($name));
         }
     }
 
@@ -889,7 +987,7 @@ class Application implements ApplicationInterface
      */
     public function isDownForMaintenance(): bool
     {
-        return $this->container->createOrResolve(MaintenanceMode::class)->active();
+        return $this->container->resolve(MaintenanceMode::class)->active();
     }
 
     /**
@@ -914,6 +1012,18 @@ class Application implements ApplicationInterface
      */
     public function terminate(): void
     {
+        /**
+         * Emit point — app.terminating
+         *
+         * After the response has been sent, before the terminating callbacks
+         * run. Nothing said here can reach the client, which is exactly why
+         * it is the right place for slow work: flushing metrics, writing a
+         * log. Under a Thrust worker the process survives, so a listener must
+         * not assume it is the last thing that will ever run.
+         * Payload: none.
+         */
+        $this->raise(CoreEvents::APP_TERMINATING);
+
         foreach ($this->terminatingCallbacks as $callback) {
             try {
                 $this->container->call($callback);
@@ -929,7 +1039,7 @@ class Application implements ApplicationInterface
     private function reportTerminationFailure(\Throwable $exception): void
     {
         try {
-            $this->container->createOrResolve(\Nitro\Exceptions\ExceptionHandler::class)->report($exception);
+            $this->container->resolve(\Nitro\Exceptions\ExceptionHandler::class)->report($exception);
         } catch (\Throwable) {
             // Nothing left to report through; the response has already been sent.
         }

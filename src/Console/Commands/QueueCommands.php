@@ -6,7 +6,7 @@ use Nitro\Console\ExitCode;
 use Nitro\Console\Contracts\CommandInterface;
 use Nitro\Cache\CacheManager;
 use Nitro\Console\OutputFormatter;
-use Nitro\Container\Contracts\ContainerInterface;
+use Nitro\Container\Contracts\ContainerInterface as Container;
 use Nitro\Queue\Contracts\FailedJobStore;
 use Nitro\Queue\QueueManager;
 use Nitro\Queue\QueuedJob;
@@ -26,7 +26,7 @@ use Nitro\Queue\Worker;
 class QueueCommands implements CommandInterface
 {
     public function __construct(
-        private ContainerInterface $container,
+        private Container $container,
         private OutputFormatter $output,
     ) {}
 
@@ -68,7 +68,7 @@ class QueueCommands implements CommandInterface
     private function work(array $arguments): int
     {
         $options = $this->parseWorkOptions($arguments);
-        $worker  = $this->container->createOrResolve(Worker::class);
+        $worker  = $this->container->resolve(Worker::class);
 
         $this->output->info(sprintf(
             "Worker started — connection=%s queue=%s sleep=%ds",
@@ -125,7 +125,7 @@ class QueueCommands implements CommandInterface
 
     private function listFailed(): int
     {
-        $store = $this->container->createOrResolve(FailedJobStore::class);
+        $store = $this->container->resolve(FailedJobStore::class);
         $rows  = $store->all(50);
 
         if (empty($rows)) {
@@ -160,8 +160,8 @@ class QueueCommands implements CommandInterface
             return ExitCode::FAILURE;
         }
 
-        $store   = $this->container->createOrResolve(FailedJobStore::class);
-        $queues  = $this->container->createOrResolve(QueueManager::class);
+        $store   = $this->container->resolve(FailedJobStore::class);
+        $queues  = $this->container->resolve(QueueManager::class);
 
         $targets = $id === 'all' ? $store->all(1000) : array_filter([$store->find($id)]);
         if (empty($targets)) {
@@ -203,7 +203,7 @@ class QueueCommands implements CommandInterface
             return ExitCode::FAILURE;
         }
 
-        $store = $this->container->createOrResolve(FailedJobStore::class);
+        $store = $this->container->resolve(FailedJobStore::class);
         $store->forget($id)
             ? $this->output->success("Forgot failed job {$id}.")
             : $this->output->error("No failed job with id [{$id}].");
@@ -215,7 +215,7 @@ class QueueCommands implements CommandInterface
 
     private function flush(): int
     {
-        $store = $this->container->createOrResolve(FailedJobStore::class);
+        $store = $this->container->resolve(FailedJobStore::class);
         $cleared = $store->clear();
         $this->output->success("Cleared {$cleared} failed job(s).");
 
@@ -232,7 +232,7 @@ class QueueCommands implements CommandInterface
             );
             return ExitCode::FAILURE;
         }
-        $cache = $this->container->createOrResolve(CacheManager::class);
+        $cache = $this->container->resolve(CacheManager::class);
         // Workers compare this value to what they read at boot; any
         // change means "exit gracefully so the supervisor restarts me."
         $cache->put('queue:restart', time(), 3600);

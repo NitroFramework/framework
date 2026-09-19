@@ -26,7 +26,7 @@ class RequestValidateTest extends TestCase
 {
     private function bootValidation(Request $request): NativeSession
     {
-        Container::reset();
+        Container::setInstance(new Container());
         $container = Container::getInstance();
 
         $session = new NativeSession('test_session');
@@ -56,7 +56,7 @@ class RequestValidateTest extends TestCase
 
     protected function tearDown(): void
     {
-        Container::reset();
+        Container::setInstance(new Container());
     }
 
     #[RunInSeparateProcess]

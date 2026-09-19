@@ -35,7 +35,7 @@ class AliasLifetimeTest extends TestCase
 {
     private function container(): Container
     {
-        Container::reset();
+        Container::setInstance(new Container());
 
         return new Container();
     }
@@ -47,12 +47,12 @@ class AliasLifetimeTest extends TestCase
         $container->scoped('thing', fn () => new PerRequestThing(''));
         $container->alias(ThingContract::class, 'thing');
 
-        $first = $container->createOrResolve(ThingContract::class);
+        $first = $container->resolve(ThingContract::class);
 
         // What ends a worker request.
         $container->forgetScopedInstances();
 
-        $second = $container->createOrResolve(ThingContract::class);
+        $second = $container->resolve(ThingContract::class);
 
         $this->assertNotSame($first, $second, 'the alias cached across requests');
     }
@@ -67,8 +67,8 @@ class AliasLifetimeTest extends TestCase
         // The specific failure: one half of the application read the target and
         // the other read the alias, and they saw different objects.
         $this->assertSame(
-            $container->createOrResolve('thing'),
-            $container->createOrResolve(ThingContract::class),
+            $container->resolve('thing'),
+            $container->resolve(ThingContract::class),
         );
     }
 
@@ -79,12 +79,12 @@ class AliasLifetimeTest extends TestCase
         $container->singleton('thing', fn () => new ConcreteThing());
         $container->alias(ThingContract::class, 'thing');
 
-        $first = $container->createOrResolve(ThingContract::class);
+        $first = $container->resolve(ThingContract::class);
         $container->forgetScopedInstances();
 
         // The target's binding decides, and here it says singleton.
-        $this->assertSame($first, $container->createOrResolve(ThingContract::class));
-        $this->assertSame($first, $container->createOrResolve('thing'));
+        $this->assertSame($first, $container->resolve(ThingContract::class));
+        $this->assertSame($first, $container->resolve('thing'));
     }
 
     public function test_a_chain_of_aliases_still_reaches_the_target(): void
@@ -96,8 +96,8 @@ class AliasLifetimeTest extends TestCase
         $container->alias(ConcreteThing::class, ThingContract::class);
 
         $this->assertSame(
-            $container->createOrResolve('thing'),
-            $container->createOrResolve(ConcreteThing::class),
+            $container->resolve('thing'),
+            $container->resolve(ConcreteThing::class),
         );
     }
 }

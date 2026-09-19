@@ -6,7 +6,7 @@ use Nitro\Console\ExitCode;
 use DateTime;
 use Nitro\Console\Contracts\CommandInterface;
 use Nitro\Console\OutputFormatter;
-use Nitro\Container\Contracts\ContainerInterface;
+use Nitro\Container\Contracts\ContainerInterface as Container;
 use Nitro\Scheduling\Schedule;
 use Throwable;
 
@@ -20,7 +20,7 @@ class ScheduleCommands implements CommandInterface
     private bool $shouldStop = false;
 
     public function __construct(
-        private ContainerInterface $container,
+        private Container $container,
         private OutputFormatter $output,
     ) {}
 
@@ -117,7 +117,7 @@ class ScheduleCommands implements CommandInterface
 
     protected function schedule(): Schedule
     {
-        return $this->container->createOrResolve(Schedule::class);
+        return $this->container->resolve(Schedule::class);
     }
 
     /**

@@ -35,7 +35,7 @@ class ResetsBetweenRequestsTest extends TestCase
     {
         $this->container->singleton(Stateful::class);
 
-        $service = $this->container->make(Stateful::class);
+        $service = $this->container->resolve(Stateful::class);
         $service->heldFromLastRequest = 'the previous visitor';
 
         $this->host->resetForWorkerMode(new WorkerMode());
@@ -49,7 +49,7 @@ class ResetsBetweenRequestsTest extends TestCase
         // reason a worker is faster than FPM.
         $this->container->singleton(Persistent::class);
 
-        $service = $this->container->make(Persistent::class);
+        $service = $this->container->resolve(Persistent::class);
         $service->compiledOnce = 'expensive';
 
         $this->host->resetForWorkerMode(new WorkerMode());
@@ -74,8 +74,8 @@ class ResetsBetweenRequestsTest extends TestCase
         $this->container->singleton(Throws::class);
         $this->container->singleton(Stateful::class);
 
-        $this->container->make(Throws::class);
-        $service = $this->container->make(Stateful::class);
+        $this->container->resolve(Throws::class);
+        $service = $this->container->resolve(Stateful::class);
         $service->heldFromLastRequest = 'the previous visitor';
 
         // There is a next request to serve either way, and no request in scope

@@ -31,7 +31,7 @@ class WorkerTest extends TestCase
 
     protected function setUp(): void
     {
-        Container::reset();
+        Container::setInstance(new Container());
         $this->container = Container::getInstance();
         WorkerTestRecorder::reset();
 
@@ -60,7 +60,7 @@ class WorkerTest extends TestCase
 
     protected function tearDown(): void
     {
-        Container::reset();
+        Container::setInstance(new Container());
     }
 
     public function test_successful_job_runs_and_gets_deleted(): void

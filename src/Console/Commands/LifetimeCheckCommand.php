@@ -34,7 +34,7 @@ use Throwable;
 class LifetimeCheckCommand implements CommandInterface
 {
     /** Container methods whose first argument names a service being resolved. */
-    private const RESOLVING_CALLS = ['get', 'make', 'createOrResolve', 'resolve'];
+    private const RESOLVING_CALLS = ['get', 'resolve'];
 
     public function __construct(
         private Container $container,
@@ -220,7 +220,7 @@ class LifetimeCheckCommand implements CommandInterface
     /**
      * Service names a closure resolves from the container, read from its source.
      *
-     * Matches `$anything->get('name')` and `->make(Some::class)` across the
+     * Matches `$anything->get('name')` and `->resolve(Some::class)` across the
      * closure's own lines. Reflection can say where a closure is written but
      * not what it does, so this is the only way to see inside one short of
      * running it — which is what the command exists to avoid.

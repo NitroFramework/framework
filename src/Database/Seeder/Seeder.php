@@ -67,7 +67,7 @@ abstract class Seeder
                 );
             }
             /** @var Seeder $seeder */
-            $seeder = $this->container->createOrResolve($class);
+            $seeder = $this->container->resolve($class);
             $seeder->run();
         }
     }

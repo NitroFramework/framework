@@ -12,13 +12,13 @@ class SyncQueueTest extends TestCase
 {
     protected function setUp(): void
     {
-        Container::reset();
+        Container::setInstance(new Container());
         SyncQueueTestRecorder::$ran = [];
     }
 
     protected function tearDown(): void
     {
-        Container::reset();
+        Container::setInstance(new Container());
     }
 
     public function test_push_runs_the_job_immediately(): void

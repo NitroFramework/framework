@@ -119,12 +119,32 @@ class Container implements ContainerInterface, \ArrayAccess
     /** Public so tests can create isolated containers instead of the shared singleton. */
     public function __construct() {}
 
+    /**
+     * The container the application established.
+     *
+     * Does not create one: a container invented here is empty, and the error
+     * surfaces later as "service not found" somewhere unrelated.
+     *
+     * @throws RuntimeException When no container has been established.
+     */
     public static function getInstance(): self
     {
         if (self::$instance === null) {
-            self::$instance = new self();
+            throw new RuntimeException(
+                'No container has been established, so there is no application to resolve from. '
+                . 'This is usually app(), a facade, or Container::getInstance() being reached before '
+                . 'the application booted — or after Container::reset(). A host that owns its own '
+                . 'container establishes it with Container::setInstance(new Container()).'
+            );
         }
+
         return self::$instance;
+    }
+
+    /** Whether a shared container exists, without creating or demanding one. */
+    public static function hasInstance(): bool
+    {
+        return self::$instance !== null;
     }
 
     public static function reset(): void
@@ -414,6 +434,16 @@ class Container implements ContainerInterface, \ArrayAccess
     /**
      * Register the parameter binder used for route-model binding. See
      * {@see $parameterBinder}.
+     *
+     * The resolver is called as ($type, $value, $name) and returns the bound
+     * value, or {@see PARAM_UNRESOLVED} to decline. A resolver that only
+     * declares the first two parameters is called unchanged.
+     *
+     * The declared name travels with the value because a route may bind a
+     * parameter by a column of its own choosing — "{post:slug}" — and only the
+     * name says which parameter that applies to. Both places that call the
+     * binder pass it; one of them did not, and binding by a custom key worked
+     * in every unit test while 404ing against a real application.
      */
     public function bindParametersUsing(\Closure $resolver): void
     {
@@ -531,7 +561,7 @@ class Container implements ContainerInterface, \ArrayAccess
 
             $this->building[$value] = true;
             try {
-                return $this->make($value);
+                return $this->resolve($value);
             } finally {
                 unset($this->building[$value]);
             }
@@ -558,12 +588,12 @@ class Container implements ContainerInterface, \ArrayAccess
      * {@see get()}, which is a strict registry lookup: it resolves a binding and
      * throws NotFoundException when none exists, never auto-wiring. Use get()
      * only when an unregistered name is a bug you want to hear about (a service
-     * name coming from config, say); use createOrResolve() for everything else.
+     * name coming from config, say); use resolve() for everything else.
      *
      * Only delegates to get() when no $parameters are passed, so explicit
      * overrides are never silently dropped.
      */
-    public function createOrResolve(string $abstract, array $parameters = []): mixed
+    public function resolve(string $abstract, array $parameters = []): mixed
     {
         if (empty($parameters)) {
             if ($this->has($abstract)) {
@@ -583,17 +613,6 @@ class Container implements ContainerInterface, \ArrayAccess
         }
 
         return $this->build($abstract, $parameters);
-    }
-
-    /**
-     * Alias of {@see createOrResolve()}, kept because it is the name the wider
-     * PHP world (and a lot of existing application code) reaches for first.
-     * Identical behaviour — pick whichever reads better in context; the
-     * framework's own code standardises on createOrResolve().
-     */
-    public function make(string $abstract, array $parameters = []): mixed
-    {
-        return $this->createOrResolve($abstract, $parameters);
     }
 
     /** Build a class via reflection, resolving all constructor dependencies recursively */
@@ -748,7 +767,7 @@ class Container implements ContainerInterface, \ArrayAccess
                 && array_key_exists($name, $primitives)
                 && is_scalar($primitives[$name])
             ) {
-                $bound = ($this->parameterBinder)($typeName, $primitives[$name]);
+                $bound = ($this->parameterBinder)($typeName, $primitives[$name], $name);
                 if ($bound !== self::PARAM_UNRESOLVED) {
                     $dependencies[] = $bound;
                     continue;
@@ -787,7 +806,7 @@ class Container implements ContainerInterface, \ArrayAccess
                 }
 
                 if ($this->parameterBinder !== null && is_scalar($value)) {
-                    $bound = ($this->parameterBinder)($typeName, $value);
+                    $bound = ($this->parameterBinder)($typeName, $value, $name);
 
                     if ($bound !== self::PARAM_UNRESOLVED) {
                         $dependencies[] = $bound;
@@ -814,7 +833,7 @@ class Container implements ContainerInterface, \ArrayAccess
                     );
                 }
 
-                $dependencies[] = $this->make($typeName);
+                $dependencies[] = $this->resolve($typeName);
                 continue;
             }
 
@@ -843,7 +862,7 @@ class Container implements ContainerInterface, \ArrayAccess
     private function resolveContextualValue(mixed $value): mixed
     {
         if (is_string($value) && class_exists($value)) {
-            return $this->make($value);
+            return $this->resolve($value);
         }
         return $value;
     }
@@ -969,7 +988,7 @@ class Container implements ContainerInterface, \ArrayAccess
         }
         $result = [];
         foreach ($this->tags[$tag] as $abstract) {
-            $result[] = $this->make($abstract);
+            $result[] = $this->resolve($abstract);
         }
         return $result;
     }

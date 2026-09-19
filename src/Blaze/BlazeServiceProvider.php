@@ -24,7 +24,7 @@ class BlazeServiceProvider extends ServiceProvider
             );
         });
 
-        $this->container->singleton(BlazeRuntime::class, static fn($container) => new BlazeRuntime($container->createOrResolve(BlazeManager::class)));
+        $this->container->singleton(BlazeRuntime::class, static fn($container) => new BlazeRuntime($container->resolve(BlazeManager::class)));
 
         /*
          * The compiler holds no state between calls — compile() resets its one
@@ -32,7 +32,7 @@ class BlazeServiceProvider extends ServiceProvider
          * first one that needs rewriting.
          */
         $this->container->singleton(BlazeCompiler::class, static fn($container) => new BlazeCompiler(
-            $container->createOrResolve(BlazeManager::class)
+            $container->resolve(BlazeManager::class)
         ));
 
         /*
@@ -41,7 +41,7 @@ class BlazeServiceProvider extends ServiceProvider
          * compiles a template does not build the manager at all.
          */
         $container = $this->container;
-        Blaze::resolveManagerUsing(static fn (): BlazeManager => $container->createOrResolve(BlazeManager::class));
+        Blaze::resolveManagerUsing(static fn (): BlazeManager => $container->resolve(BlazeManager::class));
     }
 
     public function boot(): void
@@ -57,7 +57,7 @@ class BlazeServiceProvider extends ServiceProvider
          * that would not fire.
          */
         Blade::precompiler(static fn (string $template): string
-            => $container->createOrResolve(BlazeCompiler::class)->compile($template));
+            => $container->resolve(BlazeCompiler::class)->compile($template));
 
         // @blaze is a compile-time marker only — it emits nothing.
         Blade::directive('blaze', static fn(): string => '');

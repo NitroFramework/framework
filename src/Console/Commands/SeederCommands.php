@@ -5,7 +5,7 @@ namespace Nitro\Console\Commands;
 use Nitro\Console\ExitCode;
 use Nitro\Console\Contracts\CommandInterface;
 use Nitro\Console\OutputFormatter;
-use Nitro\Container\Contracts\ContainerInterface;
+use Nitro\Container\Contracts\ContainerInterface as Container;
 use Nitro\Database\Seeder\Seeder;
 use Nitro\Foundation\PathRegistry;
 
@@ -27,7 +27,7 @@ class SeederCommands implements CommandInterface
     private string $seedersNamespace = 'Database\\Seeders\\';
 
     public function __construct(
-        private readonly ContainerInterface $container,
+        private readonly Container $container,
         private readonly OutputFormatter $output,
         PathRegistry $paths,
     ) {
@@ -124,7 +124,7 @@ class SeederCommands implements CommandInterface
         }
 
         $this->output->info("Seeding: {$fqcn}");
-        $seeder = $this->container->createOrResolve($fqcn);
+        $seeder = $this->container->resolve($fqcn);
         $seeder->run();
         $this->output->success("Database seeding completed.");
 

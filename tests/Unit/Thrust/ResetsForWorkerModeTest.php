@@ -18,7 +18,7 @@ class ResetsForWorkerModeTest extends TestCase
 {
     protected function setUp(): void
     {
-        Container::reset();
+        Container::setInstance(new Container());
     }
 
     public function test_reset_clears_resolved_instance_for_scoped_services(): void

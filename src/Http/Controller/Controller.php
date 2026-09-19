@@ -2,7 +2,7 @@
 
 namespace Nitro\Http\Controller;
 
-use Nitro\Container\Contracts\ContainerInterface;
+use Nitro\Container\Contracts\ContainerInterface as Container;
 use Nitro\Http\Controller\Concerns\BuildsResponses;
 use Nitro\Http\Controller\Concerns\HandlesRequests;
 use Nitro\Http\Controller\Concerns\InteractsWithDatabase;
@@ -24,7 +24,7 @@ use Nitro\Http\Controller\Concerns\RendersViews;
 abstract class Controller
 {
 
-    protected ContainerInterface $container;
+    protected Container $container;
 
     /**
      * Initialize Controller and container
@@ -55,6 +55,6 @@ abstract class Controller
      */
     public function __call(string $name, array $arguments)
     {
-        return $this->container->createOrResolve($name);
+        return $this->container->resolve($name);
     }
 }

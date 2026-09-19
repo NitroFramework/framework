@@ -2,7 +2,7 @@
 
 namespace Nitro\Livewire\Runtime;
 
-use Nitro\Container\Contracts\ContainerInterface;
+use Nitro\Container\Contracts\ContainerInterface as Container;
 use Nitro\Livewire\Component;
 use Nitro\Livewire\Features\SupportsIslands;
 use Nitro\Livewire\Features\SupportsLazyLoading;
@@ -24,7 +24,7 @@ class UpdatePipeline
     protected PropertyHooks $properties;
 
     public function __construct(
-        protected ContainerInterface $container,
+        protected Container $container,
         protected Snapshotter $snapshotter,
         protected Renderer $renderer,
         protected ActionInvoker $actions,

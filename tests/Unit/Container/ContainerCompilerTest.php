@@ -48,7 +48,7 @@ class ContainerCompilerTest extends TestCase
         $c = new Container();
         $c->setCompiledFactories($this->load($c, [CcSvc::class]));
 
-        $svc = $c->make(CcSvc::class);
+        $svc = $c->resolve(CcSvc::class);
 
         $this->assertInstanceOf(CcSvc::class, $svc);
         $this->assertInstanceOf(CcRepoA::class, $svc->a);
@@ -61,12 +61,12 @@ class ContainerCompilerTest extends TestCase
         $c->singleton(CcConn::class); // Conn is now a shared singleton
 
         $php = (new ContainerCompiler())->compile($c, [CcRepoA::class]);
-        $this->assertStringContainsString('$c->createOrResolve(\'' . addslashes(CcConn::class) . '\')', $php);
+        $this->assertStringContainsString('$c->resolve(\'' . addslashes(CcConn::class) . '\')', $php);
         $this->assertStringNotContainsString('new \\' . CcConn::class, $php);
 
         $c->setCompiledFactories($this->load($c, [CcRepoA::class]));
-        $a1 = $c->make(CcRepoA::class);
-        $a2 = $c->make(CcRepoA::class);
+        $a1 = $c->resolve(CcRepoA::class);
+        $a2 = $c->resolve(CcRepoA::class);
         $this->assertSame($a1->c, $a2->c, 'bound singleton dep must stay shared through the compiled factory');
     }
 
@@ -77,10 +77,10 @@ class ContainerCompilerTest extends TestCase
         $c->alias(CcLogger::class, 'lg');
 
         $php = (new ContainerCompiler())->compile($c, [CcNeedsLogger::class]);
-        $this->assertStringContainsString('$c->createOrResolve(\'' . addslashes(CcLogger::class) . '\')', $php);
+        $this->assertStringContainsString('$c->resolve(\'' . addslashes(CcLogger::class) . '\')', $php);
 
         $c->setCompiledFactories($this->load($c, [CcNeedsLogger::class]));
-        $this->assertInstanceOf(CcFileLogger::class, $c->make(CcNeedsLogger::class)->l);
+        $this->assertInstanceOf(CcFileLogger::class, $c->resolve(CcNeedsLogger::class)->l);
     }
 
     public function test_uncompilable_class_is_dropped_and_falls_back_to_reflection(): void

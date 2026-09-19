@@ -53,7 +53,7 @@ class Runner
         $this->app->bootstrap();
         $container = $this->app->getContainer();
         // Kernel isn't pre-bound by any provider; make() auto-wires it.
-        $kernel = $container->createOrResolve(Kernel::class);
+        $kernel = $container->resolve(Kernel::class);
 
         // Pre-warm services the request path always needs so even the first
         // request after worker boot is hot. A service that cannot be built yet
@@ -80,7 +80,7 @@ class Runner
         // event() short-circuits when nothing is listening, so this is free on
         // the hot path unless a listener is actually registered.
         if ($container->has('events')) {
-            $this->setDispatcher($container->createOrResolve('events'));
+            $this->setDispatcher($container->resolve('events'));
         }
         $this->event(ThrustEvents::WORKER_STARTING, ['pid' => getmypid()]);
 

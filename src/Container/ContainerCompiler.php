@@ -18,7 +18,7 @@ use ReflectionParameter;
  *
  * Rules that keep it correct:
  *   - A dependency that is BOUND, an interface/abstract, or that we can't fully
- *     inline is deferred to `$c->createOrResolve(Dep::class)` — so bindings, aliases,
+ *     inline is deferred to `$c->resolve(Dep::class)` — so bindings, aliases,
  *     singletons and deferred providers still apply.
  *   - Only UNBOUND, instantiable, contextual-free concrete classes are inlined
  *     (recursively). Anything we can't compile is simply dropped from the map,
@@ -104,12 +104,12 @@ class ContainerCompiler
             // Bound, or an interface/abstract → defer to the container so the
             // binding / alias / singleton / deferred provider still applies.
             if ($container->has($name) || ! class_exists($name) || ! (new ReflectionClass($name))->isInstantiable()) {
-                return '$c->createOrResolve(' . var_export($name, true) . ')';
+                return '$c->resolve(' . var_export($name, true) . ')';
             }
 
             // Unbound concrete → inline recursively; if that fails, defer at runtime.
             return $this->newExpr($container, $name, $stack)
-                ?? '$c->createOrResolve(' . var_export($name, true) . ')';
+                ?? '$c->resolve(' . var_export($name, true) . ')';
         }
 
         // Builtin / untyped → only compilable if it has a usable default.

@@ -29,7 +29,7 @@ class LivewireAssetRouteTest extends TestCase
     public function test_runtime_is_bundled_inside_the_framework_package(): void
     {
         /** @var LivewireManager $lw */
-        $lw = Container::getInstance()->make('livewire');
+        $lw = Container::getInstance()->resolve('livewire');
 
         $this->assertFileExists($lw->scriptPath());
         $this->assertStringEndsWith(
@@ -40,7 +40,7 @@ class LivewireAssetRouteTest extends TestCase
 
     public function test_route_is_registered_and_not_behind_the_web_group(): void
     {
-        $routes = Container::getInstance()->make('router')->getRoutes();
+        $routes = Container::getInstance()->resolve('router')->getRoutes();
 
         $this->assertArrayHasKey('/livewire/livewire.js', $routes['GET']);
         // A public GET asset needs no CSRF/session, so it must NOT carry 'web'.
@@ -50,7 +50,7 @@ class LivewireAssetRouteTest extends TestCase
     public function test_response_serves_javascript_with_immutable_cache_header(): void
     {
         /** @var LivewireManager $lw */
-        $lw = Container::getInstance()->make('livewire');
+        $lw = Container::getInstance()->resolve('livewire');
         $res = $lw->scriptResponse();
 
         $this->assertInstanceOf(Response::class, $res);
@@ -63,7 +63,7 @@ class LivewireAssetRouteTest extends TestCase
     public function test_scripts_tag_points_at_the_framework_route_not_app_public(): void
     {
         /** @var LivewireManager $lw */
-        $lw = Container::getInstance()->make('livewire');
+        $lw = Container::getInstance()->resolve('livewire');
         $html = $lw->scripts();
 
         $this->assertStringContainsString('/livewire/livewire.js?v=', $html);

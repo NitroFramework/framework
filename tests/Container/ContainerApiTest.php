@@ -151,7 +151,7 @@ class ContainerApiTest extends TestCase
             $seen = $instance;
         });
 
-        $resolved = $this->container->make(PlainService::class);
+        $resolved = $this->container->resolve(PlainService::class);
 
         $this->assertSame($resolved, $seen);
     }
@@ -213,7 +213,7 @@ class ContainerApiTest extends TestCase
             ->needs(Greeter::class)
             ->give(fn () => new Greeter('hello'));
 
-        $consumer = $this->container->make(EnglishConsumer::class);
+        $consumer = $this->container->resolve(EnglishConsumer::class);
 
         $this->assertSame('hello', $consumer->greeter->word);
     }
@@ -226,7 +226,7 @@ class ContainerApiTest extends TestCase
             ->needs(Greeter::class)
             ->give(fn () => new Greeter('hello'));
 
-        $other = $this->container->make(OtherConsumer::class);
+        $other = $this->container->resolve(OtherConsumer::class);
 
         $this->assertSame('default', $other->greeter->word);
     }
@@ -239,8 +239,8 @@ class ContainerApiTest extends TestCase
             ->needs(Greeter::class)
             ->give(fn () => new Greeter('shared'));
 
-        $this->assertSame('shared', $this->container->make(EnglishConsumer::class)->greeter->word);
-        $this->assertSame('shared', $this->container->make(OtherConsumer::class)->greeter->word);
+        $this->assertSame('shared', $this->container->resolve(EnglishConsumer::class)->greeter->word);
+        $this->assertSame('shared', $this->container->resolve(OtherConsumer::class)->greeter->word);
     }
 
     public function test_when_returns_a_builder(): void
@@ -257,7 +257,7 @@ class ContainerApiTest extends TestCase
         $this->container->bind(Greeter::class, fn () => new Greeter('default'), false);
         $this->container->when(EnglishConsumer::class)->give(fn () => new Greeter('ignored'));
 
-        $this->assertSame('default', $this->container->make(EnglishConsumer::class)->greeter->word);
+        $this->assertSame('default', $this->container->resolve(EnglishConsumer::class)->greeter->word);
     }
 
     public function test_give_tagged(): void

@@ -27,7 +27,7 @@ class VerifyCsrfTokenTest extends TestCase
         // $_SESSION: nothing outside StartSession may bring a session into
         // being, so a test that wants one starts it the same way a request
         // would.
-        Container::reset();
+        Container::setInstance(new Container());
 
         $session = new Store('test_sess', new ArraySessionHandler());
         $session->start();
@@ -38,7 +38,7 @@ class VerifyCsrfTokenTest extends TestCase
 
     protected function tearDown(): void
     {
-        Container::reset();
+        Container::setInstance(new Container());
     }
 
     private function request(string $method, string $path, array $body = [], array $headers = []): Request

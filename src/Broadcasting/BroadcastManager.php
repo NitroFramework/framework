@@ -7,7 +7,7 @@ use Nitro\Broadcasting\Contracts\Broadcaster;
 use Nitro\Broadcasting\Contracts\ShouldBroadcast;
 use Nitro\Broadcasting\Drivers\LogBroadcaster;
 use Nitro\Broadcasting\Drivers\NullBroadcaster;
-use Nitro\Container\Contracts\ContainerInterface;
+use Nitro\Container\Contracts\ContainerInterface as Container;
 use RuntimeException;
 
 /**
@@ -32,7 +32,7 @@ class BroadcastManager
     protected array $channels = [];
 
     public function __construct(
-        protected ContainerInterface $container,
+        protected Container $container,
         protected string $default = 'null',
     ) {}
 
@@ -137,7 +137,7 @@ class BroadcastManager
             }
 
             if (is_string($callback)) {
-                $callback = [$this->container->createOrResolve($callback), 'join'];
+                $callback = [$this->container->resolve($callback), 'join'];
             }
 
             return (bool) $callback($user, ...$parameters);

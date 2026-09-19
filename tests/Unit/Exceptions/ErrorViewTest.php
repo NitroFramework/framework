@@ -33,12 +33,12 @@ class ErrorViewTest extends TestCase
 
     private function handler(): ExceptionHandler
     {
-        return Container::getInstance()->make(ExceptionHandler::class);
+        return Container::getInstance()->resolve(ExceptionHandler::class);
     }
 
     public function test_the_framework_error_view_namespace_is_registered(): void
     {
-        $engine = Container::getInstance()->make(Engine::class);
+        $engine = Container::getInstance()->resolve(Engine::class);
 
         $this->assertTrue($engine->viewExists('nitro-errors::404'));
         $this->assertTrue($engine->viewExists('nitro-errors::500'));

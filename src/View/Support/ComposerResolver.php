@@ -83,7 +83,7 @@ class ComposerResolver implements ViewComposerResolver
     private function resolve(callable|string $composer, Container $container): ComposerInterface
     {
         if (is_string($composer)) {
-            return $container->createOrResolve($composer);
+            return $container->resolve($composer);
         }
 
         return new class ($composer) implements ComposerInterface {

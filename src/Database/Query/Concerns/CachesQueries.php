@@ -3,6 +3,7 @@
 namespace Nitro\Database\Query\Concerns;
 
 use Closure;
+use Nitro\Container\Container;
 
 /**
  * Opt-in query result caching, seamed into the builder.
@@ -73,8 +74,13 @@ trait CachesQueries
         return static::sharedCacheStore();
     }
 
+    /** The cache store, or null when there is none — or no application at all. */
     private static function sharedCacheStore(): ?object
     {
+        if (! Container::hasInstance()) {
+            return null;
+        }
+
         return app()->has('cache.store') ? app('cache.store') : null;
     }
 }

@@ -72,7 +72,7 @@ class BatchTest extends TestCase
             )'
         );
 
-        Container::reset();
+        Container::setInstance(new Container());
         $this->container = Container::getInstance();
 
         $config = new class implements \Nitro\Foundation\Contracts\ConfigRepository {
@@ -114,7 +114,7 @@ class BatchTest extends TestCase
 
     protected function tearDown(): void
     {
-        Container::reset();
+        Container::setInstance(new Container());
         DB::disconnect();
         parent::tearDown();
     }

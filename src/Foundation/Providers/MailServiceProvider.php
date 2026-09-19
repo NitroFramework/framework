@@ -28,13 +28,13 @@ class MailServiceProvider extends ServiceProvider
             // stamped without anything having to wrap the mailer.
             return new MailManager(
                 (array) config('mail', []),
-                $container->createOrResolve('events'),
+                $container->resolve('events'),
             );
         });
         $this->container->alias(MailManager::class, 'mail');
 
         $this->container->singleton('mailer', function ($container) {
-            return $container->createOrResolve('mail')->mailer();
+            return $container->resolve('mail')->mailer();
         });
         $this->container->alias(Mailer::class, 'mailer');
         $this->container->alias(MailerContract::class, 'mailer');

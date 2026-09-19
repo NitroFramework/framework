@@ -19,7 +19,7 @@ class EventLockingTest extends TestCase
     {
         parent::setUp();
 
-        Container::reset();
+        Container::setInstance(new Container());
 
         $this->container = Container::getInstance();
 
@@ -36,7 +36,7 @@ class EventLockingTest extends TestCase
 
     protected function tearDown(): void
     {
-        Container::reset();
+        Container::setInstance(new Container());
 
         parent::tearDown();
     }

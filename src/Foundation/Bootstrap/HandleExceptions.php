@@ -38,7 +38,7 @@ class HandleExceptions implements BootstrapperInterface
         self::$reservedMemory = str_repeat('x', 32768);
 
         // Resolve the centralized handler from the container
-        $this->handler = $app->getContainer()->createOrResolve(ExceptionHandler::class);
+        $this->handler = $app->getContainer()->resolve(ExceptionHandler::class);
 
         // Buffers already open belong to whoever is hosting us (a Thrust worker,
         // a test harness); the handler unwinds only what the request opened.

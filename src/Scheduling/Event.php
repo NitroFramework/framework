@@ -5,7 +5,7 @@ namespace Nitro\Scheduling;
 use Closure;
 use DateTimeInterface;
 use Nitro\Console\CommandManager;
-use Nitro\Container\Contracts\ContainerInterface;
+use Nitro\Container\Contracts\ContainerInterface as Container;
 
 /**
  * A scheduled task: a cron expression plus the thing to run (a callback, a
@@ -210,14 +210,14 @@ class Event
         return 'schedule:' . sha1($this->type . '|' . $this->expression() . '|' . $this->getDescription());
     }
 
-    public function run(ContainerInterface $container): mixed
+    public function run(Container $container): mixed
     {
         if ($this->onOneServer && ! $this->claimThisMinute($container)) {
             return null;
         }
 
         if ($this->withoutOverlapping !== null) {
-            return $container->createOrResolve('cache')->store()->lock(
+            return $container->resolve('cache')->store()->lock(
                 $this->mutexName(),
                 $this->withoutOverlapping,
                 fn (): mixed => $this->execute($container),
@@ -231,9 +231,9 @@ class Event
      * Claim the current minute for this task, returning false when another
      * instance already holds it.
      */
-    protected function claimThisMinute(ContainerInterface $container): bool
+    protected function claimThisMinute(Container $container): bool
     {
-        return $container->createOrResolve('cache')->store()->add(
+        return $container->resolve('cache')->store()->add(
             $this->mutexName() . ':' . date('YmdHi'),
             1,
             60,
@@ -247,7 +247,7 @@ class Event
      * its cleanup; the failure callbacks see the exception before it is
      * re-thrown, so nothing is swallowed.
      */
-    protected function execute(ContainerInterface $container): mixed
+    protected function execute(Container $container): mixed
     {
         $this->fire($this->beforeCallbacks);
 
@@ -255,7 +255,7 @@ class Event
             $result = match ($this->type) {
                 'callback' => ($this->task)(),
                 'command'  => $this->runCommand($container),
-                'job'      => $container->createOrResolve('queue')->push($this->task),
+                'job'      => $container->resolve('queue')->push($this->task),
                 'exec'     => $this->runExec(),
                 default    => null,
             };
@@ -285,12 +285,12 @@ class Event
         }
     }
 
-    protected function runCommand(ContainerInterface $container): mixed
+    protected function runCommand(Container $container): mixed
     {
         $parts = preg_split('/\s+/', trim((string) $this->task));
         $name = array_shift($parts);
 
-        return $container->createOrResolve(CommandManager::class)->resolve($name, $parts);
+        return $container->resolve(CommandManager::class)->resolve($name, $parts);
     }
 
     protected function runExec(): mixed

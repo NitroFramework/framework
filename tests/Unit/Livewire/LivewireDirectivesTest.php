@@ -30,12 +30,12 @@ class LivewireDirectivesTest extends TestCase
 
     private function compile(string $template): string
     {
-        return Container::getInstance()->make(TemplateCompiler::class)->compile($template);
+        return Container::getInstance()->resolve(TemplateCompiler::class)->compile($template);
     }
 
     private function lw(): LivewireManager
     {
-        return Container::getInstance()->make('livewire');
+        return Container::getInstance()->resolve('livewire');
     }
 
     // ─── @js ────────────────────────────────────────────────────────────────

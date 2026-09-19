@@ -101,7 +101,7 @@ final class PendingDispatch
             return true;
         }
 
-        return $container->createOrResolve(UniqueLock::class)->acquire($job);
+        return $container->resolve(UniqueLock::class)->acquire($job);
     }
 
     public function __destruct()

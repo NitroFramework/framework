@@ -18,8 +18,8 @@ class LogServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->container->singleton(LogManager::class, function ($container) {
-            $paths = $container->createOrResolve(PathRegistry::class);
-            $config = (array) $container->createOrResolve(ConfigRepository::class)->get('logging', []);
+            $paths = $container->resolve(PathRegistry::class);
+            $config = (array) $container->resolve(ConfigRepository::class)->get('logging', []);
 
             return new LogManager($this->normalise($config, $paths));
         });

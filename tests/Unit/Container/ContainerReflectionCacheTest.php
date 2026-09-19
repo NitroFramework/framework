@@ -18,7 +18,7 @@ class ContainerReflectionCacheTest extends TestCase
 {
     protected function setUp(): void
     {
-        Container::reset();
+        Container::setInstance(new Container());
     }
 
     public function test_cache_is_empty_initially(): void
@@ -30,7 +30,7 @@ class ContainerReflectionCacheTest extends TestCase
     public function test_cache_populates_on_first_build(): void
     {
         $container = new Container();
-        $container->make(ReflectionTargetSimple::class);
+        $container->resolve(ReflectionTargetSimple::class);
 
         $cache = $this->cache($container);
         $this->assertArrayHasKey(ReflectionTargetSimple::class, $cache);
@@ -41,7 +41,7 @@ class ContainerReflectionCacheTest extends TestCase
     public function test_cache_records_constructor_params(): void
     {
         $container = new Container();
-        $container->make(ReflectionTargetWithDeps::class);
+        $container->resolve(ReflectionTargetWithDeps::class);
 
         $cache = $this->cache($container);
         $entry = $cache[ReflectionTargetWithDeps::class];
@@ -53,12 +53,12 @@ class ContainerReflectionCacheTest extends TestCase
     public function test_repeat_builds_do_not_re_reflect(): void
     {
         $container = new Container();
-        $container->make(ReflectionTargetSimple::class);
+        $container->resolve(ReflectionTargetSimple::class);
 
         $reflectorBefore = $this->cache($container)[ReflectionTargetSimple::class]['class'];
 
         for ($i = 0; $i < 5; $i++) {
-            $container->make(ReflectionTargetSimple::class);
+            $container->resolve(ReflectionTargetSimple::class);
         }
 
         $reflectorAfter = $this->cache($container)[ReflectionTargetSimple::class]['class'];
@@ -69,7 +69,7 @@ class ContainerReflectionCacheTest extends TestCase
     public function test_clear_reflection_cache_empties_it(): void
     {
         $container = new Container();
-        $container->make(ReflectionTargetSimple::class);
+        $container->resolve(ReflectionTargetSimple::class);
         $this->assertNotSame([], $this->cache($container));
 
         $container->clearReflectionCache();
@@ -81,7 +81,7 @@ class ContainerReflectionCacheTest extends TestCase
     {
         $container = new Container();
         $this->expectException(\RuntimeException::class);
-        $container->make(ReflectionTargetAbstract::class);
+        $container->resolve(ReflectionTargetAbstract::class);
     }
 
     public function test_missing_class_throws_with_clear_message(): void
@@ -89,7 +89,7 @@ class ContainerReflectionCacheTest extends TestCase
         $container = new Container();
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('does not exist');
-        $container->make('Tests\\Definitely\\Missing\\Class_xyz');
+        $container->resolve('Tests\\Definitely\\Missing\\Class_xyz');
     }
 
     protected function cache(Container $container): array

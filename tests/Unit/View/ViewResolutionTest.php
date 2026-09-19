@@ -38,7 +38,7 @@ class ViewResolutionTest extends TestCase
         restore_error_handler();
         restore_exception_handler();
 
-        $this->views = $application->getContainer()->createOrResolve(Factory::class);
+        $this->views = $application->getContainer()->resolve(Factory::class);
     }
 
     protected function tearDown(): void

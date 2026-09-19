@@ -3,7 +3,7 @@
 namespace Nitro\Console;
 
 use Nitro\Concurrency\Console\ConcurrencyInvokeCommand;
-use Nitro\Container\Contracts\ContainerInterface;
+use Nitro\Container\Contracts\ContainerInterface as Container;
 use Nitro\Cache\Console\CacheTableCommand;
 use Nitro\Session\Console\SessionTableCommand;
 use Nitro\Thrust\Commands\ThrustCommands;
@@ -30,7 +30,7 @@ class CommandManager
     private array $descriptions = [];
 
     public function __construct(
-        private ContainerInterface $container,
+        private Container $container,
         private OutputFormatter $output
     ) {
         $this->registerBuiltInCommands();
@@ -45,7 +45,7 @@ class CommandManager
      */
     private function discoverPackageCommands(): void
     {
-        $paths = $this->container->createOrResolve('paths');
+        $paths = $this->container->resolve('paths');
 
         $manifest = new \Nitro\Foundation\PackageManifest(
             $paths->base('vendor'),
@@ -117,7 +117,7 @@ class CommandManager
     {
         $signatures = defined($class . '::COMMANDS')
             ? constant($class . '::COMMANDS')
-            : $this->container->createOrResolve($class)->getCommands();
+            : $this->container->resolve($class)->getCommands();
 
         foreach ($signatures as $signature => $description) {
             $this->commands[$signature] = $class;
@@ -143,7 +143,7 @@ class CommandManager
 
         // Class strings are built now (lazy) so a command's dependencies (and
         // HelpCommand's back-reference to this manager) resolve only on demand.
-        $command = is_string($entry) ? $this->container->createOrResolve($entry) : $entry;
+        $command = is_string($entry) ? $this->container->resolve($entry) : $entry;
 
         // Two shapes are supported: a single Command (its own signature +
         // handle()), or a grouped CommandInterface (handle(sig, args)). Both
@@ -165,7 +165,7 @@ class CommandManager
      */
     private function discoverUserCommands(): void
     {
-        $paths = $this->container->createOrResolve('paths');
+        $paths = $this->container->resolve('paths');
         $base = $paths->base();
         $root = $base . '/app/Console/Commands';
 

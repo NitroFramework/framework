@@ -37,7 +37,7 @@ class LivewireCsrfTest extends TestCase
 
     private function routeMiddleware(string $method, string $path): array
     {
-        $routes = Container::getInstance()->make('router')->getRoutes();
+        $routes = Container::getInstance()->resolve('router')->getRoutes();
         return $routes[$method][$path]['middleware'] ?? [];
     }
 
@@ -63,7 +63,7 @@ class LivewireCsrfTest extends TestCase
     public function test_update_rejects_tampered_snapshot(): void
     {
         /** @var LivewireManager $lw */
-        $lw = Container::getInstance()->make('livewire');
+        $lw = Container::getInstance()->resolve('livewire');
 
         // Sign a snapshot with the same key the manager uses, then tamper it.
         $signer = new Checksum((string) (config('app.key') ?: 'livewire-insecure-dev-key'));

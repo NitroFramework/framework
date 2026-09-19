@@ -2,7 +2,7 @@
 
 namespace Nitro\Session\Middleware;
 
-use Nitro\Container\Contracts\ContainerInterface;
+use Nitro\Container\Contracts\ContainerInterface as Container;
 use Nitro\Http\Request;
 use Nitro\Http\Response;
 use Nitro\Session\NativeSession;
@@ -34,7 +34,7 @@ use Nitro\Session\NativeSession;
 class StartSession
 {
     public function __construct(
-        private ContainerInterface $container,
+        private Container $container,
     ) {}
 
     /**
@@ -43,7 +43,7 @@ class StartSession
      */
     public function handle(Request $request, callable $next): Response
     {
-        $session = $this->container->createOrResolve('session');
+        $session = $this->container->resolve('session');
 
         // The native driver reads PHP's own cookie inside session_start(), so
         // only the self-managed (file/array) drivers need the id seeded here.

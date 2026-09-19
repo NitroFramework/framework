@@ -22,20 +22,14 @@ interface ContainerInterface
      *
      * Respects $parameters as constructor overrides.
      */
-    public function createOrResolve(string $abstract, array $parameters = []): mixed;
-
-    /**
-     * Alias of {@see createOrResolve()} under its conventional name. Identical
-     * behaviour; both are supported.
-     */
-    public function make(string $abstract, array $parameters = []): mixed;
+    public function resolve(string $abstract, array $parameters = []): mixed;
 
     /**
      * STRICT registry lookup: resolve a registered binding, throwing
      * NotFoundException when there is none.
      *
-     * The difference from createOrResolve() is what happens for an unregistered
-     * name — get() fails, createOrResolve() auto-wires. Reach for get() only
+     * The difference from resolve() is what happens for an unregistered
+     * name — get() fails, resolve() auto-wires. Reach for get() only
      * where an unknown name is a bug worth hearing about (a service name read
      * from config, for instance).
      */

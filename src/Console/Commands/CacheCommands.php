@@ -6,7 +6,7 @@ use Nitro\Console\ExitCode;
 use Nitro\Console\Contracts\CommandInterface;
 use Nitro\Cache\CacheManager;
 use Nitro\Console\OutputFormatter;
-use Nitro\Container\Contracts\ContainerInterface;
+use Nitro\Container\Contracts\ContainerInterface as Container;
 use Nitro\Foundation\Contracts\ConfigRepository;
 
 /**
@@ -23,7 +23,7 @@ use Nitro\Foundation\Contracts\ConfigRepository;
 class CacheCommands implements CommandInterface
 {
     public function __construct(
-        private readonly ContainerInterface $container,
+        private readonly Container $container,
         private readonly OutputFormatter $output,
         private readonly ConfigRepository $config,
     ) {}
@@ -60,7 +60,7 @@ class CacheCommands implements CommandInterface
     private function clear(array $arguments): int
     {
         $store = $this->flagValue($arguments, '--store');
-        $repo  = $this->container->createOrResolve(CacheManager::class)->store($store);
+        $repo  = $this->container->resolve(CacheManager::class)->store($store);
 
         $label = $store ?? 'default';
         $ok = $repo->flush();
@@ -87,7 +87,7 @@ class CacheCommands implements CommandInterface
             return ExitCode::FAILURE;
         }
         $store = $this->flagValue($arguments, '--store');
-        $repo  = $this->container->createOrResolve(CacheManager::class)->store($store);
+        $repo  = $this->container->resolve(CacheManager::class)->store($store);
 
         $repo->forget($key)
             ? $this->output->success("Forgot key [{$key}].")

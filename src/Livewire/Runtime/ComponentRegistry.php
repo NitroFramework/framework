@@ -2,7 +2,7 @@
 
 namespace Nitro\Livewire\Runtime;
 
-use Nitro\Container\Contracts\ContainerInterface;
+use Nitro\Container\Contracts\ContainerInterface as Container;
 use Nitro\Livewire\Compilation\SingleFileComponent;
 use Nitro\Livewire\Component;
 use RuntimeException;
@@ -28,7 +28,7 @@ class ComponentRegistry
     /** The single-file component compiler, built on first use. */
     protected ?SingleFileComponent $singleFile = null;
 
-    public function __construct(protected ContainerInterface $container)
+    public function __construct(protected Container $container)
     {
         $this->namespace = rtrim((string) config('livewire.class_namespace', 'App\\Livewire'), '\\') . '\\';
     }
@@ -129,7 +129,7 @@ class ComponentRegistry
 
         if ($class !== null) {
             /** @var Component $component */
-            $component = $this->container->createOrResolve($class);
+            $component = $this->container->resolve($class);
             $component->assertPropertiesAreTyped();
 
             // The context name is what the conventional view path is built

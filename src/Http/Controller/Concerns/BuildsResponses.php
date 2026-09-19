@@ -102,7 +102,7 @@ trait BuildsResponses
      */
     protected function back(string $fallback = '/'): RedirectResponse
     {
-        $referer = $this->container->createOrResolve('request')->header('referer') ?? $fallback;
+        $referer = $this->container->resolve('request')->header('referer') ?? $fallback;
         return $this->redirect($referer);
     }
 
@@ -111,7 +111,7 @@ trait BuildsResponses
      */
     protected function redirectToRoute(string $name, array $parameters = []): RedirectResponse
     {
-        $router = $this->container->createOrResolve('router');
+        $router = $this->container->resolve('router');
         $url = $router->route($name, $parameters);
         return $this->redirect($url);
     }
@@ -136,6 +136,6 @@ trait BuildsResponses
      */
     protected function config(string $key, mixed $default = null): mixed
     {
-        return $this->container->createOrResolve('config')->get($key, $default);
+        return $this->container->resolve('config')->get($key, $default);
     }
 }

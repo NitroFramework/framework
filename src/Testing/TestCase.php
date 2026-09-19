@@ -136,7 +136,7 @@ abstract class TestCase extends BaseTestCase
     /** Resolve something out of the application container. */
     protected function make(string $abstract): mixed
     {
-        return $this->app->getContainer()->createOrResolve($abstract);
+        return $this->app->getContainer()->resolve($abstract);
     }
 
     /**
@@ -285,7 +285,7 @@ abstract class TestCase extends BaseTestCase
     protected function flushSession(): void
     {
         try {
-            $session = $this->app->getContainer()->createOrResolve('session');
+            $session = $this->app->getContainer()->resolve('session');
 
             if (! $session->isStarted()) {
                 $session->start();
