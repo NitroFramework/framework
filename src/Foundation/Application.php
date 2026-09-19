@@ -61,53 +61,90 @@ use RuntimeException;
  */
 class Application
 {
-
     use ResetsForWorkerMode;
-
 
     const VERSION = '2.0';
 
-
-
-    // Path registry instance for managing application paths
+    /** Resolves every application path from the base path. */
     private PathRegistry $paths;
 
-    // Indicates if the application has been bootstrapped
+    /** Whether {@see bootstrap()} has run. */
     private bool $bootstrapped = false;
 
-    // Service container instance
+    /** The service container this application is assembled in. */
     private ContainerInterface $container;
 
-    // Application configuration, injected by the LoadConfiguration bootstrapper
-    // once config is loaded. Held as a typed dependency rather than pulled from
-    // the container by string, so the Application never service-locates.
+    /**
+     * Application configuration, injected by the LoadConfiguration bootstrapper
+     * once config is loaded. Held as a typed dependency rather than pulled from
+     * the container by string, so the Application never service-locates.
+     */
     private ?Config $config = null;
 
-    // Registered service providers
+    /**
+     * Registered (non-deferred) providers, in registration order.
+     *
+     * @var array<int, ServiceProvider>
+     */
     private array $serviceProviders = [];
 
-    // Track loaded providers to prevent duplicates
+    /**
+     * Every provider instance seen, by class name, so registering twice is a
+     * no-op rather than a second set of bindings.
+     *
+     * @var array<class-string, ServiceProvider>
+     */
     private array $loadedProviders = [];
+
+    /**
+     * Providers that expose a boot(), in registration order.
+     *
+     * Populated by {@see register()} so {@see bootProviders()} doesn't have to
+     * call method_exists per provider per request.
+     *
+     * @var array<int, ServiceProvider>
+     */
+    protected array $bootableProviders = [];
 
     /**
      * Map of [serviceAbstract => providerClass] populated by deferred providers.
      * When the container is asked for a service in this map and doesn't already
      * have a binding, we register the provider on demand and remove the entry.
+     *
+     * @var array<string, class-string>
      */
     private array $deferredServices = [];
 
-
-
-    // Bootstrappers to run during bootstrap
+    /**
+     * Bootstrapper classes, in the order {@see runBootstrappers()} runs them.
+     *
+     * @var array<int, class-string>
+     */
     private array $bootstrappers = [];
 
-    // Hooks fired just before providers boot (during Application::bootstrap()).
+    /**
+     * Hooks fired just before providers boot, during {@see bootstrap()}.
+     *
+     * @var array<int, callable>
+     */
     private array $bootingHooks = [];
 
-    // Hooks fired just after providers boot.
+    /**
+     * Hooks fired just after providers boot.
+     *
+     * @var array<int, callable>
+     */
     private array $bootedHooks = [];
 
-
+    /**
+     * Assemble the application around a container, without bootstrapping it.
+     *
+     * Binds the base services and queues the core bootstrappers; nothing is
+     * read from disk and no provider runs until {@see bootstrap()}.
+     *
+     * @param string                  $basePath  Application root, which every other path derives from.
+     * @param ContainerInterface|null $container Container to build in; the shared instance when omitted.
+     */
     public function __construct(string $basePath, ?ContainerInterface $container = null)
     {
         $this->paths = new PathRegistry($basePath);
@@ -121,8 +158,10 @@ class Application
         $this->registerBaseBindings();
         $this->registerCoreBootstrappers();
 
-        // Wire deferred-provider resolution into the container so unresolved
-        // bindings can trigger lazy registration on first use.
+        /*
+         * Wire deferred-provider resolution into the container so an unresolved
+         * binding can trigger lazy registration on first use.
+         */
         if (method_exists($this->container, 'setDeferredResolver')) {
             $this->container->setDeferredResolver(
                 fn(string $abstract): bool => $this->loadDeferredProvider($abstract)
@@ -130,6 +169,15 @@ class Application
         }
     }
 
+    /**
+     * Build an application with the bootstrap-time fatal handler installed.
+     *
+     * The entry-point constructor: what public/index.php calls. Use the
+     * constructor directly where a broken boot should throw rather than render
+     * — a test harness, or a console entry point that owns its own reporting.
+     *
+     * @see registerFatalHandler()
+     */
     public static function create(string $basePath): static
     {
         $app = new static($basePath);
@@ -161,6 +209,15 @@ class Application
         $this->handle(Kernel::class);
     }
 
+    /**
+     * Resolve a kernel and run it once.
+     *
+     * The seam between the composition root and a delivery mechanism: the HTTP
+     * kernel for a web request, the console kernel for a command. The kernel
+     * owns the lifecycle from here on.
+     *
+     * @param class-string $kernelClass Kernel to resolve from the container.
+     */
     public function handle(string $kernelClass): void
     {
         $kernel = $this->container->createOrResolve($kernelClass);
@@ -172,6 +229,10 @@ class Application
      * the HandleExceptions bootstrapper installs the real one (which supersedes
      * this). Not the app-facing error handler — just a floor so a broken boot
      * still returns a 500 instead of a blank page.
+     *
+     * Under the CLI — which includes a FrankenPHP worker — the failure goes to
+     * stderr instead. A worker's stdout is the response body, so emitting HTML
+     * there would corrupt whatever the process was serving.
      */
     protected function registerFatalHandler(): void
     {
@@ -183,7 +244,6 @@ class Application
             $detail = $exception->getMessage() . "\n" . $exception->getFile() . ':' . $exception->getLine()
                 . "\n\n" . $exception->getTraceAsString();
 
-            // CLI (including FrankenPHP workers): log to stderr, never emit HTML.
             if (PHP_SAPI === 'cli') {
                 fwrite(defined('STDERR') ? STDERR : fopen('php://stderr', 'w'), "FATAL: {$detail}\n");
                 exit(1);
@@ -241,7 +301,12 @@ class Application
         return $this;
     }
 
-    /** Register core container bindings (e.g. paths) */
+    /**
+     * Bind everything that must exist before any bootstrapper or provider runs.
+     *
+     * Runs from the constructor, so nothing here may read configuration — it is
+     * not loaded yet.
+     */
     protected function registerBaseBindings(): void
     {
         $this->registerSelf();
@@ -249,6 +314,7 @@ class Application
         $this->registerCoreServices();
     }
 
+    /** Make the application and its container resolvable from within itself. */
     private function registerSelf(): void
     {
         $this->container->instance('app', $this);
@@ -257,17 +323,24 @@ class Application
         $this->container->instance(Container::class, $this->container);
     }
 
+    /** Share the one path registry every path helper resolves through. */
     private function registerPaths(): void
     {
         $this->container->instance('paths', $this->paths);
         $this->container->instance(PathRegistry::class, $this->paths);
     }
 
+    /**
+     * Bind the services that exist independently of any provider: the event
+     * dispatcher, the HTTP client, the kernel, and the request's lifetime.
+     */
     private function registerCoreServices(): void
     {
-        // Built via a closure rather than by class name so the dispatcher gets
-        // the container: it needs one to resolve a listener named by class, and
-        // to reach the queue for a listener that should not run in the request.
+        /*
+         * Built via a closure rather than by class name so the dispatcher gets
+         * the container: it needs one to resolve a listener named by class, and
+         * to reach the queue for a listener that should not run in the request.
+         */
         $this->container->singleton('events', function ($container) {
             $dispatcher = new EventDispatcher();
             $dispatcher->setContainer($container);
@@ -277,28 +350,34 @@ class Application
 
         $this->container->alias(EventDispatcher::class, 'events');
 
-        // A singleton so that a fake installed in a test is the same instance
-        // the code under test sends through. Each verb still builds its own
-        // PendingRequest, so nothing configured on one request leaks.
+        /*
+         * A singleton so that a fake installed in a test is the same instance
+         * the code under test sends through. Each verb still builds its own
+         * PendingRequest, so nothing configured on one request leaks.
+         */
         $this->container->singleton('http.client', fn () => new HttpClientFactory());
 
         $this->registerFacadeBindings();
 
         $this->container->alias(HttpClientFactory::class, 'http.client');
 
-        // The HTTP kernel is a singleton so lifecycle hooks (requestReceived,
-        // responseReady, terminating) registered during provider boot are
-        // attached to the very instance that Application::handle() runs.
+        /*
+         * The HTTP kernel is a singleton so lifecycle hooks (requestReceived,
+         * responseReady, terminating) registered during provider boot are
+         * attached to the very instance that Application::handle() runs.
+         */
         $this->container->singleton(Kernel::class, Kernel::class);
 
-        // Nothing binds the request here: the Kernel attaches the instance once
-        // $_SERVER is available. Binding a capture closure here AND re-capturing
-        // in the Kernel produced two Request objects per request, only one of
-        // which was ever used.
-        //
-        // Its lifetime is declared, though, because instance() alone reads as
-        // process-lived and the declaration has to be in place before anything
-        // resolved during boot can ask for one.
+        /*
+         * Nothing binds the request here: the Kernel attaches the instance once
+         * $_SERVER is available. Binding a capture closure here AND re-capturing
+         * in the Kernel produced two Request objects per request, only one of
+         * which was ever used.
+         *
+         * Its lifetime is declared, though, because instance() alone reads as
+         * process-lived and the declaration has to be in place before anything
+         * resolved during boot can ask for one.
+         */
         $this->container->declareLifetime('request', Lifetime::Request);
         $this->container->declareLifetime(Request::class, Lifetime::Request);
 
@@ -329,19 +408,23 @@ class Application
         ];
 
         foreach ($singletons as $name => $class) {
-            // The class is the binding and the short name points at it, never
-            // the reverse. Binding the short name and then aliasing the class
-            // back to it closes a loop: resolving either one asks for the
-            // other for as long as the process has memory. A provider that
-            // later binds the short name itself simply replaces the alias,
-            // which is why this direction survives being overridden and the
-            // other does not.
+            /*
+             * The class is the binding and the short name points at it, never
+             * the reverse. Binding the short name and then aliasing the class
+             * back to it closes a loop: resolving either one asks for the
+             * other for as long as the process has memory. A provider that
+             * later binds the short name itself simply replaces the alias,
+             * which is why this direction survives being overridden and the
+             * other does not.
+             */
             $this->container->singleton($class, $class);
             $this->container->alias($name, $class);
         }
 
-        // These three need values from config or the path registry, so they
-        // are built here rather than autowired.
+        /*
+         * These three need values from config or the path registry, so they
+         * are built here rather than autowired.
+         */
         $this->container->singleton('maintenance', fn () => new MaintenanceMode(
             $this->paths->storage('framework/down')
         ));
@@ -363,8 +446,10 @@ class Application
 
         $this->container->alias(BroadcastManager::class, 'broadcast');
 
-        // A pipeline holds the value travelling through it, so each caller
-        // needs their own rather than a shared one.
+        /*
+         * A pipeline holds the value travelling through it, so each caller
+         * needs their own rather than a shared one.
+         */
         $this->container->bind(
             'pipeline',
             static fn ($container) => new Pipeline($container)
@@ -458,8 +543,11 @@ class Application
      * Hot path: in production we hydrate a pre-merged list from bootstrap.php
      * (built by `nitro optimize`), avoiding both the array_merge and the
      * config lookup on every request. Falls back to live merging in dev.
+     *
+     * @param array<int, class-string>|null   $providers Pre-merged eager list, or null to discover live.
+     * @param array<string, class-string>|null $deferred [service => providerClass] from the cache.
      */
-    public function registerConfiguredProviders(?array $providers = null): void
+    public function registerConfiguredProviders(?array $providers = null, ?array $deferred = null): void
     {
         if ($providers === null) {
             $providers = array_merge(
@@ -468,6 +556,17 @@ class Application
                 $this->config->get('app.providers'),
                 $this->discoverModuleProviders()
             );
+        }
+
+        /*
+         * Seeded straight from the cache, so a deferred provider's class is never
+         * loaded to be asked whether it defers. register() has to construct one
+         * before it can call isDeferred(), which meant a deferred provider still
+         * cost its class on every request — the one thing deferring was for.
+         * `nitro optimize` answers that question once and writes the map.
+         */
+        if ($deferred !== null) {
+            $this->deferredServices = $deferred + $this->deferredServices;
         }
 
         foreach ($providers as $providerClass) {
@@ -534,13 +633,14 @@ class Application
     }
 
     /**
-     * Providers with a boot() method, in registration order.
-     * Populated by register() so bootProviders() doesn't have to call
-     * method_exists per provider per request.
+     * Register a service provider, by class name or as a built instance.
+     *
+     * Idempotent: a provider already registered is returned untouched rather
+     * than registered twice.
+     *
+     * @param string|ServiceProvider $provider Provider class name, or an instance to adopt.
+     * @return ServiceProvider The registered instance.
      */
-    protected array $bootableProviders = [];
-
-    /** Register a service provider with the application */
     public function register(string|ServiceProvider $provider): ServiceProvider
     {
         $className = is_string($provider) ? $provider : get_class($provider);
@@ -553,10 +653,12 @@ class Application
             ? new $provider($this->container)
             : $provider;
 
-        // Deferred providers: record what they provide and skip register()
-        // entirely until one of those services is actually resolved. The
-        // provider isn't bootable until that point either — boot() runs after
-        // its on-demand register().
+        /*
+         * Deferred providers: record what they provide and skip register()
+         * entirely until one of those services is actually resolved. The
+         * provider isn't bootable until that point either — boot() runs after
+         * its on-demand register().
+         */
         if ($instance->isDeferred()) {
             foreach ($instance->provides() as $service) {
                 $this->deferredServices[$service] = $className;
@@ -581,6 +683,10 @@ class Application
      * Called by the container when an unresolved abstract is requested.
      * Returns true if this resolves to a deferred provider and we successfully
      * registered (and booted, if applicable) it.
+     *
+     * Every service the provider offers is cleared from the deferred map before
+     * its register() runs, so a re-entrant resolve from inside register() finds
+     * nothing left to defer and cannot loop.
      */
     public function loadDeferredProvider(string $abstract): bool
     {
@@ -591,8 +697,6 @@ class Application
         $providerClass = $this->deferredServices[$abstract];
         $instance = $this->loadedProviders[$providerClass] ?? new $providerClass($this->container);
 
-        // Clear ALL services this provider offers before register() runs so a
-        // re-entrant resolve from inside register() doesn't loop.
         foreach ($instance->provides() as $svc) {
             unset($this->deferredServices[$svc]);
         }
@@ -608,20 +712,33 @@ class Application
         return true;
     }
 
-    /** Boot all registered service providers */
+    /**
+     * Boot every registered provider that has a boot(), in registration order.
+     *
+     * Resolved through the container so a boot() signature's dependencies are
+     * injected. Existence of the method was settled at registration time, so
+     * nothing is re-checked per provider per request.
+     */
     public function bootProviders(): void
     {
         foreach ($this->bootableProviders as $provider) {
-            // boot() existence was verified at register time; just inject deps.
             $this->container->call([$provider, 'boot']);
         }
     }
 
-    // ============================================
-    // LIFECYCLE HOOKS (PUBLIC API)
-    // ============================================
+    /*
+     * ── Lifecycle hooks: the public API ──────────────────────────────────────
+     */
 
-    /** Allow external code to add bootstrappers to the bootstrap process */
+    /**
+     * Append bootstrappers to the sequence {@see bootstrap()} will run.
+     *
+     * Appended, not replaced: the four core bootstrappers still run first, so
+     * anything added here sees a loaded environment, configuration and
+     * registered providers.
+     *
+     * @param array<int, class-string> $bootstrappers
+     */
     public function bootstrapWith(array $bootstrappers): void
     {
         $this->bootstrappers = array_merge($this->bootstrappers, $bootstrappers);
@@ -633,7 +750,12 @@ class Application
         $this->bootingHooks[] = $hook;
     }
 
-    /** Register a hook to run just after providers boot. */
+    /**
+     * Register a hook to run just after providers boot.
+     *
+     * Registering after the application has already booted runs the hook
+     * immediately, so a caller never has to ask which side of boot it is on.
+     */
     public function booted(callable $hook): void
     {
         if ($this->bootstrapped) {
@@ -643,11 +765,15 @@ class Application
         }
     }
 
-    // ============================================
-    // LIFECYCLE HOOKS (Internal Firing)
-    // ============================================
+    /*
+     * ── Lifecycle hooks: internal firing ─────────────────────────────────────
+     */
 
-    /** Run a list of lifecycle hooks, passing the application to each. */
+    /**
+     * Run a list of lifecycle hooks, passing the application to each.
+     *
+     * @param array<int, callable> $hooks
+     */
     protected function runHooks(array $hooks): void
     {
         foreach ($hooks as $hook) {
@@ -655,10 +781,9 @@ class Application
         }
     }
 
-
-    // ============================================
-    // UTILITIES
-    // ============================================
+    /*
+     * ── Utilities ────────────────────────────────────────────────────────────
+     */
 
     /** Get the path registry instance */
     public function paths(): PathRegistry
