@@ -2,7 +2,9 @@
 
 namespace Nitro\Foundation\Providers;
 
+use Nitro\Http\Kernel;
 use Nitro\Http\Middleware\ThrottleRequests;
+use Nitro\Http\Middleware\VerifyCsrfToken;
 use Nitro\Auth\Contracts\Guard;
 use Nitro\Auth\Contracts\UserProvider;
 use Nitro\Auth\EloquentUserProvider;
@@ -14,7 +16,7 @@ use Nitro\Auth\Middleware\RequirePassword;
 use Nitro\Auth\Access\Gate;
 use Nitro\Auth\Passwords\PasswordBroker;
 use Nitro\Auth\Passwords\TokenRepository;
-use Nitro\Routing\Router;
+use Nitro\Routing\Contracts\RouterInterface as Router;
 
 /** Registers authentication services and middleware. */
 class AuthServiceProvider extends ServiceProvider
@@ -34,8 +36,8 @@ class AuthServiceProvider extends ServiceProvider
         // declares that lifecycle here rather than via a central reset list.
         $this->container->scoped('auth', function ($container) {
             return new SessionGuard(
-                $container->createOrResolve(UserProvider::class),
-                $container->createOrResolve('session'),
+                $container->resolve(UserProvider::class),
+                $container->resolve('session'),
             );
         });
 
@@ -53,8 +55,8 @@ class AuthServiceProvider extends ServiceProvider
 
         $this->container->singleton(PasswordBroker::class, function ($container) {
             return new PasswordBroker(
-                $container->createOrResolve(UserProvider::class),
-                $container->createOrResolve(TokenRepository::class),
+                $container->resolve(UserProvider::class),
+                $container->resolve(TokenRepository::class),
             );
         });
 
@@ -72,7 +74,7 @@ class AuthServiceProvider extends ServiceProvider
             return new Gate(
                 $container,
                 static fn () => $container->has('auth')
-                    ? $container->createOrResolve('auth')->user()
+                    ? $container->resolve('auth')->user()
                     : null,
             );
         });
@@ -85,7 +87,7 @@ class AuthServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        $router = $this->container->createOrResolve(Router::class);
+        $router = $this->container->resolve(Router::class);
 
         $router->aliasMiddleware('auth', Authenticate::class);
         $router->aliasMiddleware('guest', RedirectIfAuthenticated::class);
@@ -96,5 +98,30 @@ class AuthServiceProvider extends ServiceProvider
         // since this is the framework's middleware-alias hub; login lockout uses
         // the RateLimiter directly in the controller.
         $router->aliasMiddleware('throttle', ThrottleRequests::class);
+
+        $this->declareMiddlewareOrder();
+    }
+
+    /**
+     * Auth's middleware all read the session, so they must run after it opens.
+     *
+     * Anchored after the CSRF check rather than straight after the session: a
+     * forged request should be refused before anything looks up who is making
+     * it, and the token itself is read off the session either way.
+     *
+     * Declared from this side rather than listed on the Kernel, which names no
+     * feature layer's middleware. Without it, ->middleware(['auth', 'web'])
+     * checks a session that has not started yet and finds nobody logged in.
+     */
+    protected function declareMiddlewareOrder(): void
+    {
+        $kernel = $this->container->resolve(Kernel::class);
+
+        $after = VerifyCsrfToken::class;
+
+        foreach ([Authenticate::class, RedirectIfAuthenticated::class, RequirePassword::class, EnsureEmailIsVerified::class] as $middleware) {
+            $kernel->addMiddlewarePriority($middleware, $after);
+            $after = $middleware;
+        }
     }
 }

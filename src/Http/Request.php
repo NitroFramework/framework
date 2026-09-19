@@ -4,6 +4,7 @@ namespace Nitro\Http;
 
 use ArrayAccess;
 use Nitro\Container\Attributes\RequestScoped;
+use Nitro\Container\Container;
 use Nitro\Support\Macroable;
 
 /**
@@ -632,7 +633,7 @@ class Request implements ArrayAccess
             return null;
         }
 
-        return $container->createOrResolve('auth')->user();
+        return $container->resolve('auth')->user();
     }
 
     // ─── Session ──────────────────────────────────────────────────────────
@@ -648,9 +649,10 @@ class Request implements ArrayAccess
         return $this->session();
     }
 
+    /** Whether a session is available; false outside an application. */
     public function hasSession(): bool
     {
-        return app()->has('session');
+        return Container::hasInstance() && app()->has('session');
     }
 
     /**

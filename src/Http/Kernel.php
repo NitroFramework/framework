@@ -2,11 +2,15 @@
 
 namespace Nitro\Http;
 
-use Nitro\Container\Contracts\ContainerInterface;
+use Nitro\Container\Contracts\ContainerInterface as Container;
+use Nitro\Events\Concerns\DispatchesEvents;
+use Nitro\Events\Contracts\ReceivesDispatcher;
+use Nitro\Events\CoreEvents;
 use Nitro\Exceptions\ExceptionHandler;
 use Nitro\Exceptions\HttpException;
 use Nitro\Foundation\Application;
 use Nitro\Http\Contracts\Responsable;
+use Nitro\Http\Events\RequestEvent;
 use Nitro\Http\Exceptions\HttpResponseException;
 use Nitro\Http\Middleware\AddQueuedCookiesToResponse;
 use Nitro\Http\Middleware\EncryptCookies;
@@ -18,7 +22,10 @@ use Nitro\Http\ViewResponse;
 use Nitro\Routing\RouteDispatcher;
 use Nitro\Support\Pipeline;
 use Nitro\Routing\Route;
-use Nitro\Routing\Router;
+use Nitro\Routing\Contracts\ReportsAllowedMethods;
+use Nitro\Routing\Contracts\RouterInterface as Router;
+use Nitro\Routing\Events\RouteEvent;
+use Nitro\Routing\Events\RoutingEvents;
 use Nitro\View\Contracts\Engine;
 use RuntimeException;
 use Throwable;
@@ -27,12 +34,14 @@ use Throwable;
 /**
  * The HTTP kernel — orchestrates the request lifecycle: capture, route, middleware, dispatch, respond, terminate.
  */
-class Kernel
+class Kernel implements ReceivesDispatcher
 {
+    use DispatchesEvents;
+
     protected Application $app;
 
     protected Router $router;
-    protected ContainerInterface $container;
+    protected Container $container;
 
     /**
      * The global stack, run on every request whether or not it matches a route.
@@ -58,6 +67,28 @@ class Kernel
             VerifyCsrfToken::class,
         ],
         'api' => [],
+    ];
+
+    /**
+     * Middleware that must run in this order relative to one another, whatever
+     * order a route or a group happened to list them in.
+     *
+     * Some middleware depend on what an earlier one did: VerifyCsrfToken reads
+     * the token off the session StartSession opened, and Authenticate needs
+     * that session to know who is logged in. A route written as
+     * ->middleware(['auth', 'web']) reads perfectly sensibly and used to run
+     * the auth check against a session that did not exist yet.
+     *
+     * Only the names listed here are reordered, and only relative to each
+     * other; anything unlisted keeps the position it was given.
+     *
+     * @var array<int, class-string>
+     */
+    protected array $middlewarePriority = [
+        EncryptCookies::class,
+        AddQueuedCookiesToResponse::class,
+        StartSession::class,
+        VerifyCsrfToken::class,
     ];
 
     // Route-middleware aliases live on the Router, not here — feature providers
@@ -91,16 +122,21 @@ class Kernel
      */
     private array $middlewareClassCache = [];
 
-    protected RouteDispatcher $dispatcher;
+    /**
+     * Named for what it dispatches. It was $dispatcher, which reads as the
+     * event bus everywhere else in the framework — and the kernel raises
+     * events too, so the two would be indistinguishable here of all places.
+     */
+    protected RouteDispatcher $routeDispatcher;
 
     public function __construct(
         Application $app,
         Router $router,
-        RouteDispatcher $dispatcher
+        RouteDispatcher $routeDispatcher
     ) {
         $this->app = $app;
         $this->router = $router;
-        $this->dispatcher = $dispatcher;
+        $this->routeDispatcher = $routeDispatcher;
         $this->container = $app->getContainer();
     }
 
@@ -115,7 +151,43 @@ class Kernel
         // Response mutation (perf-bar injection, HTMX nav trimming, …) happens in
         // responseReady hooks registered by feature providers — the core kernel
         // just sends what handle() produced.
+        /**
+         * Emit point — response.sending
+         *
+         * The last moment before headers and body go out. A listener runs
+         * inside the client's wait, so anything slow here is felt directly —
+         * and it is already too late to change the response, which is what
+         * the responseReady hooks are for.
+         * Payload: {@see RequestEvent}.
+         */
+        $this->eventLazy(
+            CoreEvents::RESPONSE_SENDING,
+            fn (): RequestEvent => new RequestEvent(
+                $request->method(),
+                $request->path(),
+                $response->getStatusCode(),
+            ),
+        );
+
         $response->send();
+
+        /**
+         * Emit point — response.sent
+         *
+         * The bytes have left. Nothing a listener does can affect what the
+         * client received, so this and app.terminating are where after-the-
+         * fact work belongs.
+         * Payload: {@see RequestEvent}.
+         */
+        $this->eventLazy(
+            CoreEvents::RESPONSE_SENT,
+            fn (): RequestEvent => new RequestEvent(
+                $request->method(),
+                $request->path(),
+                $response->getStatusCode(),
+            ),
+        );
+
         $this->terminate($request, $response);
     }
 
@@ -157,6 +229,21 @@ class Kernel
         try {
             $this->runHooks($this->requestReceivedHooks, $request);
 
+            /**
+             * Emit point — request.received
+             *
+             * Once per request, after the requestReceived hooks and before any
+             * middleware or routing. Nothing has been matched yet, so a
+             * listener sees the request as it arrived and cannot know which
+             * route will serve it. To change or reject a request, use
+             * middleware — an event cannot stop anything.
+             * Payload: {@see RequestEvent}.
+             */
+            $this->eventLazy(
+                CoreEvents::REQUEST_RECEIVED,
+                fn (): RequestEvent => new RequestEvent($request->method(), $request->path()),
+            );
+
             return $this->sendRequestThroughRouter($request);
         } catch (HttpResponseException $exception) {
             // Something short-circuited with a ready response — a guard calling
@@ -181,12 +268,29 @@ class Kernel
         try {
             $this->runHooks($this->responseReadyHooks, $request, $response);
         } catch (Throwable $exception) {
-            $this->container->createOrResolve(ExceptionHandler::class)->report($exception);
+            $this->container->resolve(ExceptionHandler::class)->report($exception);
 
             if ($this->app->isDebug()) {
                 throw $exception;
             }
         }
+
+        /**
+         * Emit point — request.handled
+         *
+         * The response is final and nothing further will change it. Fires for
+         * every outcome — a matched route, a 404, a validation short-circuit,
+         * an unhandled throwable — because finish() is the single exit.
+         * Payload: {@see RequestEvent}.
+         */
+        $this->eventLazy(
+            CoreEvents::REQUEST_HANDLED,
+            fn (): RequestEvent => new RequestEvent(
+                $request->method(),
+                $request->path(),
+                $response->getStatusCode(),
+            ),
+        );
 
         return $response;
     }
@@ -223,7 +327,7 @@ class Kernel
                 $resolvedRoute = $this->router->findMatchingRoute($request);
 
                 if (! $resolvedRoute) {
-                    return $this->createNotFoundResponse($request);
+                    return $this->createUnmatchedResponse($request);
                 }
 
                 $this->router->substituteBindings($resolvedRoute);
@@ -314,7 +418,116 @@ class Kernel
             $gathered[] = $name;
         }
 
-        return $this->gatheredMiddlewareCache[$key] = $gathered;
+        return $this->gatheredMiddlewareCache[$key] = $this->sortMiddleware($gathered);
+    }
+
+    /**
+     * Put the gathered middleware into an order that respects
+     * {@see $middlewarePriority}.
+     *
+     * Only listed names move, and only past one another: an unlisted
+     * middleware keeps the position the route gave it, because the route
+     * author had a reason for it and this has none.
+     *
+     * @param  array<int, string> $middleware
+     * @return array<int, string>
+     */
+    protected function sortMiddleware(array $middleware): array
+    {
+        if ($this->middlewarePriority === [] || count($middleware) < 2) {
+            return $middleware;
+        }
+
+        $lastIndex = 0;
+        $lastPriorityIndex = null;
+
+        foreach ($middleware as $index => $name) {
+            $priorityIndex = $this->middlewarePriorityIndex($name);
+
+            if ($priorityIndex === null) {
+                continue;
+            }
+
+            /*
+             * Outranks one already passed, so it belongs above it. Move it and
+             * start over: a single pass cannot settle a list that needs more
+             * than one swap.
+             */
+            if ($lastPriorityIndex !== null && $priorityIndex < $lastPriorityIndex) {
+                return $this->sortMiddleware($this->moveMiddleware($middleware, $index, $lastIndex));
+            }
+
+            $lastIndex = $index;
+            $lastPriorityIndex = $priorityIndex;
+        }
+
+        return $middleware;
+    }
+
+    /**
+     * Where a middleware name sits in the priority list, or null when it is
+     * not listed. Aliases and 'alias:args' resolve to their class first, so
+     * 'auth' and Authenticate::class are the same entry.
+     */
+    protected function middlewarePriorityIndex(string $name): ?int
+    {
+        [$alias] = $this->parseMiddlewareName($name);
+
+        $class = $this->router->getMiddlewareAlias($alias) ?? $alias;
+
+        $index = array_search($class, $this->middlewarePriority, true);
+
+        return $index === false ? null : $index;
+    }
+
+    /**
+     * Move the middleware at $from so it sits at $to, shifting the rest along.
+     *
+     * @param  array<int, string> $middleware
+     * @return array<int, string>
+     */
+    protected function moveMiddleware(array $middleware, int $from, int $to): array
+    {
+        array_splice($middleware, $to, 0, [$middleware[$from]]);
+
+        unset($middleware[$from + 1]);
+
+        return array_values($middleware);
+    }
+
+    /**
+     * Give a middleware a place in the priority order, optionally right after
+     * one already in it.
+     *
+     * The core list names only Http middleware. A feature layer whose
+     * middleware depends on one of them — an authenticator needing the session
+     * — declares that here from its provider, rather than the kernel naming a
+     * layer it should not know about.
+     */
+    public function addMiddlewarePriority(string $middleware, ?string $after = null): static
+    {
+        $this->middlewarePriority = array_values(
+            array_filter($this->middlewarePriority, static fn (string $m): bool => $m !== $middleware)
+        );
+
+        $position = $after === null ? false : array_search($after, $this->middlewarePriority, true);
+
+        if ($position === false) {
+            $this->middlewarePriority[] = $middleware;
+        } else {
+            array_splice($this->middlewarePriority, $position + 1, 0, [$middleware]);
+        }
+
+        /* The gathered lists were sorted under the old order. */
+        $this->gatheredMiddlewareCache = [];
+
+        return $this;
+    }
+
+    /** @return array<int, class-string> */
+    public function getMiddlewarePriority(): array
+    {
+        return $this->middlewarePriority;
     }
 
     /**
@@ -432,18 +645,38 @@ class Kernel
             $this->middlewareClassCache[$name] = $class;
         }
 
-        return $this->container->createOrResolve($this->middlewareClassCache[$name]);
+        return $this->container->resolve($this->middlewareClassCache[$name]);
     }
 
     /** Dispatch the resolved route to its handler. */
     protected function dispatchToHandler(Route $resolvedRoute, Request $request): Response
     {
         // 1. Get the raw result from the Dispatcher
-        $result = $this->dispatcher->dispatchToHandler($resolvedRoute, $request);
+        $result = $this->routeDispatcher->dispatchToHandler($resolvedRoute, $request);
+
+        /**
+         * Emit point — route.dispatched
+         *
+         * The handler has run and returned, before its result is turned into
+         * a Response. Completes the trio the router starts: route.matched
+         * (which route), route.dispatching (about to run it), route.dispatched
+         * (it ran). Does not fire when the handler threw.
+         * Payload: {@see RouteEvent}.
+         */
+        $this->eventLazy(
+            RoutingEvents::DISPATCHED,
+            fn (): RouteEvent => new RouteEvent(
+                method: $request->method(),
+                path: $request->path(),
+                name: $resolvedRoute->getName(),
+                type: $resolvedRoute->getType(),
+                parameters: $resolvedRoute->parameters(),
+            ),
+        );
 
         // 2. Handle the "Decoupled View" (The DTO)
         if ($result instanceof ViewResponse) {
-            $renderer = $this->container->createOrResolve(Engine::class);
+            $renderer = $this->container->resolve(Engine::class);
             return Response::html($renderer->render($result->template, $result->data));
         }
 
@@ -498,7 +731,7 @@ class Kernel
     {
         $this->lastException = $exception;
 
-        $handler = $this->container->createOrResolve(ExceptionHandler::class);
+        $handler = $this->container->resolve(ExceptionHandler::class);
 
         // Report ONCE, here, before deciding how to render. Doing it at the top
         // of the catch means an exception that converts to a redirect (a
@@ -533,6 +766,40 @@ class Kernel
         $response = new Response($content, $statusCode, $headers);
 
         return $handler->finalize($response, $exception, $request) ?? $response;
+    }
+
+    /**
+     * The response for a request that matched no route.
+     *
+     * A path that answers other verbs is a 405, not a 404 — and RFC 9110
+     * requires an Allow header naming them, since that is the only way a
+     * client learns what the path does accept. An OPTIONS request is answered
+     * outright rather than refused, which is what makes a CORS preflight work.
+     *
+     * A router that cannot report its verbs still gets the old 404.
+     */
+    protected function createUnmatchedResponse(Request $request): Response
+    {
+        $allowed = $this->router instanceof ReportsAllowedMethods
+            ? $this->router->allowedMethods($request->path())
+            : [];
+
+        if ($allowed === []) {
+            return $this->createNotFoundResponse($request);
+        }
+
+        $allow = implode(', ', $allowed);
+
+        if ($request->method() === 'OPTIONS') {
+            return new Response('', 204, ['Allow' => $allow]);
+        }
+
+        return $this->renderException($request, new HttpException(
+            405,
+            "Method {$request->method()} not allowed for {$request->path()}",
+            null,
+            ['Allow' => $allow],
+        ));
     }
 
     /** Create a 404 Not Found response. */
@@ -589,7 +856,7 @@ class Kernel
             $step();
         } catch (Throwable $exception) {
             try {
-                $this->container->createOrResolve(ExceptionHandler::class)->report($exception);
+                $this->container->resolve(ExceptionHandler::class)->report($exception);
             } catch (Throwable) {
                 // Nothing left to report through; the response has been sent.
             }
