@@ -6,7 +6,7 @@ use Nitro\Exceptions\ExceptionHandler;
 use Nitro\Http\Request;
 use Nitro\Http\Response;
 use Nitro\Validation\ValidationException;
-use Nitro\View\Contracts\Engine;
+use Nitro\View\Contracts\ViewFinder;
 
 /**
  * Registers the centralized ExceptionHandler.
@@ -29,11 +29,14 @@ class ExceptionServiceProvider extends ServiceProvider
      */
     protected function registerErrorViews(): void
     {
-        if (! $this->container->has(Engine::class)) {
+        if (! $this->container->has(ViewFinder::class)) {
             return;
         }
 
-        $this->container->createOrResolve(Engine::class)
+        // Registered on the finder, which is what actually holds the namespace
+        // map. Going through the engine would construct the whole Blade stack
+        // during boot just to record a path that only an error page reads.
+        $this->container->createOrResolve(ViewFinder::class)
             ->addNamespace('nitro-errors', __DIR__ . '/../../Exceptions/views');
     }
 

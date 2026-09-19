@@ -11,7 +11,7 @@ use Nitro\Livewire\Features\SupportsFileUploads;
 use Nitro\Livewire\Runtime\LivewireManager;
 use Nitro\Routing\Router;
 use Nitro\View\Blade;
-use Nitro\View\Contracts\Engine;
+use Nitro\View\Contracts\ViewFinder;
 
 /**
  * Wires the Livewire layer into Nitro through the framework's extension seams —
@@ -45,15 +45,17 @@ class LivewireServiceProvider extends ServiceProvider
     /** Register the livewire:: and livewire-sfc:: view namespaces. */
     protected function registerViews(): void
     {
-        $engine = $this->container->createOrResolve(Engine::class);
-        $engine->addNamespace('livewire', __DIR__ . '/views');
+        // The finder, not the engine: a namespace is a lookup path, and asking
+        // the engine for one would build the compiler in boot() on every request.
+        $finder = $this->container->createOrResolve(ViewFinder::class);
+        $finder->addNamespace('livewire', __DIR__ . '/views');
 
         // Compiled single-file component views live here.
         $sfcDir = storage_path('cache/livewire-sfc');
         if (! is_dir($sfcDir)) {
             mkdir($sfcDir, 0775, true);
         }
-        $engine->addNamespace('livewire-sfc', $sfcDir);
+        $finder->addNamespace('livewire-sfc', $sfcDir);
     }
 
     /**

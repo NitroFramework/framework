@@ -5,7 +5,7 @@ namespace Nitro\Foundation\Providers;
 use Nitro\Container\Contracts\ContainerInterface;
 use Nitro\Database\Migration\MigrationPathRegistry;
 use Nitro\Routing\RouteLoader;
-use Nitro\View\Contracts\Engine;
+use Nitro\View\Contracts\ViewFinder;
 
 /**
  * Base Service Provider
@@ -80,7 +80,10 @@ class ServiceProvider
      */
     protected function loadViewsFrom(string $path, string $namespace): void
     {
-        $this->container->createOrResolve(Engine::class)->addNamespace($namespace, $path);
+        // The finder owns the namespace map; the engine only forwards to it.
+        // Asking the engine would build the compiler, the template cache and
+        // every Manages* concern in boot() — on requests that render nothing.
+        $this->container->createOrResolve(ViewFinder::class)->addNamespace($namespace, $path);
     }
 
     /**

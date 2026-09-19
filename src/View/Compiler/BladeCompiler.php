@@ -29,16 +29,6 @@ class BladeCompiler implements TemplateCompiler
         Concerns\CompilesStream;
 
     /**
-     * Directives registered at runtime, by name.
-     *
-     * @var array<string, callable>
-     */
-    protected static array $customDirectives = [];
-
-    /** Callbacks that transform raw template source before any compilation pass. */
-    protected static array $precompilers = [];
-
-    /**
      * Bodies of `@verbatim` blocks, lifted out so nothing inside them compiles.
      *
      * @var array<string, string>
@@ -77,7 +67,7 @@ class BladeCompiler implements TemplateCompiler
         $this->footer = [];
         $this->forElseCounter = 0;
 
-        foreach (self::$precompilers as $precompiler) {
+        foreach (DirectiveRegistry::precompilers() as $precompiler) {
             $content = $precompiler($content);
         }
 
@@ -287,12 +277,14 @@ class BladeCompiler implements TemplateCompiler
             return isset($match[3]) ? $compiled : $compiled . $match[2];
         }
 
-        if (isset(static::$customDirectives[$directiveName])) {
+        $custom = DirectiveRegistry::find($directiveName);
+
+        if ($custom !== null) {
             $args = $arguments;
             if (str_starts_with($args, '(') && str_ends_with($args, ')')) {
                 $args = substr($args, 1, -1);
             }
-            $compiled = static::$customDirectives[$directiveName](trim($args));
+            $compiled = $custom(trim($args));
             return isset($match[3]) ? $compiled : $compiled . $match[2];
         }
 
@@ -360,7 +352,7 @@ class BladeCompiler implements TemplateCompiler
      */
     public static function registerCustomDirective(string $name, callable $callback): void
     {
-        static::$customDirectives[$name] = $callback;
+        DirectiveRegistry::directive($name, $callback);
     }
 
     /**
@@ -369,7 +361,7 @@ class BladeCompiler implements TemplateCompiler
      */
     public static function registerPrecompiler(callable $callback): void
     {
-        static::$precompilers[] = $callback;
+        DirectiveRegistry::precompiler($callback);
     }
 
     /**
@@ -379,13 +371,13 @@ class BladeCompiler implements TemplateCompiler
      */
     public static function getCustomDirectives(): array
     {
-        return static::$customDirectives;
+        return DirectiveRegistry::directives();
     }
 
     /** Reset the in-process directive registry (test harnesses). */
     public static function clearCustomDirectives(): void
     {
-        static::$customDirectives = [];
+        DirectiveRegistry::flushDirectives();
     }
 }
 

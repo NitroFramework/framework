@@ -4,7 +4,7 @@ namespace Nitro\View;
 
 use Nitro\Foundation\Contracts\ConfigRepository;
 use Nitro\Foundation\PathRegistry;
-use Nitro\View\Compiler\BladeCompiler;
+use Nitro\View\Compiler\DirectiveRegistry;
 use Nitro\View\Contracts\TemplateCache;
 use RuntimeException;
 
@@ -118,7 +118,7 @@ class Blade
      */
     public static function directive(string $name, callable $callback): void
     {
-        BladeCompiler::registerCustomDirective($name, $callback);
+        DirectiveRegistry::directive($name, $callback);
     }
 
     /**
@@ -130,7 +130,7 @@ class Blade
      */
     public static function precompiler(callable $callback): void
     {
-        BladeCompiler::registerPrecompiler($callback);
+        DirectiveRegistry::precompiler($callback);
     }
 
 
