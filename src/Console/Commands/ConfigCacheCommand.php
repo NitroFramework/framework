@@ -49,7 +49,7 @@ class ConfigCacheCommand implements CommandInterface
 
         try {
             $paths     = $this->paths;
-            $cachePath = $paths->cache('config.php');
+            $cachePath = $paths->cachedConfig();
 
             // Config wants the PathRegistry (not a path string), and MUST ignore
             // any existing cache — otherwise it rebuilds from the stale cache it
@@ -94,7 +94,7 @@ class ConfigCacheCommand implements CommandInterface
         $this->output->info("Clearing configuration cache...");
 
         try {
-            $cachePath = $this->paths->cache('config.php');
+            $cachePath = $this->paths->cachedConfig();
 
             if (file_exists($cachePath)) {
                 unlink($cachePath);

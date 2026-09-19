@@ -11,7 +11,7 @@ class RegisterProviders implements BootstrapperInterface
 {
     public function bootstrap(Application $app): void
     {
-        $cachePath = $app->paths()->cache('bootstrap.php');
+        $cachePath = $app->paths()->cachedProviders();
 
         // The pre-merged provider list is a PRODUCTION optimization. In debug we
         // must always discover live, so a newly added module or provider appears
@@ -42,7 +42,7 @@ class RegisterProviders implements BootstrapperInterface
         // resolve with zero reflection. Production only: gated on !debug like
         // every optimize cache, so dev always reflects and code changes take
         // effect without re-running `nitro optimize`.
-        $containerCache = $app->paths()->cache('container.php');
+        $containerCache = $app->paths()->cachedContainer();
         if (! $app->isDebug() && is_file($containerCache)) {
             $factories = require $containerCache;
             if (is_array($factories)) {
@@ -55,7 +55,7 @@ class RegisterProviders implements BootstrapperInterface
         // one pass. First request primes apache's opcache for all of
         // them; every request after gets bytecode-cached hits everywhere.
         // No-op when the bundle hasn't been generated (dev mode).
-        $warmup = $app->paths()->cache('views_warmup.php');
+        $warmup = $app->paths()->cachedViewWarmup();
         if (is_file($warmup)) {
             require_once $warmup;
         }

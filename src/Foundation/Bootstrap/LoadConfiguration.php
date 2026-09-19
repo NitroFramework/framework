@@ -23,7 +23,7 @@ class LoadConfiguration implements BootstrapperInterface
     public function bootstrap(Application $app): void
     {
         $container = $app->getContainer();
-        $cachedConfigPath = $this->paths->cache('config.php');
+        $cachedConfigPath = $this->paths->cachedConfig();
 
         // Use the compiled cache only when it's fresh relative to .env, and
         // never under a test runner — see Config::runningTests(). The same

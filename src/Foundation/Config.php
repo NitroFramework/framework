@@ -26,7 +26,7 @@ class Config implements ConfigRepository
     public function __construct(PathRegistry $paths, bool $ignoreCache = false)
     {
         $configPath = $paths->config();
-        $cachePath = $paths->cache('config.php');
+        $cachePath = $paths->cachedConfig();
 
         if (!$ignoreCache && !self::runningTests() && file_exists($cachePath) && self::cacheIsFresh($cachePath, $paths->base('.env'))) {
             try {

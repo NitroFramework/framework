@@ -70,7 +70,7 @@ class RouteCommands implements CommandInterface
 
             $this->routeLoader->cache($this->router);
             $routeCount = count($routes, COUNT_RECURSIVE);
-            $cacheFile  = $this->paths->cache('routes.php');
+            $cacheFile  = $this->paths->cachedRoutes();
 
             $this->output->success("Cached {$routeCount} routes.");
             $this->output->success("Cache file: " . basename($cacheFile));

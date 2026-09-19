@@ -157,7 +157,7 @@ class ViewWarmup
         }
 
         $paths = $this->paths;
-        $bundle = $paths->cache('views_warmup.php');
+        $bundle = $paths->cachedViewWarmup();
 
         $exported = var_export($safe, true);
         $contents = <<<PHP

@@ -49,6 +49,62 @@ class PathRegistry
         return $this->storage($this->append('cache', $path));
     }
 
+    // ── Build artifacts ─────────────────────────────────────────────────────
+    //
+    // Each compiled cache is named in exactly one place. They were spelled out
+    // as string literals at every site instead — 'config.php' in five files,
+    // 'packages.php' in four — so the set of readers of any one artifact could
+    // only be found by grep, and renaming one meant trusting that the grep had
+    // been exhaustive.
+
+    /** The compiled configuration, written by `nitro config:cache`. */
+    public function cachedConfig(): string
+    {
+        return $this->cache('config.php');
+    }
+
+    /** The compiled route table, written by `nitro route:cache`. */
+    public function cachedRoutes(): string
+    {
+        return $this->cache('routes.php');
+    }
+
+    /** The pre-merged provider list and deferred-service map, from `nitro optimize`. */
+    public function cachedProviders(): string
+    {
+        return $this->cache('bootstrap.php');
+    }
+
+    /** Providers and commands discovered from installed packages. */
+    public function cachedPackages(): string
+    {
+        return $this->cache('packages.php');
+    }
+
+    /** AOT container factories, so autowiring costs no reflection in production. */
+    public function cachedContainer(): string
+    {
+        return $this->cache('container.php');
+    }
+
+    /** The opcache warmup bundle for compiled views. */
+    public function cachedViewWarmup(): string
+    {
+        return $this->cache('views_warmup.php');
+    }
+
+    /** Introspected database schema, so runtime never queries information_schema. */
+    public function cachedSchema(): string
+    {
+        return $this->cache('schema.php');
+    }
+
+    /** The generated opcache.preload script. */
+    public function cachedPreload(): string
+    {
+        return $this->cache('preload.php');
+    }
+
     /** Get the database directory path. */
     public function database(string $path = ''): string
     {

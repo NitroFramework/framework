@@ -44,7 +44,7 @@ class PackageDiscoverCommand implements CommandInterface
         $manifest = new PackageManifest(
             $this->paths->base('vendor'),
             $this->paths->base(),
-            $this->paths->cache('packages.php'),
+            $this->paths->cachedPackages(),
         );
 
         $manifest->build();
