@@ -494,6 +494,24 @@ class Router implements RouterInterface, ExtendableRouter, ReportsAllowedMethods
         return $this;
     }
 
+    /**
+     * Drop middleware the route's groups would otherwise contribute.
+     *
+     *   Route::post('/hooks/stripe', …)->middleware('web')->withoutMiddleware('csrf');
+     *
+     * A group is all-or-nothing without this: a webhook that must skip CSRF
+     * but keep sessions and cookies would have to leave 'web' and re-list
+     * everything it wanted.
+     *
+     * @param string|array<int, string> $middleware Aliases or class names.
+     */
+    public function withoutMiddleware(string|array $middleware): static
+    {
+        $this->setOnLastRoute('without_middleware', (array) $middleware);
+
+        return $this;
+    }
+
     /** Bind soft-deleted models too, rather than treating them as missing. */
     public function withTrashed(bool $withTrashed = true): static
     {
@@ -1004,6 +1022,69 @@ class Router implements RouterInterface, ExtendableRouter, ReportsAllowedMethods
         $options['except'] = array_merge($options['except'] ?? [], ['create', 'edit']);
 
         return $this->resource($name, $controller, $options);
+    }
+
+    /**
+     * Register a resource that has no id — /profile, /settings.
+     *
+     * The member routes drop the {parameter} the plural form carries, and
+     * there is no index or store: a singleton already exists.
+     *
+     * @param array{only?: array<int, string>, except?: array<int, string>} $options
+     */
+    public function singleton(string $name, string $controller, array $options = []): static
+    {
+        $name  = trim($name, '/');
+        $base  = '/' . $name;
+        $named = str_replace('/', '.', $name);
+
+        $actions = [
+            'show'    => ['GET',            $base],
+            'edit'    => ['GET',            $base . '/edit'],
+            'update'  => [['PUT', 'PATCH'], $base],
+            'destroy' => ['DELETE',         $base],
+        ];
+
+        if (!empty($options['only'])) {
+            $actions = array_intersect_key($actions, array_flip((array) $options['only']));
+        }
+        if (!empty($options['except'])) {
+            $actions = array_diff_key($actions, array_flip((array) $options['except']));
+        }
+
+        foreach ($actions as $action => [$methods, $path]) {
+            foreach ((array) $methods as $index => $method) {
+                $route = $this->addRoute($method, $path, [$controller, $action]);
+
+                if ($index === 0) {
+                    $route->name("{$named}.{$action}");
+                }
+            }
+        }
+
+        return $this;
+    }
+
+    /** A singleton with no edit form, the way apiResource has no create. */
+    public function apiSingleton(string $name, string $controller, array $options = []): static
+    {
+        $options['except'] = array_merge($options['except'] ?? [], ['edit']);
+
+        return $this->singleton($name, $controller, $options);
+    }
+
+    /**
+     * Register several singletons at once.
+     *
+     * @param array<string, string> $singletons name => controller
+     */
+    public function singletons(array $singletons, array $options = []): static
+    {
+        foreach ($singletons as $name => $controller) {
+            $this->singleton($name, $controller, $options);
+        }
+
+        return $this;
     }
 
     /**
@@ -1725,6 +1806,7 @@ class Router implements RouterInterface, ExtendableRouter, ReportsAllowedMethods
     {
         return $this->buildRoute($routeData, $parameters)
             ->setBindingFields($routeData['binding_fields'] ?? [])
+            ->setExcludedMiddleware($routeData['without_middleware'] ?? [])
             ->setBindingBehaviour(
                 (bool) ($routeData['scoped'] ?? false),
                 (bool) ($routeData['with_trashed'] ?? false),

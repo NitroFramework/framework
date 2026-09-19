@@ -403,7 +403,10 @@ class Kernel implements ReceivesDispatcher
         // middlewareGroup() clears the cache when the map changes.
         $key = $routeMiddleware === [] ? '' : implode("\0", $routeMiddleware);
         if (isset($this->gatheredMiddlewareCache[$key])) {
-            return $this->gatheredMiddlewareCache[$key];
+            return $this->withoutExcluded(
+                $this->gatheredMiddlewareCache[$key],
+                $resolvedRoute->excludedMiddleware(),
+            );
         }
 
         $gathered = [];
@@ -418,7 +421,45 @@ class Kernel implements ReceivesDispatcher
             $gathered[] = $name;
         }
 
-        return $this->gatheredMiddlewareCache[$key] = $this->sortMiddleware($gathered);
+        $gathered = $this->sortMiddleware($gathered);
+
+        /*
+         * Not memoized with the rest: exclusions belong to one route, while
+         * the cache is keyed by the declared list a hundred routes may share.
+         */
+        $this->gatheredMiddlewareCache[$key] = $gathered;
+
+        return $this->withoutExcluded($gathered, $resolvedRoute->excludedMiddleware());
+    }
+
+    /**
+     * Remove the middleware a route asked to drop.
+     *
+     * Compared by resolved class, so excluding 'csrf' removes VerifyCsrfToken
+     * however the group happened to name it.
+     *
+     * @param  array<int, string> $gathered
+     * @param  array<int, string> $excluded
+     * @return array<int, string>
+     */
+    protected function withoutExcluded(array $gathered, array $excluded): array
+    {
+        if ($excluded === []) {
+            return $gathered;
+        }
+
+        $drop = [];
+
+        foreach ($excluded as $name) {
+            [$alias] = $this->parseMiddlewareName($name);
+            $drop[$this->router->getMiddlewareAlias($alias) ?? $alias] = true;
+        }
+
+        return array_values(array_filter($gathered, function (string $name) use ($drop): bool {
+            [$alias] = $this->parseMiddlewareName($name);
+
+            return ! isset($drop[$this->router->getMiddlewareAlias($alias) ?? $alias]);
+        }));
     }
 
     /**

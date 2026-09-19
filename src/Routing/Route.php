@@ -27,6 +27,13 @@ class Route
      */
     protected array $bindingFields = [];
 
+    /**
+     * Middleware this route drops from whatever its groups contribute.
+     *
+     * @var array<int, string>
+     */
+    protected array $excludedMiddleware = [];
+
     /** Whether a nested model resolves through its parent's relation. */
     protected bool $scoped = false;
 
@@ -470,6 +477,24 @@ class Route
         $this->parameterOrder = $order;
 
         return $this;
+    }
+
+    /**
+     * Drop these from whatever the route's groups contribute.
+     *
+     * @param array<int, string> $middleware Aliases or class names.
+     */
+    public function setExcludedMiddleware(array $middleware): static
+    {
+        $this->excludedMiddleware = array_values($middleware);
+
+        return $this;
+    }
+
+    /** @return array<int, string> */
+    public function excludedMiddleware(): array
+    {
+        return $this->excludedMiddleware;
     }
 
     /** Whether a nested model resolves through its parent's relation. */

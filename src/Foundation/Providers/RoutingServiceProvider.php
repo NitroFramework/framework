@@ -11,8 +11,11 @@ use Nitro\Exceptions\HttpException;
 use Nitro\Http\Kernel;
 use Nitro\Http\Request;
 use Nitro\Routing\Route;
+use Nitro\Http\Middleware\EncryptCookies;
 use Nitro\Http\Middleware\PreventRequestsDuringMaintenance;
 use Nitro\Http\Middleware\ValidateSignature;
+use Nitro\Http\Middleware\VerifyCsrfToken;
+use Nitro\Session\Middleware\StartSession;
 use Nitro\Routing\RouteLoader;
 use Nitro\Routing\Contracts\RouterInterface;
 use Nitro\Routing\RouteDispatcher;
@@ -166,6 +169,14 @@ class RoutingServiceProvider extends ServiceProvider
     {
         /* Registered before routes load: a route may declare ->middleware('signed'). */
         $router->aliasMiddleware('signed', ValidateSignature::class);
+
+        /*
+         * The web group names these by class, so withoutMiddleware('csrf')
+         * had nothing to match and silently excluded nothing.
+         */
+        $router->aliasMiddleware('csrf', VerifyCsrfToken::class);
+        $router->aliasMiddleware('cookies', EncryptCookies::class);
+        $router->aliasMiddleware('session', StartSession::class);
 
         $this->wireEventDispatcher($router, $kernel);
 
