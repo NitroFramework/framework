@@ -2,7 +2,7 @@
 
 namespace Nitro\Database\Model;
 
-use Nitro\Events\Dispatcher;
+use Nitro\Events\Contracts\Dispatcher;
 
 /**
  * Process-wide model state: which classes have booted, and the dispatcher their

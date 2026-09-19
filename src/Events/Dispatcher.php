@@ -2,6 +2,9 @@
 
 namespace Nitro\Events;
 
+use Nitro\Events\Contracts\Dispatcher as DispatcherContract;
+use Nitro\Events\Contracts\TogglesEvents;
+
 /**
  * Event dispatcher — the app's one pub/sub bus (model events route through it too).
  *
@@ -22,8 +25,12 @@ namespace Nitro\Events;
  * boot costs a few hundred array writes and constructs nothing. If that class
  * implements ShouldQueue it is pushed to the queue instead of being called, and
  * the code that raised the event is none the wiser.
+ *
+ * This is the bundled implementation, not the framework's dependency: the rest
+ * of Nitro holds a {@see DispatcherContract}, so an application can bind its
+ * own bus and nothing above has to change.
  */
-class Dispatcher
+class Dispatcher implements DispatcherContract, TogglesEvents
 {
     /** Exact event name => list of listeners. @var array<string, list<callable|string>> */
     private array $listeners = [];
@@ -193,8 +200,8 @@ class Dispatcher
     /** Resolve a listener class through the container when there is one. */
     private function resolve(string $class): object
     {
-        if ($this->container !== null && method_exists($this->container, 'createOrResolve')) {
-            return $this->container->createOrResolve($class);
+        if ($this->container !== null && method_exists($this->container, 'resolve')) {
+            return $this->container->resolve($class);
         }
 
         return new $class;

@@ -2,7 +2,7 @@
 
 namespace Nitro\Mail;
 
-use Nitro\Events\Dispatcher;
+use Nitro\Events\Contracts\Dispatcher;
 use Nitro\Mail\Contracts\Mailer as MailerContract;
 use Nitro\Mail\Contracts\Transport;
 use Nitro\Mail\Events\MessageSending;

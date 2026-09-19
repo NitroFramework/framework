@@ -3,7 +3,7 @@
 namespace Nitro\Database\Model\Concerns;
 
 use Nitro\Database\Model\ModelState;
-use Nitro\Events\Dispatcher;
+use Nitro\Events\Contracts\Dispatcher;
 
 /**
  * Model lifecycle events — creating/created, updating/updated, saving/saved,
