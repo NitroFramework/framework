@@ -8,7 +8,7 @@ use Nitro\Console\Contracts\CommandInterface;
 use Nitro\Cache\CacheManager;
 use Nitro\Console\OutputFormatter;
 use Nitro\Console\Support\ViewWarmup;
-use Nitro\Container\Contracts\ContainerInterface;
+use Nitro\Container\Contracts\ContainerInterface as Container;
 use Nitro\Database\Schema\SchemaBuilder;
 use Nitro\Database\Schema\SchemaCache;
 use Nitro\Foundation\Application;
@@ -28,7 +28,7 @@ use Nitro\View\Blade;
 class OptimizeCommand implements CommandInterface
 {
     public function __construct(
-        private ContainerInterface $container,
+        private Container $container,
         private OutputFormatter $output,
         private PathRegistry $paths,
         private Application $app,
@@ -160,8 +160,8 @@ class OptimizeCommand implements CommandInterface
     protected function cacheRoutes(): void
     {
         try {
-            $routeLoader = $this->container->createOrResolve(RouteLoader::class);
-            $router       = $this->container->createOrResolve(RouterInterface::class);
+            $routeLoader = $this->container->resolve(RouteLoader::class);
+            $router       = $this->container->resolve(RouterInterface::class);
             $router->clearRoutes();
             $routeLoader->loadFromFile($router);
 
@@ -175,7 +175,7 @@ class OptimizeCommand implements CommandInterface
                 return;
             }
 
-            $routeCount = count($router->getRoutes(), COUNT_RECURSIVE);
+            $routeCount = array_sum(array_map('count', $router->getRoutes()));
             $this->output->writeln($this->output->color("  ✓ Cached {$routeCount} routes", 'green'));
         } catch (\Exception $exception) {
             $this->output->writeln($this->output->color("  ✖ Route cache failed: " . $exception->getMessage(), 'red'));
@@ -202,7 +202,7 @@ class OptimizeCommand implements CommandInterface
     {
         try {
             $container = $this->app->getContainer();
-            $router = $container->createOrResolve('router');
+            $router = $container->resolve('router');
 
             $entries = [];
             foreach ($router->getRoutes() as $methodRoutes) {
@@ -568,7 +568,7 @@ class OptimizeCommand implements CommandInterface
         // owned by RouteLoader — clear it through the loader so we target the
         // real path instead of a nonexistent cache/routes.php.
         try {
-            if ($this->container->createOrResolve(RouteLoader::class)->clearCache()) {
+            if ($this->container->resolve(RouteLoader::class)->clearCache()) {
                 $this->output->writeln($this->output->color("  ✓ Cleared Routes cache", 'green'));
                 $cleared++;
             }
@@ -604,7 +604,7 @@ class OptimizeCommand implements CommandInterface
         // would be exactly the kind of bug operators hit and then can't
         // explain ("I cleared the cache, why is the page still wrong?").
         try {
-            $cache = $this->container->createOrResolve(CacheManager::class);
+            $cache = $this->container->resolve(CacheManager::class);
             if ($cache->store()->flush()) {
                 $this->output->writeln($this->output->color("  ✓ Flushed runtime data cache", 'green'));
                 $cleared++;
