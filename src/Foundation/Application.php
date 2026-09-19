@@ -5,6 +5,7 @@ namespace Nitro\Foundation;
 use Nitro\Auth\Access\Gate;
 use Nitro\Auth\Passwords\PasswordBroker;
 use Nitro\Broadcasting\BroadcastManager;
+use Nitro\Broadcasting\BroadcastServiceProvider;
 use Nitro\Cache\CacheServiceProvider;
 use Nitro\Cache\RateLimiter;
 use Nitro\Concurrency\ConcurrencyServiceProvider;
@@ -12,12 +13,14 @@ use Nitro\Console\Kernel as ConsoleKernel;
 use Nitro\Container\Container;
 use Nitro\Container\Contracts\ContainerInterface;
 use Nitro\Container\Lifetime;
+use Nitro\Context\ContextServiceProvider;
 use Nitro\Context\Repository as ContextRepository;
 use Nitro\Cookie\CookieServiceProvider;
 use Nitro\Encryption\EncryptionServiceProvider;
 use Nitro\Events\Dispatcher as EventDispatcher;
 use Nitro\Filesystem\FilesystemServiceProvider;
 use Nitro\Foundation\Bootstrap\BootstrapperInterface;
+use Nitro\Foundation\Contracts\ApplicationInterface;
 use Nitro\Foundation\Providers\AuthServiceProvider;
 use Nitro\Foundation\Providers\ConsoleServiceProvider;
 use Nitro\Foundation\Providers\DatabaseServiceProvider;
@@ -30,12 +33,14 @@ use Nitro\Session\SessionServiceProvider;
 use Nitro\Foundation\Providers\ValidationServiceProvider;
 use Nitro\Foundation\Providers\ViewServiceProvider;
 use Nitro\Http\Client\Factory as HttpClientFactory;
+use Nitro\Http\HttpServiceProvider;
 use Nitro\Http\Kernel;
 use Nitro\Http\Redirector;
 use Nitro\Http\Request;
 use Nitro\Http\ResponseFactory;
 use Nitro\Notifications\NotificationServiceProvider;
 use Nitro\Process\Factory as ProcessFactory;
+use Nitro\Process\ProcessServiceProvider;
 use Nitro\Queue\QueueServiceProvider;
 use Nitro\Redis\RedisServiceProvider;
 use Nitro\Scheduling\ScheduleServiceProvider;
@@ -43,8 +48,11 @@ use Nitro\Support\DateFactory;
 use Nitro\Support\Hash;
 use Nitro\Support\Logger;
 use Nitro\Support\Pipeline;
+use Nitro\Support\SupportServiceProvider;
 use Nitro\Testing\ParallelTesting;
+use Nitro\Testing\TestingServiceProvider;
 use Nitro\Thrust\Concerns\ResetsForWorkerMode;
+use Nitro\Translation\TranslationServiceProvider;
 use Nitro\Translation\Translator;
 use Nitro\View\Blade;
 use RuntimeException;
@@ -59,7 +67,7 @@ use RuntimeException;
  * and boots service providers (including discovered modules), and hands the request
  * off to the HTTP kernel. This is the object the whole framework is assembled around.
  */
-class Application
+class Application implements ApplicationInterface
 {
     use ResetsForWorkerMode;
 
@@ -135,6 +143,16 @@ class Application
      * @var array<int, callable>
      */
     private array $bootedHooks = [];
+
+    /**
+     * Callbacks to run once the response has been sent.
+     *
+     * Cleared as they run, so a worker that handles the next request does not
+     * fire the previous request's callbacks again.
+     *
+     * @var array<int, callable>
+     */
+    private array $terminatingCallbacks = [];
 
     /**
      * Assemble the application around a container, without bootstrapping it.
@@ -319,6 +337,10 @@ class Application
     {
         $this->container->instance('app', $this);
         $this->container->instance(Application::class, $this);
+
+        // So a provider or middleware can depend on the contract rather than on
+        // the composition root, the way it already can for config and container.
+        $this->container->instance(ApplicationInterface::class, $this);
         $this->container->instance(ContainerInterface::class, $this->container);
         $this->container->instance(Container::class, $this->container);
     }
@@ -389,71 +411,58 @@ class Application
      *
      * A facade is only a front door: it needs the binding behind it to exist,
      * or the first call is a resolution error rather than a missing method.
+     *
+     * Names only. The composition root says that `hash` and Support\Hash are the
+     * same service; it does not say how to build one — that is the owning
+     * provider's job, and this method used to do both. Binding here meant the
+     * Application carried construction knowledge for a dozen subsystems, bound
+     * every one of them on every request, and drifted: `blade`, `artisan`,
+     * `rate.limiter` and `auth.password` were each bound here AND in their own
+     * provider, and in the last two the provider passed real dependencies while
+     * this autowired. The provider registers later and wins, so the copies here
+     * were dead — and would have been wrong if they hadn't been.
      */
     private function registerFacadeBindings(): void
     {
-        $singletons = [
-            'blade' => Blade::class,
-            'gate' => Gate::class,
-            'hash' => Hash::class,
-            'date' => DateFactory::class,
-            'response' => ResponseFactory::class,
-            'redirect' => Redirector::class,
-            'rate.limiter' => RateLimiter::class,
-            'auth.password' => PasswordBroker::class,
-            'artisan' => ConsoleKernel::class,
-            'context' => ContextRepository::class,
-            'process' => ProcessFactory::class,
+        $aliases = [
+            'blade'            => Blade::class,
+            'gate'             => Gate::class,
+            'hash'             => Hash::class,
+            'date'             => DateFactory::class,
+            'response'         => ResponseFactory::class,
+            'redirect'         => Redirector::class,
+            'rate.limiter'     => RateLimiter::class,
+            'auth.password'    => PasswordBroker::class,
+            'artisan'          => ConsoleKernel::class,
+            'context'          => ContextRepository::class,
+            'process'          => ProcessFactory::class,
             'parallel.testing' => ParallelTesting::class,
+            'translator'       => Translator::class,
+            'broadcast'        => BroadcastManager::class,
+            'pipeline'         => Pipeline::class,
+            'maintenance'      => MaintenanceMode::class,
         ];
 
-        foreach ($singletons as $name => $class) {
+        foreach ($aliases as $name => $class) {
             /*
              * The class is the binding and the short name points at it, never
              * the reverse. Binding the short name and then aliasing the class
              * back to it closes a loop: resolving either one asks for the
-             * other for as long as the process has memory. A provider that
-             * later binds the short name itself simply replaces the alias,
-             * which is why this direction survives being overridden and the
-             * other does not.
+             * other for as long as the process has memory.
              */
-            $this->container->singleton($class, $class);
             $this->container->alias($name, $class);
         }
 
         /*
-         * These three need values from config or the path registry, so they
-         * are built here rather than autowired.
+         * The one binding left here, and Foundation's own: the down file's
+         * location comes from the path registry, which no provider has a better
+         * claim to than the object that built it. Eager rather than deferred
+         * because the maintenance guard asks for it on every request, so
+         * deferring would only move the load, not remove it.
          */
-        $this->container->singleton('maintenance', fn () => new MaintenanceMode(
+        $this->container->singleton(MaintenanceMode::class, fn () => new MaintenanceMode(
             $this->paths->storage('framework/down')
         ));
-
-        $this->container->alias(MaintenanceMode::class, 'maintenance');
-
-        $this->container->singleton('translator', fn () => new Translator(
-            $this->paths->base('lang'),
-            (string) config('app.locale', 'en'),
-            (string) config('app.fallback_locale', 'en')
-        ));
-
-        $this->container->alias(Translator::class, 'translator');
-
-        $this->container->singleton('broadcast', fn ($container) => new BroadcastManager(
-            $container,
-            (string) config('broadcasting.default', 'null')
-        ));
-
-        $this->container->alias(BroadcastManager::class, 'broadcast');
-
-        /*
-         * A pipeline holds the value travelling through it, so each caller
-         * needs their own rather than a shared one.
-         */
-        $this->container->bind(
-            'pipeline',
-            static fn ($container) => new Pipeline($container)
-        );
     }
 
     /** Register core bootstrappers to run during bootstrap */
@@ -602,7 +611,7 @@ class Application
         return (new PackageManifest(
             $this->paths->base('vendor'),
             $this->paths->base(),
-            $this->paths->cache('packages.php'),
+            $this->paths->cachedPackages(),
         ))->providers();
     }
 
@@ -629,6 +638,17 @@ class Application
             RedisServiceProvider::class,
             QueueServiceProvider::class,
             ScheduleServiceProvider::class,
+            // Deferred: each owns the bindings its own namespace used to have
+            // registered for it by registerFacadeBindings(). `nitro optimize`
+            // records what they provide, so production never loads them until
+            // something resolves one.
+            SupportServiceProvider::class,
+            HttpServiceProvider::class,
+            ContextServiceProvider::class,
+            ProcessServiceProvider::class,
+            TranslationServiceProvider::class,
+            BroadcastServiceProvider::class,
+            TestingServiceProvider::class,
         ];
     }
 
@@ -809,10 +829,110 @@ class Application
         return $this->config?->get('app.debug', true) ?? true;
     }
 
-    /** Get the current application environment, e.g. production, development (defaults to production pre-config) */
-    public function environment(): string
+    /**
+     * The current environment, or whether it is one of the given ones.
+     *
+     * Called with no arguments it answers "which environment"; with arguments it
+     * answers "is it one of these", which is the question almost every caller
+     * actually has. Without the second form that check gets written out longhand
+     * at each site — `config('app.env') === 'production'` — and then written
+     * slightly differently at the next one.
+     *
+     * Patterns may use * ('stag*' matches 'staging').
+     */
+    public function environment(string ...$environments): string|bool
     {
-        return $this->config?->get('app.env', 'production') ?? 'production';
+        $current = $this->config?->get('app.env', 'production') ?? 'production';
+
+        if ($environments === []) {
+            return $current;
+        }
+
+        foreach ($environments as $pattern) {
+            if ($pattern === $current) {
+                return true;
+            }
+
+            if (str_contains($pattern, '*')
+                && preg_match('#^' . str_replace('\*', '.*', preg_quote($pattern, '#')) . '$#', $current) === 1
+            ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** Whether the application is running in the local environment. */
+    public function isLocal(): bool
+    {
+        return $this->environment('local') === true;
+    }
+
+    /** Whether the application is running in production. */
+    public function isProduction(): bool
+    {
+        return $this->environment('production') === true;
+    }
+
+    /** Whether a test runner is driving the application. */
+    public function runningUnitTests(): bool
+    {
+        return $this->environment('testing') === true;
+    }
+
+    /**
+     * Whether the application is down for maintenance.
+     *
+     * Asks the MaintenanceMode service rather than stat'ing the file here, so
+     * the down file's location is known in exactly one place.
+     */
+    public function isDownForMaintenance(): bool
+    {
+        return $this->container->createOrResolve(MaintenanceMode::class)->active();
+    }
+
+    /**
+     * Register a callback to run after the response has been sent.
+     *
+     * The seam for work that must not delay the response — writing an audit
+     * row, closing a connection. The HTTP kernel fires these from terminate().
+     */
+    public function terminating(callable $callback): static
+    {
+        $this->terminatingCallbacks[] = $callback;
+
+        return $this;
+    }
+
+    /**
+     * Run the terminating callbacks.
+     *
+     * Each is isolated: one throwing must not stop the rest, because by this
+     * point the response is already on the wire and there is nothing useful to
+     * report to the client. Failures go to the exception handler instead.
+     */
+    public function terminate(): void
+    {
+        foreach ($this->terminatingCallbacks as $callback) {
+            try {
+                $this->container->call($callback);
+            } catch (\Throwable $exception) {
+                $this->reportTerminationFailure($exception);
+            }
+        }
+
+        $this->terminatingCallbacks = [];
+    }
+
+    /** Report a failure from a terminating callback, or swallow it if nothing can. */
+    private function reportTerminationFailure(\Throwable $exception): void
+    {
+        try {
+            $this->container->createOrResolve(\Nitro\Exceptions\ExceptionHandler::class)->report($exception);
+        } catch (\Throwable) {
+            // Nothing left to report through; the response has already been sent.
+        }
     }
 
     /** Check if the application is running in the console (CLI) */

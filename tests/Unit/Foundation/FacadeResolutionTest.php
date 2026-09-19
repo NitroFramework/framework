@@ -136,6 +136,37 @@ class FacadeResolutionTest extends TestCase
     }
 
     /**
+     * A shared service must stay shared once its binding moves to a provider.
+     *
+     * The Application used to bind these itself; it now only aliases them and
+     * the owning provider does the binding, several of them deferred. Drop the
+     * singleton() on the way across and the container silently hands back a new
+     * instance per resolution — a Gate that answers from an empty policy map, a
+     * RateLimiter that never sees a previous attempt. Nothing throws; the guard
+     * just stops guarding.
+     */
+    public function test_services_that_must_be_shared_still_are(): void
+    {
+        $container = $this->bootedContainer();
+
+        $shared = ['gate', 'hash', 'date', 'rate.limiter', 'translator', 'broadcast', 'maintenance'];
+        $perResolution = [];
+
+        foreach ($shared as $alias) {
+            try {
+                if ($container->get($alias) !== $container->get($alias)) {
+                    $perResolution[] = $alias;
+                }
+            } catch (Throwable) {
+                // Covered by the test above; an unresolvable binding is not this
+                // test's concern.
+            }
+        }
+
+        $this->assertSame([], $perResolution, 'these are rebuilt on every resolution but must be shared');
+    }
+
+    /**
      * No alias may point back at the binding that points at it.
      *
      * A pair like 'cookie' => CookieJar::class alongside CookieJar::class =>

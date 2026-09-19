@@ -11,6 +11,7 @@ use Nitro\Auth\Middleware\Authenticate;
 use Nitro\Auth\Middleware\EnsureEmailIsVerified;
 use Nitro\Auth\Middleware\RedirectIfAuthenticated;
 use Nitro\Auth\Middleware\RequirePassword;
+use Nitro\Auth\Access\Gate;
 use Nitro\Auth\Passwords\PasswordBroker;
 use Nitro\Auth\Passwords\TokenRepository;
 use Nitro\Routing\Router;
@@ -54,6 +55,25 @@ class AuthServiceProvider extends ServiceProvider
             return new PasswordBroker(
                 $container->createOrResolve(UserProvider::class),
                 $container->createOrResolve(TokenRepository::class),
+            );
+        });
+
+        /*
+         * The authorization gate. Shared, because a policy registered in one
+         * provider's boot() has to be visible to every later check — a
+         * per-resolution Gate would answer from an empty policy map.
+         *
+         * Given the container and a resolver for the current user rather than
+         * the user itself: the gate outlives any one request's authentication,
+         * and asking for the user at construction would pin whoever was signed
+         * in when the first check ran.
+         */
+        $this->container->singleton(Gate::class, function ($container) {
+            return new Gate(
+                $container,
+                static fn () => $container->has('auth')
+                    ? $container->createOrResolve('auth')->user()
+                    : null,
             );
         });
     }
