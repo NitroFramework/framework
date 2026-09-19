@@ -26,16 +26,38 @@ class BlazeServiceProvider extends ServiceProvider
 
         $this->container->singleton(BlazeRuntime::class, static fn($container) => new BlazeRuntime($container->createOrResolve(BlazeManager::class)));
 
-        // Available to service providers immediately (before any boot()).
-        Blaze::setManager($this->container->createOrResolve(BlazeManager::class));
+        /*
+         * The compiler holds no state between calls — compile() resets its one
+         * flag — so a single shared instance serves every template, built on the
+         * first one that needs rewriting.
+         */
+        $this->container->singleton(BlazeCompiler::class, static fn($container) => new BlazeCompiler(
+            $container->createOrResolve(BlazeManager::class)
+        ));
+
+        /*
+         * A resolver, not an instance: Blaze::optimize() is available to service
+         * providers immediately, but a request that never calls it and never
+         * compiles a template does not build the manager at all.
+         */
+        $container = $this->container;
+        Blaze::resolveManagerUsing(static fn (): BlazeManager => $container->createOrResolve(BlazeManager::class));
     }
 
     public function boot(): void
     {
-        $manager = $this->container->createOrResolve(BlazeManager::class);
+        $container = $this->container;
 
-        // Rewrite eligible <x-*> tags into $__blaze->render() before core compiles.
-        Blade::precompiler([new BlazeCompiler($manager), 'compile']);
+        /*
+         * Rewrite eligible <x-*> tags into $__blaze->render() before core
+         * compiles. Registered as a closure rather than a built instance:
+         * precompilers run only when Blade actually compiles a template, which
+         * with a warm compiled-view cache never happens, so constructing the
+         * compiler here spent a manager and a compiler per request on a callback
+         * that would not fire.
+         */
+        Blade::precompiler(static fn (string $template): string
+            => $container->createOrResolve(BlazeCompiler::class)->compile($template));
 
         // @blaze is a compile-time marker only — it emits nothing.
         Blade::directive('blaze', static fn(): string => '');
