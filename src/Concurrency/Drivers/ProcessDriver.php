@@ -24,6 +24,54 @@ use Nitro\Concurrency\TaskInvoker;
  */
 class ProcessDriver implements Driver
 {
+    /**
+     * The platform's discard-everything file.
+     *
+     * 'NUL' is special only on Windows; elsewhere it is an ordinary filename,
+     * so writing a child's output to it creates a file called NUL in the
+     * working directory instead of discarding anything.
+     */
+    protected static function nullDevice(): string
+    {
+        return DIRECTORY_SEPARATOR === '\\' ? 'NUL' : '/dev/null';
+    }
+
+    /**
+     * Spawn each task detached and return without waiting.
+     *
+     * The handle is closed immediately rather than waited on: proc_close()
+     * blocks, and the child outlives it under the server.
+     */
+    public function defer(array $tasks): void
+    {
+        if ($tasks === []) {
+            return;
+        }
+
+        foreach ($tasks as $task) {
+            if (! TaskInvoker::isSerializable($task)) {
+                throw new \InvalidArgumentException('defer() tasks must be serialisable (no Closures).');
+            }
+        }
+
+        $paths = app('paths');
+        $console = $paths->base('nitro');
+        $null = static::nullDevice();
+        $descriptor = [1 => ['file', $null, 'w'], 2 => ['file', $null, 'w']];
+
+        foreach ($tasks as $task) {
+            $payload = base64_encode(serialize($task));
+            $command = [PHP_BINARY, $console, 'concurrency:invoke', $payload];
+
+            $pipes = [];
+            $proc = @proc_open($command, $descriptor, $pipes, $paths->base(), null);
+
+            if (is_resource($proc)) {
+                proc_close($proc);
+            }
+        }
+    }
+
     public function run(array $tasks, ?int $timeout = null): array
     {
         if ($tasks === []) {

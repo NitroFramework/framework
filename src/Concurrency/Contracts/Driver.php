@@ -23,4 +23,14 @@ interface Driver
      * @return array<int|string, mixed>
      */
     public function run(array $tasks, ?int $timeout = null): array;
+
+    /**
+     * Start the tasks and return without waiting for them.
+     *
+     * How the work is put aside is the driver's business — a detached process,
+     * a fork, or simply doing it now when there is nowhere to put it.
+     *
+     * @param array<int|string, mixed> $tasks
+     */
+    public function defer(array $tasks): void;
 }

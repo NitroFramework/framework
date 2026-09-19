@@ -23,4 +23,15 @@ class SyncDriver implements Driver
 
         return $results;
     }
+
+    /**
+     * Runs the tasks now.
+     *
+     * There is no background to defer to, and a test asserting on deferred
+     * work wants it to have happened by the time defer() returns.
+     */
+    public function defer(array $tasks): void
+    {
+        $this->run($tasks);
+    }
 }

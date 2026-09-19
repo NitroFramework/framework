@@ -3,6 +3,7 @@
 namespace Nitro\Concurrency;
 
 use Nitro\Concurrency\Contracts\Driver;
+use Nitro\Concurrency\Drivers\ForkDriver;
 use Nitro\Concurrency\Drivers\ProcessDriver;
 use Nitro\Concurrency\Drivers\SyncDriver;
 
@@ -49,9 +50,28 @@ class Concurrency
 
         return $this->drivers[$name] ??= match ($name) {
             'process' => new ProcessDriver(),
+            'fork'    => $this->forkDriver(),
             'sync'    => new SyncDriver(),
             default   => throw new \InvalidArgumentException("Unknown concurrency driver [{$name}]."),
         };
+    }
+
+    /**
+     * The fork driver, or a refusal naming what is missing.
+     *
+     * Checked here rather than at construction so an application that never
+     * asks for it runs unchanged on a platform without pcntl.
+     */
+    private function forkDriver(): Driver
+    {
+        if (! ForkDriver::supported()) {
+            throw new \RuntimeException(
+                'The fork driver needs ext-pcntl and ext-sockets, which this platform does not have. '
+                . 'Use the process driver, or the sync driver in tests.'
+            );
+        }
+
+        return new ForkDriver();
     }
 
     /**
@@ -60,26 +80,9 @@ class Concurrency
      *
      * @param array<int|string, mixed> $tasks
      */
-    public function defer(array $tasks): void
+    public function defer(array $tasks, ?string $driver = null): void
     {
-        $paths   = app('paths');
-        $console = $paths->base('nitro');
-
-        foreach ($tasks as $task) {
-            if (! TaskInvoker::isSerializable($task)) {
-                throw new \InvalidArgumentException('defer() tasks must be serialisable (no Closures).');
-            }
-
-            $payload = base64_encode(serialize($task));
-            $command = [PHP_BINARY, $console, 'concurrency:invoke', $payload];
-
-            $proc = @proc_open($command, [1 => ['file', 'NUL', 'w'], 2 => ['file', 'NUL', 'w']], $pipes, $paths->base(), null);
-            if (is_resource($proc)) {
-                // Do NOT wait — let it run detached. proc_close would block, so we
-                // just drop the handle; the child keeps running under the server.
-                proc_close($proc);
-            }
-        }
+        $this->driver($driver)->defer($tasks);
     }
 
     /**
