@@ -108,6 +108,18 @@ class RouteDispatcher
             return $controller->runAsController($request, $parameters, $this->container);
         }
 
+        /*
+         * A controller may wrap its own actions. Arguments are resolved first
+         * and handed over, so callAction() sees what the action will actually
+         * be passed rather than having to bind anything itself.
+         */
+        if (method_exists($controller, 'callAction')) {
+            return $controller->callAction(
+                $method,
+                $this->container->arguments($controller, $method, $parameters)
+            );
+        }
+
         return $this->container->call([$controller, $method], $parameters);
     }
 

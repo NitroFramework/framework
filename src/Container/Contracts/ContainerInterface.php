@@ -44,6 +44,14 @@ interface ContainerInterface
     /** Invoke a callable with auto-wired dependencies */
     public function call(callable $callable, array $parameters = []): mixed;
 
+    /**
+     * Resolve what a method should be passed, for a caller that invokes it itself.
+     *
+     * @param  array<string, mixed> $parameters
+     * @return array<int, mixed>
+     */
+    public function arguments(object|string $object, string $method, array $parameters = []): array;
+
     /** Register the route-model-binding parameter resolver. */
     public function bindParametersUsing(\Closure $resolver): void;
 

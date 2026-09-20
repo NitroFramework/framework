@@ -1007,6 +1007,28 @@ class Container implements ContainerInterface, \ArrayAccess
     }
 
     /**
+     * Work out what to pass a method, without calling it.
+     *
+     * For a caller that has to own the invocation itself — a controller
+     * dispatching through callAction() — but still wants the typed
+     * dependencies and route parameters bound the way call() binds them.
+     *
+     * @param  array<string, mixed> $parameters Values matched by name, ahead of the container.
+     * @return array<int, mixed>
+     */
+    public function arguments(object|string $object, string $method, array $parameters = []): array
+    {
+        $key  = (is_object($object) ? $object::class : $object) . '::' . $method;
+        $meta = $this->callableCache[$key]
+            ??= (static function () use ($object, $method): array {
+                $reflector = new \ReflectionMethod($object, $method);
+                return ['reflector' => $reflector, 'params' => $reflector->getParameters()];
+            })();
+
+        return $this->resolveDependencies(null, $meta['params'], $parameters);
+    }
+
+    /**
      * Invoke a callable (closure or [object, method]), auto-wiring its
      * parameters. Passes null as consumer since call() operates on
      * closures/methods, not class construction.
