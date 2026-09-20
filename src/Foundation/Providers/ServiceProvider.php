@@ -58,18 +58,22 @@ class ServiceProvider
     // -----------------------------------------------------------------------
 
     /**
-     * Register a routes file to be loaded, optionally under a URI prefix.
+     * Register a routes file to be loaded, under the `web` stack.
+     *
+     * Takes a path and nothing else. A URI prefix, a different middleware
+     * stack or a route-name prefix belongs in a `Route::group()` inside the
+     * file itself, where all three are stated explicitly and none is inferred
+     * from another.
      *
      * Must be called from register() (not boot()) so the file is queued before
      * RoutingServiceProvider::boot() loads routes — this also lets `nitro
      * optimize` bake the routes into the compiled cache.
      *
-     * @param string $path   Absolute path to the routes definition file.
-     * @param string $prefix Optional URI prefix to mount the routes under.
+     * @param string $path Absolute path to the routes definition file.
      */
-    protected function loadRoutesFrom(string $path, string $prefix = ''): void
+    protected function loadRoutesFrom(string $path): void
     {
-        $this->container->resolve(RouteLoader::class)->addRouteFile($path, $prefix);
+        $this->container->resolve(RouteLoader::class)->addRouteFile($path);
     }
 
     /**

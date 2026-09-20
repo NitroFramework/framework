@@ -16,7 +16,7 @@ use Throwable;
  */
 class RouteLoader
 {
-    /** @var array<int, array{path: string, prefix: string}> Route files to load, in order. */
+    /** @var array<int, array{path: string, attributes: array<string, mixed>}> Route files to load, in order. */
     private array $routeFiles;
     private string $cacheFile;
     private bool $useCache;
@@ -25,9 +25,13 @@ class RouteLoader
      * Resolve the route files and cache file locations, and decide whether to
      * use the cache based on the app's debug flag.
      *
-     * Laravel layout first: routes/web.php (no prefix) + routes/api.php (under
-     * /api). Falls back to the legacy single config/routes.php when neither
-     * exists, so older apps keep working.
+     * routes/web.php gets the `web` stack; routes/api.php gets the `api` stack
+     * and sits under /api. The two are stated independently: the URI prefix is
+     * not what names the middleware group, so moving api.php's prefix would not
+     * send it looking for a group that does not exist.
+     *
+     * Falls back to the legacy single config/routes.php when neither exists,
+     * so older apps keep working.
      */
     public function __construct(PathRegistry $paths, ConfigRepository $config)
     {
@@ -36,15 +40,15 @@ class RouteLoader
 
         $files = [];
         if (file_exists($web)) {
-            $files[] = ['path' => $web, 'prefix' => ''];
+            $files[] = ['path' => $web, 'attributes' => ['middleware' => ['web']]];
         }
         if (file_exists($api)) {
-            $files[] = ['path' => $api, 'prefix' => 'api'];
+            $files[] = ['path' => $api, 'attributes' => ['middleware' => ['api'], 'prefix' => 'api']];
         }
         if ($files === []) {
             $legacy = $paths->config('routes.php');
             if (file_exists($legacy)) {
-                $files[] = ['path' => $legacy, 'prefix' => ''];
+                $files[] = ['path' => $legacy, 'attributes' => ['middleware' => ['web']]];
             }
         }
 
@@ -60,20 +64,25 @@ class RouteLoader
     }
 
     /**
-     * Append an additional route file to load, e.g. from a module provider.
+     * Append an additional route file to load, e.g. from a module or package
+     * provider.
+     *
+     * The file gets the `web` stack and nothing else. A package that wants a
+     * URI prefix, a different middleware stack or a route-name prefix declares
+     * its own `Route::group()` inside the file — the same way a package does
+     * it in Laravel, and the reason this method takes only a path.
      *
      * Registered during provider register() (before RoutingServiceProvider::boot
      * calls load()), so module routes are picked up in dev and baked into the
      * compiled route cache by `nitro optimize`. Missing files are ignored so a
      * module without a routes.php is a no-op rather than a fatal require.
      *
-     * @param string $path   Absolute path to the routes definition file.
-     * @param string $prefix Optional URI prefix to mount the file's routes under.
+     * @param string $path Absolute path to the routes definition file.
      */
-    public function addRouteFile(string $path, string $prefix = ''): void
+    public function addRouteFile(string $path): void
     {
         if (is_file($path)) {
-            $this->routeFiles[] = ['path' => $path, 'prefix' => $prefix];
+            $this->routeFiles[] = ['path' => $path, 'attributes' => ['middleware' => ['web']]];
         }
     }
 
@@ -124,15 +133,10 @@ class RouteLoader
                 require $file['path'];
             };
 
-            // Apply the matching middleware group so web routes get the 'web'
-            // stack (CSRF, …) and api routes get 'api' — Laravel's convention.
-            // The Kernel expands these group names into their members at match
-            // time. A prefix (api.php → /api) is applied in the same group.
-            $attributes = $file['prefix'] !== ''
-                ? ['prefix' => $file['prefix'], 'middleware' => [$file['prefix']]]
-                : ['middleware' => ['web']];
-
-            $router->group($attributes, function () use ($load) {
+            // Each file carries the group it loads under, decided where the
+            // file was registered. The Kernel expands a group name into its
+            // members at match time.
+            $router->group($file['attributes'], function () use ($load) {
                 $load();
             });
         }

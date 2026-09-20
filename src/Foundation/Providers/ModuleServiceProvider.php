@@ -11,7 +11,8 @@ use ReflectionClass;
  * By convention the base auto-wires everything the module ships from the module's
  * own directory, so a minimal module provider can be empty:
  *
- *   routes.php   → loadRoutesFrom()          (mounted at the module's routes)
+ *   routes.php   → loadRoutesFrom()          (the `web` stack, no URI prefix —
+ *                                            declare one in a Route::group())
  *   views/       → loadViewsFrom(..., slug)  (exposed as `slug::view`)
  *   migrations/  → loadMigrationsFrom()      (discovered by the migrate commands)
  *   config.php   → mergeConfigFrom(..., slug) (merged under config('slug.*'))
