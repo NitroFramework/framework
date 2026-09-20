@@ -2,59 +2,53 @@
 
 namespace Nitro\Http\Controller;
 
-use Nitro\Container\Contracts\ContainerInterface as Container;
-use Nitro\Http\Controller\Concerns\BuildsResponses;
-use Nitro\Http\Controller\Concerns\HandlesRequests;
-use Nitro\Http\Controller\Concerns\InteractsWithDatabase;
-use Nitro\Http\Controller\Concerns\PerformsValidation;
-use Nitro\Http\Controller\Concerns\RendersViews;
+use BadMethodCallException;
 
 /**
- * Base Controller Class for NitroPHP Framework
- * 
- * Provides common functionality and service access for all application controllers
- * via composition of focused traits.
- * 
- * DESIGN PRINCIPLES:
- * - Each trait handles a single concern (requests, responses, validation, database)
- * - Controller becomes an assembly layer with minimal logic
- * - Lazy service loading still applies within traits
- * - Clear and consistent API across all controllers
+ * The base a controller extends.
+ *
+ * Deliberately almost empty. Everything a controller needs is reachable
+ * without inheriting it — `view()`, `redirect()`, `json()`, `abort()`,
+ * `request()` are global helpers, and `DB` is a facade — so a base class that
+ * wrapped them only decided, for every controller ever written, which
+ * twenty-five methods it was going to have.
+ *
+ * What a controller wants it opts into:
+ *
+ *     class OrderController extends Controller
+ *     {
+ *         use AuthorizesRequests;
+ *         use RespondsWithJson;
+ *     }
+ *
+ * Middleware is declared by implementing {@see HasMiddleware}.
  */
 abstract class Controller
 {
-
-    protected Container $container;
-
     /**
-     * Initialize Controller and container
+     * Run an action, spreading the arguments the dispatcher resolved.
+     *
+     * The seam for anything that has to happen around every action of a
+     * controller — a tenant scope, a timing span — without a middleware that
+     * would also wrap the ones it does not care about.
+     *
+     * @param array<int, mixed> $arguments
      */
-    public function __construct()
+    public function callAction(string $method, array $arguments): mixed
     {
-
-        $this->container = app();
+        return $this->{$method}(...$arguments);
     }
 
-    // ============================================
-    // TRAITS
-    // ============================================
-
-    use HandlesRequests;
-    use RendersViews;
-    use BuildsResponses;
-    use PerformsValidation;
-    use InteractsWithDatabase;
-
-    // ============================================
-    // MAGIC SERVICE ACCESS (optional)
-    // ============================================
-
     /**
-     * Handle dynamic method calls for services not explicitly defined.
-     * Allows legacy dynamic service access.
+     * Fail loudly on a call to a method that is not there.
+     *
+     * @param array<int, mixed> $arguments
+     * @throws BadMethodCallException
      */
-    public function __call(string $name, array $arguments)
+    public function __call(string $method, array $arguments): mixed
     {
-        return $this->container->resolve($name);
+        throw new BadMethodCallException(
+            sprintf('Method %s::%s() does not exist.', static::class, $method)
+        );
     }
 }

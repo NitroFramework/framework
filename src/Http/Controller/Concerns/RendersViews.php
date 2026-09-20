@@ -5,12 +5,19 @@ namespace Nitro\Http\Controller\Concerns;
 use Nitro\Http\Response;
 
 /**
- * Controller concern: render a view to an HTTP response.
+ * Rendering a view to an HTTP response, as a method on the controller.
+ *
+ * The `view()` helper does the same and is shorter; this exists for the
+ * optional layout and section arguments, which the helper does not take.
  */
 trait RendersViews
 {
-
-    public function view(string $view, array $data = [], string $layout = '', string $section = 'content'): Response
+    /**
+     * Render a view, optionally into a named section of a layout.
+     *
+     * @param array<string, mixed> $data
+     */
+    protected function view(string $view, array $data = [], string $layout = '', string $section = 'content'): Response
     {
         $blade = app('view');
 
