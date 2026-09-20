@@ -8,6 +8,7 @@ use Nitro\Console\OutputFormatter;
 use Nitro\Foundation\PathRegistry;
 use Nitro\Foundation\Contracts\ConfigRepository;
 use Nitro\View\Blade;
+use Nitro\View\Support\ViewExtensions;
 
 /**
  * Console commands: precompile (view:cache) and clear (view:clear) the compiled template cache.
@@ -153,15 +154,15 @@ class ViewCommands implements CommandInterface
 
     protected function getAllViewFiles(string $directory): array
     {
-        $viewFiles = [];
-        $extension = $this->config->get('view.extension');
-        $iterator  = new \RecursiveIteratorIterator(
+        $viewFiles  = [];
+        $extensions = ViewExtensions::from($this->config);
+        $iterator   = new \RecursiveIteratorIterator(
             new \RecursiveDirectoryIterator($directory, \RecursiveDirectoryIterator::SKIP_DOTS),
             \RecursiveIteratorIterator::SELF_FIRST
         );
 
         foreach ($iterator as $file) {
-            if ($file->isFile() && str_ends_with($file->getFilename(), $extension)) {
+            if ($file->isFile() && ViewExtensions::match($file->getFilename(), $extensions) !== null) {
                 $viewFiles[] = $file->getPathname();
             }
         }
@@ -171,9 +172,9 @@ class ViewCommands implements CommandInterface
 
     protected function getViewNameFromPath(string $filePath, string $viewsPath): string
     {
-        $extension    = $this->config->get('view.extension');
         $relativePath = str_replace($viewsPath . DIRECTORY_SEPARATOR, '', $filePath);
-        $relativePath = str_replace('.' . $extension, '', $relativePath);
+        $relativePath = ViewExtensions::strip($relativePath, ViewExtensions::from($this->config));
+
         return str_replace(DIRECTORY_SEPARATOR, '.', $relativePath);
     }
     /** Report an unrecognised signature and fail the invocation. */

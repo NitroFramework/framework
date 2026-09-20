@@ -6,6 +6,7 @@ use Nitro\Console\OutputFormatter;
 use Nitro\Foundation\Contracts\ConfigRepository;
 use Nitro\Foundation\PathRegistry;
 use Nitro\View\Blade;
+use Nitro\View\Support\ViewExtensions;
 use Nitro\View\Support\ViewManifest;
 
 /**
@@ -293,8 +294,8 @@ PHP;
     /** Recursively collect every template file under the views directory. */
     private function getAllViewFiles(string $directory): array
     {
-        $viewFiles = [];
-        $extension = $this->config->get('view.extension');
+        $viewFiles  = [];
+        $extensions = ViewExtensions::from($this->config);
 
         if (!is_dir($directory)) {
             return $viewFiles;
@@ -306,7 +307,7 @@ PHP;
         );
 
         foreach ($iterator as $file) {
-            if ($file->isFile() && str_ends_with($file->getFilename(), $extension)) {
+            if ($file->isFile() && ViewExtensions::match($file->getFilename(), $extensions) !== null) {
                 $viewFiles[] = $file->getPathname();
             }
         }
@@ -317,9 +318,9 @@ PHP;
     /** Convert an absolute template path into its dot-notation view name. */
     private function getViewNameFromPath(string $filePath, string $viewsPath): string
     {
-        $extension    = $this->config->get('view.extension');
         $relativePath = str_replace($viewsPath . DIRECTORY_SEPARATOR, '', $filePath);
-        $relativePath = str_replace('.' . $extension, '', $relativePath);
+        $relativePath = ViewExtensions::strip($relativePath, ViewExtensions::from($this->config));
+
         return str_replace(DIRECTORY_SEPARATOR, '.', $relativePath);
     }
 }

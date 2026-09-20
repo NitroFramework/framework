@@ -14,14 +14,41 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Template File Extension
+    | Template File Extensions
     |--------------------------------------------------------------------------
     |
-    | The file extension for your Blade templates. Default is 'blade.php'
-    | but you could use 'html.php', 'tpl.php', etc.
+    | Extensions a view name is looked for under, tried in this order within
+    | each views directory. A '.md' file compiles through Blade first, so its
+    | directives and expressions still work, and its output is then converted
+    | to HTML.
     |
     */
-    'extension' => 'blade.php',
+    'extensions' => ['blade.php', 'md'],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Markdown
+    |--------------------------------------------------------------------------
+    |
+    | Raw HTML in a Markdown document is escaped by default, because a document
+    | is often the least trusted text on the page. Turn it on only for content
+    | you write yourself. With hard breaks on, every newline becomes a <br>.
+    |
+    | A link written in Markdown is a plain anchor, so following one is a full
+    | page load — which drops the application out of client-side navigation on
+    | most of the links a content page has. Attributes listed here are added to
+    | links that stay in the application. Set 'base_url' to have an absolute URL
+    | to your own site count as internal too, and 'fragments' to include links
+    | to a place on the same page.
+    |
+    */
+    'markdown' => [
+        'allow_html'      => false,
+        'hard_breaks'     => false,
+        'link_attributes' => ['wire:navigate' => true],
+        'base_url'        => null,
+        'fragments'       => false,
+    ],
 
     /*
     |--------------------------------------------------------------------------

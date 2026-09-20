@@ -135,8 +135,21 @@ return [
     ],
 
     'view' => [
-        'extension'    => 'blade.php',
+        // Tried in order within each views directory; the first match wins.
+        'extensions'   => ['blade.php', 'md'],
         'debug_render' => false,
+        'markdown' => [
+            // Raw HTML in a document is escaped unless it is turned on here.
+            'allow_html'  => false,
+            'hard_breaks' => false,
+            // Added to links that stay in the application, so following one
+            // inside a document does not drop out of client-side navigation.
+            'link_attributes' => ['wire:navigate' => true],
+            // An absolute URL counts as internal only when it matches this.
+            'base_url'        => null,
+            // Whether a link to a place on the same page counts as internal.
+            'fragments'       => false,
+        ],
         'cache' => [
             'enabled'     => true,
             'expiry'      => 0,

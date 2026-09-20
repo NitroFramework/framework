@@ -68,7 +68,8 @@ class CompiledTemplateCache implements TemplateCache, ResetsBetweenRequests
     public function __construct(
         private TemplateCompiler $compiler,
         PathRegistry $paths,
-        ConfigRepository $config
+        ConfigRepository $config,
+        private ?TemplateCompilers $compilers = null,
     ) {
         $this->cachePath    = $paths->cache('views');
         $this->cacheEnabled = (bool) $config->get('view.cache.enabled');
@@ -244,7 +245,7 @@ class CompiledTemplateCache implements TemplateCache, ResetsBetweenRequests
     // ─── Compilation ──────────────────────────────────────
 
     /**
-     * Read a template and hand its source to the compiler.
+     * Read a template and hand its source to the compiler its extension names.
      *
      * @throws RuntimeException When the template cannot be read.
      */
@@ -256,7 +257,9 @@ class CompiledTemplateCache implements TemplateCache, ResetsBetweenRequests
             throw new RuntimeException("Failed to read template file: {$templateFile}");
         }
 
-        return $this->compiler->compile($source, $templateFile);
+        $compiler = $this->compilers?->for($templateFile) ?? $this->compiler;
+
+        return $compiler->compile($source);
     }
 
     // ─── Persistence ──────────────────────────────────────

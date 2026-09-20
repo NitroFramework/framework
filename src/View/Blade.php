@@ -6,6 +6,7 @@ use Nitro\Foundation\Contracts\ConfigRepository;
 use Nitro\Foundation\PathRegistry;
 use Nitro\View\Compiler\DirectiveRegistry;
 use Nitro\View\Contracts\TemplateCache;
+use Nitro\View\Support\ViewExtensions;
 use RuntimeException;
 
 /**
@@ -22,6 +23,13 @@ class Blade
 
     /** Template file extension, without the leading dot. */
     protected string $extension;
+
+    /**
+     * Every extension a view name may resolve under, in search order.
+     *
+     * @var array<int, string>
+     */
+    protected array $extensions;
 
     /** Directory compiled templates are written to. */
     protected string $cachePath;
@@ -42,7 +50,8 @@ class Blade
         ConfigRepository $config
     ) {
         $this->viewsPath    = rtrim($paths->views(), '/\\');
-        $this->extension    = ltrim($config->get('view.extension'), '.');
+        $this->extensions   = ViewExtensions::from($config);
+        $this->extension    = $this->extensions[0];
         $this->cachePath    = $paths->cache('views') ?: sys_get_temp_dir() . '/blade_cache';
         $this->cacheEnabled = (bool) $config->get('view.cache.enabled');
         $this->cacheExpiry  = (int) $config->get('view.cache.expiry');
@@ -219,14 +228,19 @@ class Blade
      */
     public function exists(string $view): bool
     {
-        $templateFile = $this->viewsPath . DIRECTORY_SEPARATOR .
-            str_replace('.', DIRECTORY_SEPARATOR, $view) . '.' . $this->extension;
+        $relative = $this->viewsPath . DIRECTORY_SEPARATOR . str_replace('.', DIRECTORY_SEPARATOR, $view);
 
-        return file_exists($templateFile);
+        foreach ($this->extensions as $extension) {
+            if (file_exists($relative . '.' . $extension)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
-     * Get the template file extension (e.g. 'blade.php').
+     * Get the template file extension tried first (e.g. 'blade.php').
      */
     public function getExtension(): string
     {
@@ -234,13 +248,26 @@ class Blade
     }
 
     /**
-     * Set the template file extension; leading dot is stripped.
+     * Get every extension a view name may resolve under, in search order.
+     *
+     * @return array<int, string>
+     */
+    public function getExtensions(): array
+    {
+        return $this->extensions;
+    }
+
+    /**
+     * Set the template file extension tried first; leading dot is stripped.
      *
      * @param string $extension New extension (e.g. 'blade.php' or '.blade.php')
      */
     public function setExtension(string $extension): void
     {
-        $this->extension = ltrim($extension, '.');
+        $this->extension  = ltrim($extension, '.');
+        $this->extensions = array_values(array_unique(
+            array_merge([$this->extension], $this->extensions)
+        ));
     }
 
     /**

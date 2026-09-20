@@ -37,14 +37,64 @@ class FileViewFinder implements ViewFinder
     protected array $paths = [];
 
     /**
-     * @param string $viewsPath The application's own views directory.
-     * @param string $extension Template file extension, without the dot.
+     * Extensions tried in each directory, in order, without the leading dot.
+     *
+     * @var array<int, string>
+     */
+    protected array $extensions;
+
+    /**
+     * @param string                     $viewsPath  The application's own views directory.
+     * @param string|array<int, string>  $extensions Template file extensions, without the dot.
      */
     public function __construct(
         protected string $viewsPath,
-        protected string $extension,
+        string|array $extensions = 'blade.php',
     ) {
-        $this->viewsPath = $this->normalisePath($viewsPath);
+        $this->viewsPath  = $this->normalisePath($viewsPath);
+        $this->extensions = $this->normaliseExtensions($extensions);
+    }
+
+    /**
+     * The extensions a view name is looked for under, in order.
+     *
+     * @return array<int, string>
+     */
+    public function getExtensions(): array
+    {
+        return $this->extensions;
+    }
+
+    /**
+     * Add an extension to try after those already registered.
+     */
+    public function addExtension(string $extension): void
+    {
+        $extension = ltrim($extension, '.');
+
+        if ($extension !== '' && ! in_array($extension, $this->extensions, true)) {
+            $this->extensions[] = $extension;
+            $this->flush();
+        }
+    }
+
+    /**
+     * @param  string|array<int, string> $extensions
+     * @return array<int, string>
+     */
+    protected function normaliseExtensions(string|array $extensions): array
+    {
+        $normalised = [];
+
+        foreach ((array) $extensions as $extension) {
+            $extension = ltrim((string) $extension, '.');
+
+            if ($extension !== '' && ! in_array($extension, $normalised, true)) {
+                $normalised[] = $extension;
+            }
+        }
+
+        return $normalised === [] ? ['blade.php'] : $normalised;
     }
 
     /**
@@ -71,14 +121,20 @@ class FileViewFinder implements ViewFinder
         $relative = str_replace('.', DIRECTORY_SEPARATOR, $name);
         $searched = [];
 
+        /*
+         * Directory wins over extension: a view an application overrides is
+         * still its own, whichever of the two languages it chose to write it in.
+         */
         foreach ($basePaths as $basePath) {
-            $candidate = $basePath . DIRECTORY_SEPARATOR . $relative . '.' . $this->extension;
+            foreach ($this->extensions as $extension) {
+                $candidate = $basePath . DIRECTORY_SEPARATOR . $relative . '.' . $extension;
 
-            if (file_exists($candidate)) {
-                return $this->resolved[$view] = $candidate;
+                if (file_exists($candidate)) {
+                    return $this->resolved[$view] = $candidate;
+                }
+
+                $searched[] = $candidate;
             }
-
-            $searched[] = $candidate;
         }
 
         throw new RuntimeException(

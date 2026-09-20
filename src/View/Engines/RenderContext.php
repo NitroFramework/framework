@@ -58,5 +58,8 @@ final class RenderContext
 
     /** @var array<string, true> Ids of @once blocks already rendered this lifecycle. */
     public array $renderedOnce = [];
+
+    /** @var array<string, mixed> Values a page declared for itself, passed on to the layout it extends. */
+    public array $pageData = [];
 }
 

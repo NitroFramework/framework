@@ -220,6 +220,29 @@ trait ManagesLayouts
     }
 
     /**
+     * Record values a page declared for itself; what compiled front matter calls.
+     *
+     * They reach the layout the page extends, which is where a title written at
+     * the top of a Markdown document is read.
+     *
+     * @param array<string, mixed> $values
+     */
+    public function pageData(array $values): void
+    {
+        $this->context->pageData = $values + $this->context->pageData;
+    }
+
+    /**
+     * Get the values pages have declared during this render.
+     *
+     * @return array<string, mixed>
+     */
+    public function getPageData(): array
+    {
+        return $this->context->pageData;
+    }
+
+    /**
      * Determine whether a section has content.
      */
     public function hasSection(string $name): bool

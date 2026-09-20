@@ -4,13 +4,19 @@ namespace Nitro\Foundation\Providers;
 
 use Nitro\Events\Contracts\Dispatcher as EventDispatcher;
 use Nitro\Events\Contracts\ReceivesDispatcher;
+use Nitro\Foundation\Contracts\ConfigRepository;
 use Nitro\Foundation\PathRegistry;
 use Nitro\View\Blade;
 use Nitro\View\Compiler\BladeCompiler;
 use Nitro\View\Compiler\CompiledTemplateCache;
 use Nitro\View\Compiler\ComponentTagCompiler;
+use Nitro\View\Compiler\MarkdownCompiler;
+use Nitro\View\Compiler\TemplateCompilers;
 use Nitro\View\Component\ComponentRenderer;
 use Nitro\View\Contracts\ComponentEngine;
+use Nitro\View\Contracts\MarkdownParser;
+use Nitro\View\Markdown\Parser;
+use Nitro\View\Support\ViewExtensions;
 use Nitro\View\Contracts\TagCompiler;
 use Nitro\View\Contracts\TemplateCache;
 use Nitro\View\Contracts\TemplateCompiler;
@@ -35,7 +41,6 @@ class ViewServiceProvider extends ServiceProvider
         // ── Core compilers & managers (concrete singletons) ──
         $this->container->singleton(ComponentTagCompiler::class, ComponentTagCompiler::class);
         $this->container->singleton(BladeCompiler::class, BladeCompiler::class);
-        $this->container->singleton(CompiledTemplateCache::class, CompiledTemplateCache::class);
         $this->container->singleton(ComposerResolver::class, ComposerResolver::class);
         /*
          * A closure rather than a plain singleton so the engine can be handed
@@ -62,7 +67,46 @@ class ViewServiceProvider extends ServiceProvider
         $this->container->singleton(ViewFinder::class, function ($container) {
             return new FileViewFinder(
                 $container->resolve('paths')->views(),
-                (string) config('view.extension', 'blade.php'),
+                ViewExtensions::from($container->resolve(ConfigRepository::class)),
+            );
+        });
+
+        /*
+         * The bundled Markdown parser. Bound to the contract so an application
+         * can put another one behind it without the view layer noticing.
+         */
+        $this->container->singleton(MarkdownParser::class, function () {
+            $baseUrl = config('view.markdown.base_url') ?? config('app.url');
+
+            return new Parser(
+                allowHtml: (bool) config('view.markdown.allow_html', false),
+                hardBreaks: (bool) config('view.markdown.hard_breaks', false),
+                linkAttributes: (array) config('view.markdown.link_attributes', []),
+                baseUrl: is_string($baseUrl) && $baseUrl !== '' ? $baseUrl : null,
+                fragments: (bool) config('view.markdown.fragments', false),
+            );
+        });
+
+        /*
+         * Which compiler each extension goes through. Markdown wraps Blade
+         * rather than replacing it, so a `.md` page keeps its directives.
+         */
+        $this->container->singleton(TemplateCompilers::class, function ($container) {
+            $blade    = $container->resolve(BladeCompiler::class);
+            $registry = new TemplateCompilers($blade);
+
+            $registry->register('md', new MarkdownCompiler($blade));
+            $registry->register('markdown', new MarkdownCompiler($blade));
+
+            return $registry;
+        });
+
+        $this->container->singleton(CompiledTemplateCache::class, function ($container) {
+            return new CompiledTemplateCache(
+                $container->resolve(BladeCompiler::class),
+                $container->resolve(PathRegistry::class),
+                $container->resolve(ConfigRepository::class),
+                $container->resolve(TemplateCompilers::class),
             );
         });
 

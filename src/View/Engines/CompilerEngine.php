@@ -24,6 +24,7 @@ use Nitro\View\Events\ViewEvents;
 use Nitro\View\FileViewFinder;
 use Nitro\View\Support\DebugRenderPipeline;
 use Nitro\View\Support\Htmlable;
+use Nitro\View\Support\ViewExtensions;
 use Nitro\View\Support\ViewManifest;
 use RuntimeException;
 
@@ -44,8 +45,12 @@ class CompilerEngine implements EngineContract, ResetsBetweenRequests, ReceivesD
     use ManagesLoops;
     use ManagesStream;
 
-    /** Template file extension, without the dot. */
-    protected string $extension;
+    /**
+     * Template file extensions, in search order, without the dot.
+     *
+     * @var array<int, string>
+     */
+    protected array $extensions;
 
     /** Whether the application is in debug mode. */
     protected bool $debug;
@@ -85,10 +90,10 @@ class CompilerEngine implements EngineContract, ResetsBetweenRequests, ReceivesD
         ConfigRepository $config,
         ?ViewFinder $finder = null,
     ) {
-        $this->extension = $config->get('view.extension');
-        $this->debug     = (bool) $config->get('app.debug');
-        $this->context   = new RenderContext();
-        $this->finder    = $finder ?? new FileViewFinder($paths->views(), $this->extension);
+        $this->extensions = ViewExtensions::from($config);
+        $this->debug      = (bool) $config->get('app.debug');
+        $this->context    = new RenderContext();
+        $this->finder     = $finder ?? new FileViewFinder($paths->views(), $this->extensions);
 
         if ($config->get('view.debug_render')) {
             $this->debugRender = true;
@@ -360,7 +365,13 @@ class CompilerEngine implements EngineContract, ResetsBetweenRequests, ReceivesD
                     DebugRenderPipeline::note("parentView detected: {$parentView}");
                 }
                 $this->clearParentView();
-                $output = $this->renderFromFile($parentView, $data);
+
+                /*
+                 * Values the page declared for itself reach the layout, which is
+                 * where a title written at the top of a document is read. What
+                 * the caller passed still wins.
+                 */
+                $output = $this->renderFromFile($parentView, $data + $this->context->pageData);
             }
 
             if ($debug) {
