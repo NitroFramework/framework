@@ -10,6 +10,8 @@ use Nitro\Exceptions\ExceptionHandler;
 use Nitro\Exceptions\HttpException;
 use Nitro\Foundation\Application;
 use Nitro\Http\Contracts\Responsable;
+use Nitro\Http\Controller\HasMiddleware;
+use Nitro\Http\Controller\Middleware as ControllerMiddleware;
 use Nitro\Http\Events\RequestEvent;
 use Nitro\Http\Exceptions\HttpResponseException;
 use Nitro\Http\Middleware\AddQueuedCookiesToResponse;
@@ -396,7 +398,10 @@ class Kernel implements ReceivesDispatcher
      */
     protected function gatherMiddleware(Route $resolvedRoute): array
     {
-        $routeMiddleware = $resolvedRoute->getMiddleware();
+        $routeMiddleware = array_merge(
+            $resolvedRoute->getMiddleware(),
+            $this->controllerMiddleware($resolvedRoute),
+        );
 
         // Expansion depends only on the declared list and the group map, so it
         // is memoized by that list rather than repeated per request.
@@ -430,6 +435,43 @@ class Kernel implements ReceivesDispatcher
         $this->gatheredMiddlewareCache[$key] = $gathered;
 
         return $this->withoutExcluded($gathered, $resolvedRoute->excludedMiddleware());
+    }
+
+    /**
+     * The middleware a controller declares for the action being run.
+     *
+     * Read statically off the class, so the stack is assembled before the
+     * controller is resolved — a controller that guards itself does not have
+     * to be constructed to say so.
+     *
+     * @return array<int, string>
+     */
+    protected function controllerMiddleware(Route $resolvedRoute): array
+    {
+        $class  = $resolvedRoute->getControllerClass();
+        $method = $resolvedRoute->getControllerMethod();
+
+        if ($class === null || $method === null || ! is_subclass_of($class, HasMiddleware::class)) {
+            return [];
+        }
+
+        $gathered = [];
+
+        foreach ($class::middleware() as $declared) {
+            if ($declared instanceof ControllerMiddleware) {
+                if ($declared->appliesTo($method)) {
+                    $gathered[] = $declared->middleware;
+                }
+
+                continue;
+            }
+
+            if (is_string($declared)) {
+                $gathered[] = $declared;
+            }
+        }
+
+        return $gathered;
     }
 
     /**
