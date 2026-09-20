@@ -1474,8 +1474,11 @@ class Router implements RouterInterface, ExtendableRouter, ReportsAllowedMethods
 
     /**
      * Merge a group's attributes (prefix, middleware, namespace, name) into
-     * the current registration state. When a prefix is given without an
-     * explicit name, the prefix is also used as the name prefix.
+     * the current registration state.
+     *
+     * A prefix is a URI and a name is a name; neither is derived from the
+     * other. A group that wants both says both, so moving a group's URI never
+     * silently renames the routes inside it.
      */
     protected function updateGroupAttributes(array $attributes): void
     {
@@ -1505,17 +1508,16 @@ class Router implements RouterInterface, ExtendableRouter, ReportsAllowedMethods
         if (isset($attributes['name'])) {
             $this->currentName = $this->currentName . $attributes['name'];
         }
-
-        // If prefix is set but no explicit name, use prefix as name prefix
-        if (isset($attributes['prefix']) && !isset($attributes['name'])) {
-            $prefixAsName = trim($attributes['prefix'], '/') . '.';
-            $this->currentName = $this->currentName . $prefixAsName;
-        }
     }
 
     /**
      * Combine the active group prefix with a route path into a normalized,
      * leading-slash absolute path.
+     *
+     * The joined path is trimmed, so a group's index route — `get('/')` inside
+     * `['prefix' => 'admin']` — registers as `/admin` rather than `/admin/`.
+     * Only the request path is normalized at match time, so a route stored
+     * with a trailing slash matches nothing at all.
      */
     protected function buildFullPath(string $path): string
     {
@@ -1523,7 +1525,7 @@ class Router implements RouterInterface, ExtendableRouter, ReportsAllowedMethods
         $path = ltrim($path, '/');
 
         if ($prefix) {
-            return '/' . trim($prefix, '/') . '/' . $path;
+            return '/' . trim(trim($prefix, '/') . '/' . $path, '/');
         }
 
         return '/' . $path;
