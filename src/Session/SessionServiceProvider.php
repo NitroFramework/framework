@@ -5,6 +5,7 @@ namespace Nitro\Session;
 use Nitro\Cache\Repository;
 use Nitro\Cookie\CookieJar;
 use Nitro\Encryption\Contracts\Encrypter;
+use Nitro\Foundation\Contracts\ConfigRepository;
 use Nitro\Foundation\Providers\ServiceProvider;
 use Nitro\Http\Kernel;
 use Nitro\Http\Request;
@@ -32,7 +33,7 @@ class SessionServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->container->singleton(SessionManager::class, function ($container) {
-            $config = (array) config('session');
+            $config = (array) $container->resolve(ConfigRepository::class)->get('session');
             $config['driver']   ??= 'native';
 
             // The native driver relies on ext/session process globals that
@@ -64,12 +65,16 @@ class SessionServiceProvider extends ServiceProvider
             );
         });
 
-        // The kernel resolves route middleware fresh on every request. Bind
-        // StartSession explicitly so that is a cache hit rather than a
-        // reflection-driven autowire on each one — it holds nothing but the
-        // container, so a shared instance is safe in a long-running worker.
-        // (Measured: autowiring it cost ~8% of throughput on 'web' routes.)
-        $this->container->singleton(StartSession::class, fn($container) => new StartSession($container));
+        // The kernel resolves route middleware fresh on every request. Binding
+        // StartSession makes that a cache hit rather than a reflection-driven
+        // autowire on each one — it holds nothing but the container, so a
+        // shared instance is safe in a long-running worker.
+        // (Measured: leaving it unbound cost ~8% of throughput on 'web' routes.)
+        $this->container->singleton(StartSession::class, function ($container) {
+            return new StartSession(
+                static fn (): Session => $container->resolve(Session::class),
+            );
+        });
 
         // Scoped: one Store per worker request; the binding declares its own
         // lifecycle rather than relying on a central reset list.
@@ -92,7 +97,7 @@ class SessionServiceProvider extends ServiceProvider
             return;
         }
 
-        $config = (array) config('session');
+        $config = (array) $this->container->resolve(ConfigRepository::class)->get('session');
 
         if (($config['driver'] ?? 'native') !== 'native') {
             return;
@@ -128,26 +133,24 @@ class SessionServiceProvider extends ServiceProvider
      * losing them. terminating() also runs after Response::send(), keeping the
      * write off the critical path. Both no-op unless StartSession ran.
      */
-    public function boot(): void
+    public function boot(Kernel $kernel, ConfigRepository $config): void
     {
-        $kernel = $this->container->resolve(Kernel::class);
-
         // Emit the session cookie BEFORE the response is sent so the browser
         // returns the id next request — without this, file/array sessions minted
         // a fresh id every request and never persisted. responseReady runs
         // pre-send (and on the error path too).
-        $kernel->responseReady(function (Request $request, Response $response): void {
+        $kernel->responseReady(function (Request $request, Response $response) use ($config): void {
             $session = $this->container->resolve('session');
 
             if ($session->isStarted() && ! $session instanceof NativeSession) {
                 $response->header(
                     'Set-Cookie',
-                    $this->sessionCookieHeader($session->getName(), $session->getId(), $request)
+                    $this->sessionCookieHeader($session->getName(), $session->getId(), $request, $config)
                 );
             }
         });
 
-        $kernel->terminating(function (Request $request, Response $response): void {
+        $kernel->terminating(function (Request $request, Response $response) use ($config): void {
             $session = $this->container->resolve('session');
 
             // Untouched by StartSession => this route has no session; nothing
@@ -159,7 +162,7 @@ class SessionServiceProvider extends ServiceProvider
             // save() flushes and releases the native lock.
             $session->save();
 
-            $this->sweepExpiredSessions($session);
+            $this->sweepExpiredSessions($session, $config);
         });
     }
 
@@ -179,9 +182,9 @@ class SessionServiceProvider extends ServiceProvider
      * worker, and every request queued behind it, for as long as the directory
      * took to read.
      */
-    protected function sweepExpiredSessions(Session $session): void
+    protected function sweepExpiredSessions(Session $session, ConfigRepository $repository): void
     {
-        $config = (array) config('session');
+        $config = (array) $repository->get('session');
         [$chances, $outOf] = $config['lottery'] ?? [2, 100];
 
         if ($chances < 1 || $outOf < 1 || random_int(1, $outOf) > $chances) {
@@ -204,9 +207,9 @@ class SessionServiceProvider extends ServiceProvider
      * using the configured cookie attributes. `secure` defaults to "auto" — set
      * only over HTTPS.
      */
-    private function sessionCookieHeader(string $name, string $id, Request $request): string
+    private function sessionCookieHeader(string $name, string $id, Request $request, ConfigRepository $repository): string
     {
-        $config   = (array) config('session');
+        $config   = (array) $repository->get('session');
         $lifetime = (int) ($config['lifetime'] ?? 120); // minutes
         $secure   = $config['secure'] ?? $request->secure();
         $sameSite = ucfirst((string) ($config['same_site'] ?? 'lax'));

@@ -4,6 +4,7 @@ namespace Tests\Unit\Session;
 
 use Nitro\Container\Container;
 use Nitro\Foundation\Config;
+use Nitro\Foundation\Contracts\ConfigRepository;
 use Nitro\Foundation\PathRegistry;
 use Nitro\Session\SessionServiceProvider;
 use Nitro\Session\NativeSession;
@@ -33,16 +34,25 @@ class SessionWorkerSafetyTest extends TestCase
     private function container(bool $workerMode): Container
     {
         Container::setInstance(new Container());
-        $c = Container::getInstance();
-        $c->instance('config', Config::fromArray([
+        $container = Container::getInstance();
+
+        // All three names, as LoadConfiguration binds them at boot.
+        $config = Config::fromArray([
             'session' => ['driver' => 'native', 'cookie' => 'test_sess'],
-        ]));
-        $c->instance('paths', $this->paths());
+        ]);
+        $container->instance('config', $config);
+        $container->instance(Config::class, $config);
+        $container->instance(ConfigRepository::class, $config);
+
+        $container->instance('paths', $this->paths());
+
         if ($workerMode) {
-            $c->instance(WorkerMode::class, new WorkerMode());
+            $container->instance(WorkerMode::class, new WorkerMode());
         }
-        (new SessionServiceProvider($c))->register();
-        return $c;
+
+        (new SessionServiceProvider($container))->register();
+
+        return $container;
     }
 
     protected function tearDown(): void

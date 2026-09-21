@@ -2,9 +2,10 @@
 
 namespace Nitro\Session\Middleware;
 
-use Nitro\Container\Contracts\ContainerInterface as Container;
+use Closure;
 use Nitro\Http\Request;
 use Nitro\Http\Response;
+use Nitro\Session\Contracts\Session;
 use Nitro\Session\NativeSession;
 
 /**
@@ -33,8 +34,9 @@ use Nitro\Session\NativeSession;
  */
 class StartSession
 {
+    /** @param Closure(): Session $session The request's store, fetched per call. */
     public function __construct(
-        private Container $container,
+        private Closure $session,
     ) {}
 
     /**
@@ -43,7 +45,9 @@ class StartSession
      */
     public function handle(Request $request, callable $next): Response
     {
-        $session = $this->container->resolve('session');
+        // Called per request, not injected: the session is request-scoped and
+        // this middleware is shared for the life of a worker.
+        $session = ($this->session)();
 
         // The native driver reads PHP's own cookie inside session_start(), so
         // only the self-managed (file/array) drivers need the id seeded here.
