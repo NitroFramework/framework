@@ -3,6 +3,7 @@
 namespace Nitro\Notifications;
 
 use Nitro\Foundation\Providers\ServiceProvider;
+use Nitro\Mail\Contracts\Mailer;
 use Nitro\View\Contracts\ViewFinder;
 
 /**
@@ -31,7 +32,9 @@ class NotificationServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->container->singleton(ChannelManager::class, function ($container) {
-            return new ChannelManager($container);
+            return new ChannelManager(
+                static fn (): Mailer => $container->resolve(Mailer::class),
+            );
         });
 
         $this->container->singleton('notification', function ($container) {

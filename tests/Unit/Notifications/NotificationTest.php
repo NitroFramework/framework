@@ -3,8 +3,10 @@
 namespace Tests\Unit\Notifications;
 
 use Nitro\Container\Container;
+use Nitro\Container\Contracts\ClassResolver;
 use Nitro\Database\DB;
 use Nitro\Database\Schema\SchemaBuilder as Schema;
+use Nitro\Mail\Contracts\Mailer as MailerContract;
 use Nitro\Mail\Mailer;
 use Nitro\Mail\Message;
 use Nitro\Mail\Transports\ArrayTransport;
@@ -105,9 +107,9 @@ class NotificationTest extends TestCase
         $container = new Container();
         $transport = new ArrayTransport();
         $mailer = new Mailer($transport);
-        $container->singleton('mailer', fn () => $mailer);
+        $container->instance(MailerContract::class, $mailer);
 
-        (new NotificationSender(new ChannelManager($container)))
+        (new NotificationSender(new ChannelManager(static fn (): MailerContract => $mailer)))
             ->send($this->notifiable(), $this->notification());
 
         $this->assertCount(1, $transport->messages, 'mail channel');
