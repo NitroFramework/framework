@@ -2,7 +2,7 @@
 
 namespace Nitro\View\Support;
 
-use Nitro\Container\Container;
+use Nitro\Container\Contracts\ClassResolver;
 use Nitro\View\Contracts\ComposerInterface;
 use Nitro\View\Contracts\ViewComposerResolver;
 use Nitro\View\View;
@@ -38,7 +38,7 @@ class ComposerResolver implements ViewComposerResolver
     /**
      * Run every composer whose pattern matches this view, in registration order.
      */
-    public function fire(View $view, Container $container): void
+    public function fire(View $view, ClassResolver $resolver): void
     {
         foreach ($this->composers as $pattern => $composers) {
             if (! $this->matches($pattern, $view->name())) {
@@ -46,7 +46,7 @@ class ComposerResolver implements ViewComposerResolver
             }
 
             foreach ($composers as $composer) {
-                $this->resolve($composer, $container)->compose($view);
+                $this->resolve($composer, $resolver)->compose($view);
             }
         }
     }
@@ -77,13 +77,13 @@ class ComposerResolver implements ViewComposerResolver
     /**
      * Turn a registered composer into something with a compose() method.
      *
-     * A class name is resolved from the container so its dependencies are
+     * A class name goes through the resolver so its dependencies are
      * injected; a callable is wrapped so both forms are invoked identically.
      */
-    private function resolve(callable|string $composer, Container $container): ComposerInterface
+    private function resolve(callable|string $composer, ClassResolver $resolver): ComposerInterface
     {
         if (is_string($composer)) {
-            return $container->resolve($composer);
+            return $resolver->resolve($composer);
         }
 
         return new class ($composer) implements ComposerInterface {

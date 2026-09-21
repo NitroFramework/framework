@@ -2,6 +2,7 @@
 
 namespace Nitro\Foundation\Providers;
 
+use Nitro\Container\Contracts\ClassResolver;
 use Nitro\Events\Contracts\Dispatcher as EventDispatcher;
 use Nitro\Events\Contracts\ReceivesDispatcher;
 use Nitro\Foundation\Contracts\ConfigRepository;
@@ -38,10 +39,21 @@ class ViewServiceProvider extends ServiceProvider
 
     public function register(): void
     {
-        // ── Core compilers & managers (concrete singletons) ──
-        $this->container->singleton(ComponentTagCompiler::class, ComponentTagCompiler::class);
-        $this->container->singleton(BladeCompiler::class, BladeCompiler::class);
-        $this->container->singleton(ComposerResolver::class, ComposerResolver::class);
+        $this->registerCompilers();
+        $this->registerFinder();
+        $this->registerMarkdown();
+        $this->registerTemplateCache();
+        $this->registerVite();
+        $this->registerContracts();
+        $this->registerFactory();
+    }
+
+    /** The concrete compilers, and the engine that drives them. */
+    protected function registerCompilers(): void
+    {
+        $this->container->singleton(ComponentTagCompiler::class);
+        $this->container->singleton(BladeCompiler::class);
+        $this->container->singleton(ComposerResolver::class);
         /*
          * A closure rather than a plain singleton so the engine can be handed
          * the event bus it raises view.rendering/rendered on. build() autowires
@@ -58,39 +70,50 @@ class ViewServiceProvider extends ServiceProvider
 
             return $engine;
         });
+    }
 
-        /*
-         * Resolves view names to template files. A singleton because it
-         * memoizes those resolutions, and because the namespaces a provider
-         * registers must be visible to every later lookup.
-         */
+    /**
+     * Resolves view names to template files. A singleton because it memoizes
+     * those resolutions, and because the namespaces a provider registers must
+     * be visible to every later lookup.
+     */
+    protected function registerFinder(): void
+    {
         $this->container->singleton(ViewFinder::class, function ($container) {
             return new FileViewFinder(
                 $container->resolve('paths')->views(),
                 ViewExtensions::from($container->resolve(ConfigRepository::class)),
             );
         });
+    }
 
-        /*
-         * The bundled Markdown parser. Bound to the contract so an application
-         * can put another one behind it without the view layer noticing.
-         */
-        $this->container->singleton(MarkdownParser::class, function () {
-            $baseUrl = config('view.markdown.base_url') ?? config('app.url');
+    /**
+     * The bundled Markdown parser. Bound to the contract so an application can
+     * put another one behind it without the view layer noticing.
+     */
+    protected function registerMarkdown(): void
+    {
+        $this->container->singleton(MarkdownParser::class, function ($container) {
+            $config  = $container->resolve(ConfigRepository::class);
+            $baseUrl = $config->get('view.markdown.base_url') ?? $config->get('app.url');
 
             return new Parser(
-                allowHtml: (bool) config('view.markdown.allow_html', false),
-                hardBreaks: (bool) config('view.markdown.hard_breaks', false),
-                linkAttributes: (array) config('view.markdown.link_attributes', []),
+                allowHtml: (bool) $config->get('view.markdown.allow_html', false),
+                hardBreaks: (bool) $config->get('view.markdown.hard_breaks', false),
+                linkAttributes: (array) $config->get('view.markdown.link_attributes', []),
                 baseUrl: is_string($baseUrl) && $baseUrl !== '' ? $baseUrl : null,
-                fragments: (bool) config('view.markdown.fragments', false),
+                fragments: (bool) $config->get('view.markdown.fragments', false),
             );
         });
+    }
 
-        /*
-         * Which compiler each extension goes through. Markdown wraps Blade
-         * rather than replacing it, so a `.md` page keeps its directives.
-         */
+    /**
+     * Which compiler each extension goes through, and the cache their output
+     * lands in. Markdown wraps Blade rather than replacing it, so a `.md` page
+     * keeps its directives.
+     */
+    protected function registerTemplateCache(): void
+    {
         $this->container->singleton(TemplateCompilers::class, function ($container) {
             $blade    = $container->resolve(BladeCompiler::class);
             $registry = new TemplateCompilers($blade);
@@ -109,61 +132,69 @@ class ViewServiceProvider extends ServiceProvider
                 $container->resolve(TemplateCompilers::class),
             );
         });
+    }
 
-        /*
-         * What @vite resolves. A singleton because the manifest is read from
-         * disk once and then answers every entry on the page — and under a
-         * worker, once for the life of the process.
-         */
-        $this->container->singleton(\Nitro\View\Vite::class, function () {
+    /**
+     * What @vite resolves. A singleton because the manifest is read from disk
+     * once and then answers every entry on the page — and under a worker, once
+     * for the life of the process.
+     */
+    protected function registerVite(): void
+    {
+        $this->container->singleton(\Nitro\View\Vite::class, function ($container) {
+            $config = $container->resolve(ConfigRepository::class);
+
             return new \Nitro\View\Vite(
                 publicPath: function_exists('public_path') ? public_path() : getcwd() . '/public',
-                buildDirectory: (string) config('vite.build_directory', 'build'),
-                hotFile: (string) config('vite.hot_file', 'hot'),
+                buildDirectory: (string) $config->get('vite.build_directory', 'build'),
+                hotFile: (string) $config->get('vite.hot_file', 'hot'),
             );
         });
 
         $this->container->alias('vite', \Nitro\View\Vite::class);
+    }
 
-        // ── Interface → concrete (route to the singleton above) ──
+    /** Each contract routed to the concrete singleton registered above. */
+    protected function registerContracts(): void
+    {
         $this->container->singleton(TemplateCompiler::class, BladeCompiler::class);
         $this->container->singleton(TagCompiler::class, ComponentTagCompiler::class);
         $this->container->singleton(TemplateCache::class, CompiledTemplateCache::class);
         $this->container->singleton(Engine::class, CompilerEngine::class);
         $this->container->singleton(ComponentEngine::class, ComponentRenderer::class);
         $this->container->singleton(ViewComposerResolver::class, ComposerResolver::class);
+    }
 
-        // ── Component renderer (lazy to avoid circular resolution) ──
+    /** The renderer, the factory and the Blade entry point. */
+    protected function registerFactory(): void
+    {
+        // Lazy engine, to avoid circular resolution.
         $this->container->singleton(ComponentRenderer::class, function ($container) {
             return new ComponentRenderer(
                 fn() => $container->resolve(Engine::class),
             );
         });
 
-        // ── Factory ──
         $this->container->singleton(Factory::class, function ($container) {
             return new Factory(
                 $container->resolve(Engine::class),
-                $container,
+                $container->resolve(ClassResolver::class),
                 $container->resolve(ViewComposerResolver::class),
             );
         });
 
-        // ── Facade ──
-        $this->container->singleton(Blade::class, Blade::class);
+        $this->container->singleton(Blade::class);
 
-        // ── Aliases ──
         $this->container->alias('view', Blade::class);
         $this->container->alias('view.factory', Factory::class);
     }
 
-    public function boot(): void
+    public function boot(PathRegistry $paths): void
     {
         // Always register directives from config/directives.php with their real,
         // expression-aware callbacks. (Directives are intentionally not cached:
         // a callback's output depends on the invocation's $expression, so a
         // cached snapshot for one expression can't stand in for all calls.)
-        $paths = $this->container->resolve(PathRegistry::class);
         $this->loadCustomDirectives($paths);
     }
 

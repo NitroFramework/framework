@@ -2,7 +2,7 @@
 
 namespace Nitro\View\Contracts;
 
-use Nitro\Container\Container;
+use Nitro\Container\Contracts\ClassResolver;
 use Nitro\View\View;
 
 /**
@@ -21,5 +21,5 @@ interface ViewComposerResolver
     /**
      * Run every composer registered for the given view.
      */
-    public function fire(View $view, Container $container): void;
+    public function fire(View $view, ClassResolver $resolver): void;
 }

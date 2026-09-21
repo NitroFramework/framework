@@ -3,7 +3,7 @@
 namespace Nitro\View;
 
 use InvalidArgumentException;
-use Nitro\Container\Container;
+use Nitro\Container\Contracts\ClassResolver;
 use Nitro\View\Contracts\ViewComposerResolver;
 use Nitro\View\Contracts\Engine;
 use Nitro\View\Contracts\Factory as FactoryContract;
@@ -23,12 +23,12 @@ class Factory implements FactoryContract
 
     /**
      * @param Engine           $renderer         Resolves and renders templates.
-     * @param Container            $container        Resolves composers named by class.
+     * @param ClassResolver        $resolver         Builds composers named by class.
      * @param ViewComposerResolver $composerResolver Holds and fires those composers.
      */
     public function __construct(
         private Engine $renderer,
-        private Container $container,
+        private ClassResolver $resolver,
         private ViewComposerResolver $composerResolver,
     ) {
     }
@@ -99,7 +99,7 @@ class Factory implements FactoryContract
      */
     public function renderView(View $view): string
     {
-        $this->composerResolver->fire($view, $this->container);
+        $this->composerResolver->fire($view, $this->resolver);
 
         return $this->renderer->render(
             $view->name(),
@@ -187,7 +187,7 @@ class Factory implements FactoryContract
      *
      * @param string|array<int, string> $templates View names, `prefix.*`, or `*`.
      * @param callable|string           $composer  A callable, or a class name
-     *                                             resolved from the container.
+     *                                             built when it fires.
      */
     public function composer(string|array $templates, callable|string $composer): void
     {
