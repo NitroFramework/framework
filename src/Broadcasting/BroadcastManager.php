@@ -7,7 +7,8 @@ use Nitro\Broadcasting\Contracts\Broadcaster;
 use Nitro\Broadcasting\Contracts\ShouldBroadcast;
 use Nitro\Broadcasting\Drivers\LogBroadcaster;
 use Nitro\Broadcasting\Drivers\NullBroadcaster;
-use Nitro\Container\Contracts\ContainerInterface as Container;
+use Nitro\Container\Contracts\ClassResolver;
+use Nitro\Foundation\Contracts\ConfigRepository;
 use RuntimeException;
 
 /**
@@ -31,15 +32,18 @@ class BroadcastManager
     /** @var array<string, callable|string> Channel authorisers, by pattern. */
     protected array $channels = [];
 
+    /** Set by setDefaultDriver(), otherwise read from config on first use. */
+    protected ?string $default = null;
+
     public function __construct(
-        protected Container $container,
-        protected string $default = 'null',
+        protected ClassResolver $resolver,
+        protected ConfigRepository $config,
     ) {}
 
     /** The driver a name resolves to, building it the first time. */
     public function connection(?string $name = null): Broadcaster
     {
-        $name ??= $this->default;
+        $name ??= $this->getDefaultDriver();
 
         return $this->drivers[$name] ??= $this->resolve($name);
     }
@@ -50,7 +54,12 @@ class BroadcastManager
         return $this->connection($name);
     }
 
-    /** Register a driver the framework does not ship. */
+    /**
+     * Register a driver the framework does not ship.
+     *
+     * @param Closure $factory Receives a {@see ClassResolver} and returns a
+     *                         {@see Broadcaster}.
+     */
     public function extend(string $name, Closure $factory): static
     {
         $this->customCreators[$name] = $factory;
@@ -67,9 +76,10 @@ class BroadcastManager
         return $this;
     }
 
+    /** The connection broadcasts go out on when none is named. */
     public function getDefaultDriver(): string
     {
-        return $this->default;
+        return $this->default ??= (string) $this->config->get('broadcasting.default', 'null');
     }
 
     /**
@@ -137,7 +147,7 @@ class BroadcastManager
             }
 
             if (is_string($callback)) {
-                $callback = [$this->container->resolve($callback), 'join'];
+                $callback = [$this->resolver->resolve($callback), 'join'];
             }
 
             return (bool) $callback($user, ...$parameters);
@@ -194,7 +204,7 @@ class BroadcastManager
     protected function resolve(string $name): Broadcaster
     {
         if (isset($this->customCreators[$name])) {
-            return ($this->customCreators[$name])($this->container);
+            return ($this->customCreators[$name])($this->resolver);
         }
 
         return match ($name) {

@@ -9,7 +9,8 @@ use Nitro\Broadcasting\Contracts\ShouldBroadcast;
 use Nitro\Broadcasting\Drivers\NullBroadcaster;
 use Nitro\Broadcasting\PresenceChannel;
 use Nitro\Broadcasting\PrivateChannel;
-use Nitro\Container\Container;
+use Nitro\Container\Contracts\ClassResolver;
+use Nitro\Foundation\Config;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -24,18 +25,13 @@ class BroadcastTest extends TestCase
     {
         parent::setUp();
 
-        Container::setInstance(new Container());
-
         $this->spy = new SpyBroadcaster();
-        $this->broadcast = new BroadcastManager(Container::getInstance(), 'null');
+        $this->broadcast = new BroadcastManager(
+            new NewingClassResolver(),
+            Config::fromArray(['broadcasting' => ['default' => 'null']]),
+        );
 
         $this->broadcast->extend('spy', fn (): SpyBroadcaster => $this->spy);
-    }
-
-    protected function tearDown(): void
-    {
-        Container::setInstance(new Container());
-        parent::tearDown();
     }
 
     // ─── Channels ─────────────────────────────────────────
@@ -179,6 +175,32 @@ class BroadcastTest extends TestCase
         $this->expectExceptionMessage('not registered');
 
         $this->broadcast->connection();
+    }
+
+    public function test_a_channel_authoriser_may_be_named_by_class(): void
+    {
+        $this->broadcast->channel('orders.{id}', OrderChannel::class);
+
+        $this->assertTrue($this->broadcast->check('ada', 'orders.7'));
+        $this->assertFalse($this->broadcast->check('ada', 'orders.8'));
+    }
+}
+
+/** Instantiates a class with no dependencies of its own. */
+final class NewingClassResolver implements ClassResolver
+{
+    public function resolve(string $class): object
+    {
+        return new $class();
+    }
+}
+
+/** A channel authoriser registered by class string rather than closure. */
+class OrderChannel
+{
+    public function join(mixed $user, string $id): bool
+    {
+        return $id === '7';
     }
 }
 
