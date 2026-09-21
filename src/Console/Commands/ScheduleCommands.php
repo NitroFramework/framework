@@ -6,7 +6,6 @@ use Nitro\Console\ExitCode;
 use DateTime;
 use Nitro\Console\Contracts\CommandInterface;
 use Nitro\Console\OutputFormatter;
-use Nitro\Scheduling\ScheduleContext;
 use Nitro\Container\Contracts\ContainerInterface as Container;
 use Nitro\Scheduling\Schedule;
 use Throwable;
@@ -64,7 +63,7 @@ class ScheduleCommands implements CommandInterface
         foreach ($due as $event) {
             $this->output->info('Running: ' . $event->getDescription());
             try {
-                $event->run($this->container->resolve(ScheduleContext::class));
+                $event->run();
                 $this->output->success('Done: ' . $event->getDescription());
             } catch (Throwable $exception) {
                 $this->output->error('Failed: ' . $event->getDescription() . ' — ' . $exception->getMessage());

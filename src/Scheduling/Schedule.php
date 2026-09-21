@@ -11,24 +11,30 @@ class Schedule
     /** @var array<int, Event> */
     protected array $events = [];
 
+    /**
+     * Every event this schedule creates is handed the context, so running one
+     * needs no argument — a caller with an Event in hand has everything.
+     */
+    public function __construct(protected ScheduleContext $context) {}
+
     public function call(callable $callback): Event
     {
-        return $this->events[] = new Event(Closure::fromCallable($callback), 'callback');
+        return $this->events[] = new Event(Closure::fromCallable($callback), 'callback', $this->context);
     }
 
     public function command(string $command): Event
     {
-        return $this->events[] = new Event($command, 'command');
+        return $this->events[] = new Event($command, 'command', $this->context);
     }
 
     public function job(object $job): Event
     {
-        return $this->events[] = new Event($job, 'job');
+        return $this->events[] = new Event($job, 'job', $this->context);
     }
 
     public function exec(string $command): Event
     {
-        return $this->events[] = new Event($command, 'exec');
+        return $this->events[] = new Event($command, 'exec', $this->context);
     }
 
     /** @return array<int, Event> */

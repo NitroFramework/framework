@@ -96,7 +96,7 @@ class ScheduleTest extends TestCase
 
     public function test_schedule_returns_only_due_events(): void
     {
-        $schedule = new Schedule();
+        $schedule = new Schedule($this->scheduleContext());
         $schedule->call(static fn () => null)->dailyAt('13:30')->description('afternoon');
         $schedule->call(static fn () => null)->dailyAt('09:00')->description('morning');
 

@@ -4,6 +4,7 @@ namespace Nitro\Scheduling;
 
 use Closure;
 use DateTimeInterface;
+use RuntimeException;
 
 /**
  * A scheduled task: a cron expression plus the thing to run (a callback, a
@@ -50,6 +51,7 @@ class Event
     public function __construct(
         protected mixed $task,
         protected string $type = 'callback', // callback | command | job | exec
+        protected ?ScheduleContext $context = null,
     ) {}
 
     public function expression(): string
@@ -208,8 +210,21 @@ class Event
         return 'schedule:' . sha1($this->type . '|' . $this->expression() . '|' . $this->getDescription());
     }
 
-    public function run(ScheduleContext $context): mixed
+    /**
+     * Run the task.
+     *
+     * An event built by a Schedule already carries its context, so a caller
+     * holding one needs nothing else. The argument is for an event built by
+     * hand, and overrides what the event was given.
+     *
+     * @throws RuntimeException When neither is present.
+     */
+    public function run(?ScheduleContext $context = null): mixed
     {
+        $context ??= $this->context ?? throw new RuntimeException(
+            'This event has no schedule context. Build it through Schedule, or pass one to run().'
+        );
+
         if ($this->onOneServer && ! $this->claimThisMinute($context)) {
             return null;
         }

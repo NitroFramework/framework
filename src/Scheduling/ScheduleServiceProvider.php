@@ -20,7 +20,7 @@ class ScheduleServiceProvider extends ServiceProvider
 
     public function register(): void
     {
-        $this->container->singleton(Schedule::class, fn () => new Schedule());
+        $this->container->singleton(Schedule::class);
         $this->container->alias('schedule', Schedule::class);
 
         /*
