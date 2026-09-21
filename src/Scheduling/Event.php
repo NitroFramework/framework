@@ -4,8 +4,6 @@ namespace Nitro\Scheduling;
 
 use Closure;
 use DateTimeInterface;
-use Nitro\Console\CommandManager;
-use Nitro\Container\Contracts\ContainerInterface as Container;
 
 /**
  * A scheduled task: a cron expression plus the thing to run (a callback, a
@@ -210,30 +208,30 @@ class Event
         return 'schedule:' . sha1($this->type . '|' . $this->expression() . '|' . $this->getDescription());
     }
 
-    public function run(Container $container): mixed
+    public function run(ScheduleContext $context): mixed
     {
-        if ($this->onOneServer && ! $this->claimThisMinute($container)) {
+        if ($this->onOneServer && ! $this->claimThisMinute($context)) {
             return null;
         }
 
         if ($this->withoutOverlapping !== null) {
-            return $container->resolve('cache')->store()->lock(
+            return $context->cache()->store()->lock(
                 $this->mutexName(),
                 $this->withoutOverlapping,
-                fn (): mixed => $this->execute($container),
+                fn (): mixed => $this->execute($context),
             );
         }
 
-        return $this->execute($container);
+        return $this->execute($context);
     }
 
     /**
      * Claim the current minute for this task, returning false when another
      * instance already holds it.
      */
-    protected function claimThisMinute(Container $container): bool
+    protected function claimThisMinute(ScheduleContext $context): bool
     {
-        return $container->resolve('cache')->store()->add(
+        return $context->cache()->store()->add(
             $this->mutexName() . ':' . date('YmdHi'),
             1,
             60,
@@ -247,15 +245,15 @@ class Event
      * its cleanup; the failure callbacks see the exception before it is
      * re-thrown, so nothing is swallowed.
      */
-    protected function execute(Container $container): mixed
+    protected function execute(ScheduleContext $context): mixed
     {
         $this->fire($this->beforeCallbacks);
 
         try {
             $result = match ($this->type) {
                 'callback' => ($this->task)(),
-                'command'  => $this->runCommand($container),
-                'job'      => $container->resolve('queue')->push($this->task),
+                'command'  => $this->runCommand($context),
+                'job'      => $context->queue()->push($this->task),
                 'exec'     => $this->runExec(),
                 default    => null,
             };
@@ -285,12 +283,12 @@ class Event
         }
     }
 
-    protected function runCommand(Container $container): mixed
+    protected function runCommand(ScheduleContext $context): mixed
     {
         $parts = preg_split('/\s+/', trim((string) $this->task));
         $name = array_shift($parts);
 
-        return $container->resolve(CommandManager::class)->resolve($name, $parts);
+        return $context->commands()->resolve($name, $parts);
     }
 
     protected function runExec(): mixed

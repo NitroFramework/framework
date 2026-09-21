@@ -3,6 +3,10 @@
 namespace Tests\Unit\Scheduling;
 
 use Nitro\Container\Container;
+use Nitro\Cache\CacheManager;
+use Nitro\Console\CommandManager;
+use Nitro\Queue\QueueManager;
+use Nitro\Scheduling\ScheduleContext;
 use Nitro\Scheduling\Event;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
@@ -15,6 +19,17 @@ use RuntimeException;
  */
 class EventHooksTest extends TestCase
 {
+    /** The three services a due task may reach for; none is built by a callback task. */
+    private function scheduleContext(?Container $container = null): ScheduleContext
+    {
+        $container ??= new Container();
+
+        return new ScheduleContext(
+            static fn (): CacheManager => $container->resolve(CacheManager::class),
+            static fn (): QueueManager => $container->resolve(QueueManager::class),
+            static fn (): CommandManager => $container->resolve(CommandManager::class),
+        );
+    }
     private function container(): Container
     {
         return new Container();
@@ -32,7 +47,7 @@ class EventHooksTest extends TestCase
             ->before(function () use (&$order) { $order[] = 'before'; })
             ->after(function () use (&$order) { $order[] = 'after'; });
 
-        $this->assertSame('done', $event->run($this->container()));
+        $this->assertSame('done', $event->run($this->scheduleContext()));
         $this->assertSame(['before', 'task', 'after'], $order);
     }
 
@@ -42,7 +57,7 @@ class EventHooksTest extends TestCase
 
         (new Event(fn () => null))
             ->then(function () use (&$ran) { $ran = true; })
-            ->run($this->container());
+            ->run($this->scheduleContext());
 
         $this->assertTrue($ran);
     }
@@ -53,7 +68,7 @@ class EventHooksTest extends TestCase
 
         (new Event(fn () => 'the result'))
             ->onSuccess(function ($result) use (&$seen) { $seen = $result; })
-            ->run($this->container());
+            ->run($this->scheduleContext());
 
         $this->assertSame('the result', $seen);
     }
@@ -66,7 +81,7 @@ class EventHooksTest extends TestCase
             ->onSuccess(function () use (&$ran) { $ran = true; });
 
         try {
-            $event->run($this->container());
+            $event->run($this->scheduleContext());
         } catch (RuntimeException) {
             //
         }
@@ -82,7 +97,7 @@ class EventHooksTest extends TestCase
             ->onFailure(function ($exception) use (&$seen) { $seen = $exception; });
 
         try {
-            $event->run($this->container());
+            $event->run($this->scheduleContext());
         } catch (RuntimeException) {
             //
         }
@@ -100,7 +115,7 @@ class EventHooksTest extends TestCase
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('it broke');
 
-        $event->run($this->container());
+        $event->run($this->scheduleContext());
     }
 
     /** Cleanup has to happen even when the task fails. */
@@ -112,7 +127,7 @@ class EventHooksTest extends TestCase
             ->after(function () use (&$ran) { $ran = true; });
 
         try {
-            $event->run($this->container());
+            $event->run($this->scheduleContext());
         } catch (RuntimeException) {
             //
         }

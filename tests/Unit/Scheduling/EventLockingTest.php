@@ -3,8 +3,11 @@
 namespace Tests\Unit\Scheduling;
 
 use Nitro\Cache\CacheManager;
+use Nitro\Console\CommandManager;
 use Nitro\Container\Container;
+use Nitro\Queue\QueueManager;
 use Nitro\Scheduling\Event;
+use Nitro\Scheduling\ScheduleContext;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -13,6 +16,17 @@ use PHPUnit\Framework\TestCase;
  */
 class EventLockingTest extends TestCase
 {
+    /** The three services a due task may reach for; none is built by a callback task. */
+    private function scheduleContext(?Container $container = null): ScheduleContext
+    {
+        $container ??= new Container();
+
+        return new ScheduleContext(
+            static fn (): CacheManager => $container->resolve(CacheManager::class),
+            static fn (): QueueManager => $container->resolve(QueueManager::class),
+            static fn (): CommandManager => $container->resolve(CommandManager::class),
+        );
+    }
     private Container $container;
 
     protected function setUp(): void
@@ -31,7 +45,8 @@ class EventLockingTest extends TestCase
             'stores'  => ['array' => ['driver' => 'array']],
         ]);
 
-        $this->container->singleton('cache', fn (): CacheManager => $cache);
+        $this->container->instance(CacheManager::class, $cache);
+        $this->container->alias('cache', CacheManager::class);
     }
 
     protected function tearDown(): void
@@ -58,8 +73,8 @@ class EventLockingTest extends TestCase
             return 'done';
         });
 
-        $this->assertSame('done', $event->run($this->container));
-        $this->assertSame('done', $event->run($this->container));
+        $this->assertSame('done', $event->run($this->scheduleContext($this->container)));
+        $this->assertSame('done', $event->run($this->scheduleContext($this->container)));
         $this->assertSame(2, $runs);
     }
 
@@ -71,8 +86,8 @@ class EventLockingTest extends TestCase
             $runs++;
         })->withoutOverlapping();
 
-        $event->run($this->container);
-        $event->run($this->container);
+        $event->run($this->scheduleContext($this->container));
+        $event->run($this->scheduleContext($this->container));
 
         $this->assertSame(2, $runs);
     }
@@ -86,10 +101,10 @@ class EventLockingTest extends TestCase
         $outer = $this->event(function () use ($inner, &$attempts): mixed {
             $attempts++;
 
-            return $inner->run($this->container);
+            return $inner->run($this->scheduleContext($this->container));
         })->withoutOverlapping();
 
-        $this->assertNull($outer->run($this->container));
+        $this->assertNull($outer->run($this->scheduleContext($this->container)));
         $this->assertSame(1, $attempts);
     }
 
@@ -100,7 +115,7 @@ class EventLockingTest extends TestCase
         })->withoutOverlapping();
 
         try {
-            $event->run($this->container);
+            $event->run($this->scheduleContext($this->container));
         } catch (\RuntimeException) {
             // expected
         }
@@ -111,7 +126,7 @@ class EventLockingTest extends TestCase
             $ran = true;
         })->withoutOverlapping();
 
-        $after->run($this->container);
+        $after->run($this->scheduleContext($this->container));
 
         $this->assertTrue($ran);
     }
@@ -131,8 +146,8 @@ class EventLockingTest extends TestCase
         $first = $this->event($task)->onOneServer();
         $second = $this->event($task)->onOneServer();
 
-        $this->assertSame('done', $first->run($this->container));
-        $this->assertNull($second->run($this->container));
+        $this->assertSame('done', $first->run($this->scheduleContext($this->container)));
+        $this->assertNull($second->run($this->scheduleContext($this->container)));
         $this->assertSame(1, $runs);
     }
 
@@ -150,8 +165,8 @@ class EventLockingTest extends TestCase
         $reports = (new Event($task, 'callback'))->everyMinute()->description('reports')->onOneServer();
         $prune = (new Event($task, 'callback'))->everyMinute()->description('prune')->onOneServer();
 
-        $this->assertSame('done', $reports->run($this->container));
-        $this->assertSame('done', $prune->run($this->container));
+        $this->assertSame('done', $reports->run($this->scheduleContext($this->container)));
+        $this->assertSame('done', $prune->run($this->scheduleContext($this->container)));
         $this->assertSame(2, $runs);
     }
 

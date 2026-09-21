@@ -3,10 +3,14 @@
 namespace Tests\Unit\Scheduling;
 
 use DateTimeImmutable;
+use Nitro\Cache\CacheManager;
+use Nitro\Console\CommandManager;
 use Nitro\Container\Container;
+use Nitro\Queue\QueueManager;
 use Nitro\Scheduling\CronExpression;
 use Nitro\Scheduling\Event;
 use Nitro\Scheduling\Schedule;
+use Nitro\Scheduling\ScheduleContext;
 use PHPUnit\Framework\TestCase;
 
 class ScheduleTest extends TestCase
@@ -14,6 +18,18 @@ class ScheduleTest extends TestCase
     private function at(string $datetime): DateTimeImmutable
     {
         return new DateTimeImmutable($datetime);
+    }
+
+    /** The three services a due task may reach for; none is built by a callback task. */
+    private function scheduleContext(): ScheduleContext
+    {
+        $container = new Container();
+
+        return new ScheduleContext(
+            static fn (): CacheManager => $container->resolve(CacheManager::class),
+            static fn (): QueueManager => $container->resolve(QueueManager::class),
+            static fn (): CommandManager => $container->resolve(CommandManager::class),
+        );
     }
 
     private function event(callable $task = null): Event
@@ -65,7 +81,7 @@ class ScheduleTest extends TestCase
         $this->assertTrue($event->isDue($this->at('2026-06-15 13:30:00')));
         $this->assertFalse($event->isDue($this->at('2026-06-15 13:31:00')));
 
-        $event->run(new Container());
+        $event->run($this->scheduleContext());
         $this->assertTrue($ran);
     }
 
