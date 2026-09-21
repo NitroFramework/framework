@@ -31,7 +31,12 @@ class SupportServiceProvider extends ServiceProvider
         /*
          * Bound rather than shared: a pipeline holds the value travelling
          * through it, so two callers sharing one would see each other's.
+         *
+         * The third argument is what makes that true. bind() defaults to a
+         * shared binding, so the two-argument call this used to be handed out
+         * one Pipeline for the life of the process — the exact thing the line
+         * above says must not happen.
          */
-        $this->container->bind(Pipeline::class, Pipeline::class);
+        $this->container->bind(Pipeline::class, Pipeline::class, false);
     }
 }
