@@ -3,7 +3,8 @@
 namespace Nitro\Console;
 
 use Nitro\Concurrency\Console\ConcurrencyInvokeCommand;
-use Nitro\Container\Contracts\ContainerInterface as Container;
+use Nitro\Container\Contracts\ClassResolver;
+use Nitro\Foundation\PathRegistry;
 use Nitro\Cache\Console\CacheTableCommand;
 use Nitro\Session\Console\SessionTableCommand;
 use Nitro\Thrust\Commands\ThrustCommands;
@@ -30,8 +31,9 @@ class CommandManager
     private array $descriptions = [];
 
     public function __construct(
-        private Container $container,
-        private OutputFormatter $output
+        private ClassResolver $resolver,
+        private OutputFormatter $output,
+        private PathRegistry $paths,
     ) {
         $this->registerBuiltInCommands();
         $this->discoverPackageCommands();
@@ -45,7 +47,7 @@ class CommandManager
      */
     private function discoverPackageCommands(): void
     {
-        $paths = $this->container->resolve('paths');
+        $paths = $this->paths;
 
         $manifest = new \Nitro\Foundation\PackageManifest(
             $paths->base('vendor'),
@@ -117,7 +119,7 @@ class CommandManager
     {
         $signatures = defined($class . '::COMMANDS')
             ? constant($class . '::COMMANDS')
-            : $this->container->resolve($class)->getCommands();
+            : $this->resolver->resolve($class)->getCommands();
 
         foreach ($signatures as $signature => $description) {
             $this->commands[$signature] = $class;
@@ -143,7 +145,7 @@ class CommandManager
 
         // Class strings are built now (lazy) so a command's dependencies (and
         // HelpCommand's back-reference to this manager) resolve only on demand.
-        $command = is_string($entry) ? $this->container->resolve($entry) : $entry;
+        $command = is_string($entry) ? $this->resolver->resolve($entry) : $entry;
 
         // Two shapes are supported: a single Command (its own signature +
         // handle()), or a grouped CommandInterface (handle(sig, args)). Both
@@ -165,8 +167,7 @@ class CommandManager
      */
     private function discoverUserCommands(): void
     {
-        $paths = $this->container->resolve('paths');
-        $base = $paths->base();
+        $base = $this->paths->base();
         $root = $base . '/app/Console/Commands';
 
         if (!is_dir($root)) return;
