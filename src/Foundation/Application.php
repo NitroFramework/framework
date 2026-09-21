@@ -445,7 +445,7 @@ class Application implements ApplicationInterface
          * responseReady, terminating) registered during provider boot are
          * attached to the very instance that Application::handle() runs.
          */
-        $this->container->singleton(Kernel::class, Kernel::class);
+        $this->container->singleton(Kernel::class);
 
         /*
          * Nothing binds the request here: the Kernel attaches the instance once

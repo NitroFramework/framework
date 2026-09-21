@@ -21,6 +21,6 @@ class ProcessServiceProvider extends ServiceProvider
 
     public function register(): void
     {
-        $this->container->singleton(Factory::class, Factory::class);
+        $this->container->singleton(Factory::class);
     }
 }

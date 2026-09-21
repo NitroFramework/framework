@@ -23,7 +23,7 @@ class HttpServiceProvider extends ServiceProvider
 
     public function register(): void
     {
-        $this->container->singleton(ResponseFactory::class, ResponseFactory::class);
-        $this->container->singleton(Redirector::class, Redirector::class);
+        $this->container->singleton(ResponseFactory::class);
+        $this->container->singleton(Redirector::class);
     }
 }

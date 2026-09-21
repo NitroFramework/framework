@@ -23,6 +23,6 @@ class TestingServiceProvider extends ServiceProvider
 
     public function register(): void
     {
-        $this->container->singleton(ParallelTesting::class, ParallelTesting::class);
+        $this->container->singleton(ParallelTesting::class);
     }
 }

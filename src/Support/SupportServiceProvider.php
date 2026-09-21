@@ -25,16 +25,13 @@ class SupportServiceProvider extends ServiceProvider
 
     public function register(): void
     {
-        $this->container->singleton(Hash::class, Hash::class);
-        $this->container->singleton(DateFactory::class, DateFactory::class);
+        $this->container->singleton(Hash::class);
+        $this->container->singleton(DateFactory::class);
 
         /*
          * Bound rather than shared: a pipeline holds the value travelling
          * through it, so two callers sharing one would see each other's.
          */
-        $this->container->bind(
-            Pipeline::class,
-            static fn ($container) => new Pipeline($container)
-        );
+        $this->container->bind(Pipeline::class, Pipeline::class);
     }
 }

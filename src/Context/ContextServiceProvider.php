@@ -22,6 +22,6 @@ class ContextServiceProvider extends ServiceProvider
 
     public function register(): void
     {
-        $this->container->singleton(Repository::class, Repository::class);
+        $this->container->singleton(Repository::class);
     }
 }

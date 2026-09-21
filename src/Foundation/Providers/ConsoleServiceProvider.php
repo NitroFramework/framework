@@ -14,8 +14,8 @@ class ConsoleServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        $this->container->singleton(OutputFormatter::class, OutputFormatter::class);
-        $this->container->singleton(CommandManager::class, CommandManager::class);
-        $this->container->singleton(Kernel::class, Kernel::class);
+        $this->container->singleton(OutputFormatter::class);
+        $this->container->singleton(CommandManager::class);
+        $this->container->singleton(Kernel::class);
     }
 }

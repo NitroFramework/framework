@@ -33,13 +33,13 @@ class RoutingServiceProvider extends ServiceProvider
         * Before the router, which is handed it: a layer registering a route
         * type and the router reading one must be looking at the same registry.
         */
-       $this->container->singleton(RouteTypes::class, RouteTypes::class);
+       $this->container->singleton(RouteTypes::class);
 
-       $this->container->singleton(Router::class, Router::class);
+       $this->container->singleton(Router::class);
 
-        $this->container->singleton(RouteLoader::class, RouteLoader::class);
+        $this->container->singleton(RouteLoader::class);
 
-       $this->container->singleton(RouteDispatcher::class, RouteDispatcher::class);
+       $this->container->singleton(RouteDispatcher::class);
 
         $this->container->alias(RouterInterface::class, Router::class);
         $this->container->alias('router', Router::class);
