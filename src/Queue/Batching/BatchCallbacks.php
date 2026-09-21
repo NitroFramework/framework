@@ -2,19 +2,19 @@
 
 namespace Nitro\Queue\Batching;
 
-use Nitro\Container\Contracts\ContainerInterface as Container;
+use Nitro\Container\Contracts\ClassResolver;
 use Throwable;
 
 /**
  * Runs the callbacks a batch was given as its jobs settle.
  *
- * A callback is a class name or a [class, method] pair; the container builds
+ * A callback is a class name or a [class, method] pair; the resolver builds
  * it and it receives the batch, plus the exception for catch().
  */
 class BatchCallbacks
 {
     public function __construct(
-        private Container $container,
+        private ClassResolver $resolver,
     ) {}
 
     /** Run before the batch's jobs are pushed. */
@@ -75,6 +75,6 @@ class BatchCallbacks
     {
         [$class, $method] = is_array($callback) ? $callback : [$callback, '__invoke'];
 
-        $this->container->resolve($class)->{$method}(...$arguments);
+        $this->resolver->resolve($class)->{$method}(...$arguments);
     }
 }

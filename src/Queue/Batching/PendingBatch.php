@@ -4,7 +4,7 @@ namespace Nitro\Queue\Batching;
 
 use Closure;
 use InvalidArgumentException;
-use Nitro\Container\Contracts\ContainerInterface as Container;
+use Nitro\Http\Kernel;
 use Nitro\Queue\Batchable;
 use Nitro\Queue\Job;
 use Nitro\Queue\QueueManager;
@@ -37,10 +37,11 @@ class PendingBatch
      * @param array<int, Job>|Job $jobs
      */
     public function __construct(
-        protected Container $container,
         protected QueueManager $queue,
         protected BatchRepository $repository,
+        protected BatchCallbacks $callbacks,
         array|Job $jobs = [],
+        protected ?Kernel $kernel = null,
     ) {
         $this->add($jobs);
     }
@@ -249,16 +250,15 @@ class PendingBatch
      */
     public function dispatchAfterResponse(): void
     {
-        if (! $this->container->has(\Nitro\Http\Kernel::class)) {
+        if ($this->kernel === null) {
             $this->dispatch();
 
             return;
         }
 
-        $this->container->resolve(\Nitro\Http\Kernel::class)
-            ->terminating(function (): void {
-                $this->dispatch();
-            });
+        $this->kernel->terminating(function (): void {
+            $this->dispatch();
+        });
     }
 
     /**
@@ -281,6 +281,6 @@ class PendingBatch
 
     private function runBeforeCallbacks(Batch $batch): void
     {
-        (new BatchCallbacks($this->container))->before($batch);
+        $this->callbacks->before($batch);
     }
 }

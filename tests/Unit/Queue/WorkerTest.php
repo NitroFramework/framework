@@ -3,6 +3,7 @@
 namespace Tests\Unit\Queue;
 
 use Nitro\Container\Container;
+use Nitro\Container\Contracts\ClassResolver;
 use Nitro\Foundation\Config;
 use Nitro\Queue\Contracts\FailedJobStore;
 use Nitro\Queue\Drivers\ArrayQueue;
@@ -45,7 +46,13 @@ class WorkerTest extends TestCase
         ]);
         $this->container->instance(Config::class, $config);
 
-        $this->queues = new QueueManager($this->container, $config);
+        $this->queues = new QueueManager(
+            $config,
+            static fn (): SyncQueue => new SyncQueue($this->container->resolve(ClassResolver::class)),
+            static fn (): RedisManager => $this->container->resolve(RedisManager::class),
+            static fn (): BatchRepository => $this->container->resolve(BatchRepository::class),
+            static fn (): BatchCallbacks => new BatchCallbacks($this->container->resolve(ClassResolver::class)),
+        );
         $this->array  = new ArrayQueue();
         $this->queues->extend('array', $this->array);
 
@@ -53,7 +60,7 @@ class WorkerTest extends TestCase
         $this->worker = new Worker(
             $this->queues,
             $this->failed,
-            $this->container,
+            $this->container->resolve(ClassResolver::class),
             null, // no cache => no restart-signal path
         );
     }

@@ -3,6 +3,7 @@
 namespace Tests\Unit\Queue;
 
 use Nitro\Container\Container;
+use Nitro\Container\Contracts\ClassResolver;
 use Nitro\Database\Connection;
 use Nitro\Database\DB;
 use Nitro\Queue\Batchable;
@@ -102,7 +103,13 @@ class BatchTest extends TestCase
             }
         };
 
-        $this->queues = new QueueManager($this->container, $config);
+        $this->queues = new QueueManager(
+            $config,
+            static fn (): SyncQueue => new SyncQueue($this->container->resolve(ClassResolver::class)),
+            static fn (): RedisManager => $this->container->resolve(RedisManager::class),
+            static fn (): BatchRepository => $this->container->resolve(BatchRepository::class),
+            static fn (): BatchCallbacks => new BatchCallbacks($this->container->resolve(ClassResolver::class)),
+        );
         $this->queues->extend('sync', new ArrayQueue());
 
         $this->repository = new DatabaseBatchRepository(new BatchFactory($this->queues));
@@ -121,7 +128,12 @@ class BatchTest extends TestCase
 
     private function pending(array $jobs): PendingBatch
     {
-        return new PendingBatch($this->container, $this->queues, $this->repository, $jobs);
+        return new PendingBatch(
+            $this->queues,
+            $this->repository,
+            new BatchCallbacks($this->container->resolve(ClassResolver::class)),
+            $jobs,
+        );
     }
 
     // ─── Dispatching ──────────────────────────────────────
@@ -257,7 +269,7 @@ class BatchTest extends TestCase
 
         $batch->recordSuccessfulJob('job-1');
 
-        (new BatchCallbacks($this->container))->settled($batch->fresh());
+        (new BatchCallbacks($this->container->resolve(ClassResolver::class)))->settled($batch->fresh());
 
         $this->assertSame(['invoked', 'done'], BatchSpy::$ran);
     }
@@ -272,7 +284,7 @@ class BatchTest extends TestCase
 
         $batch->recordFailedJob('job-1', new \RuntimeException('boom'));
 
-        (new BatchCallbacks($this->container))->settled($batch->fresh());
+        (new BatchCallbacks($this->container->resolve(ClassResolver::class)))->settled($batch->fresh());
 
         $this->assertSame(['done'], BatchSpy::$ran);
     }
@@ -283,7 +295,7 @@ class BatchTest extends TestCase
             ->catch([BatchSpy::class, 'caught'])
             ->dispatch();
 
-        (new BatchCallbacks($this->container))->failed($batch, new \RuntimeException('boom'));
+        (new BatchCallbacks($this->container->resolve(ClassResolver::class)))->failed($batch, new \RuntimeException('boom'));
 
         $this->assertSame(['caught: boom'], BatchSpy::$ran);
     }

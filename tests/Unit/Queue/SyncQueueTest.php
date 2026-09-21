@@ -3,6 +3,7 @@
 namespace Tests\Unit\Queue;
 
 use Nitro\Container\Container;
+use Nitro\Container\Contracts\ClassResolver;
 use Nitro\Queue\Drivers\SyncQueue;
 use Nitro\Queue\Job;
 use Nitro\Queue\QueuedJob;
@@ -23,7 +24,7 @@ class SyncQueueTest extends TestCase
 
     public function test_push_runs_the_job_immediately(): void
     {
-        $queue = new SyncQueue(Container::getInstance());
+        $queue = new SyncQueue(Container::getInstance()->resolve(ClassResolver::class));
         $job = new SyncQueueTestJob('hello');
 
         $queue->push(new QueuedJob(
@@ -42,14 +43,14 @@ class SyncQueueTest extends TestCase
 
     public function test_pop_always_returns_null(): void
     {
-        $queue = new SyncQueue(Container::getInstance());
+        $queue = new SyncQueue(Container::getInstance()->resolve(ClassResolver::class));
         $this->assertNull($queue->pop(),
             'sync driver has no persistent store — pop is always empty');
     }
 
     public function test_release_re_executes_for_retry_path_coverage(): void
     {
-        $queue = new SyncQueue(Container::getInstance());
+        $queue = new SyncQueue(Container::getInstance()->resolve(ClassResolver::class));
         $envelope = new QueuedJob(
             id: '1',
             queue: 'default',

@@ -2,7 +2,7 @@
 
 namespace Nitro\Queue\Drivers;
 
-use Nitro\Container\Contracts\ContainerInterface as Container;
+use Nitro\Container\Contracts\ClassResolver;
 use Nitro\Queue\Contracts\Queue;
 use Nitro\Queue\QueuedJob;
 
@@ -26,7 +26,7 @@ use Nitro\Queue\QueuedJob;
  */
 class SyncQueue implements Queue
 {
-    public function __construct(private Container $container) {}
+    public function __construct(private ClassResolver $resolver) {}
 
     public function push(QueuedJob $job, string $queue = 'default'): int|string
     {
@@ -77,14 +77,14 @@ class SyncQueue implements Queue
     {
         ['instance' => $job] = $envelope->decode();
 
-        // Resolve handle()'s dependencies through the container so the
-        // job's signature matches what a real worker would inject.
+        // Resolve handle()'s dependencies so the job's signature matches
+        // what a real worker would inject.
         $reflector = new \ReflectionMethod($job, 'handle');
         $args = [];
         foreach ($reflector->getParameters() as $param) {
             $type = $param->getType();
             if ($type instanceof \ReflectionNamedType && !$type->isBuiltin()) {
-                $args[] = $this->container->resolve($type->getName());
+                $args[] = $this->resolver->resolve($type->getName());
             } elseif ($param->isDefaultValueAvailable()) {
                 $args[] = $param->getDefaultValue();
             } else {

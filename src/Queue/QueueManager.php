@@ -2,8 +2,10 @@
 
 namespace Nitro\Queue;
 
-use Nitro\Container\Contracts\ContainerInterface as Container;
+use Closure;
 use Nitro\Foundation\Contracts\ConfigRepository;
+use Nitro\Http\Kernel;
+use Nitro\Queue\Batching\BatchCallbacks;
 use Nitro\Queue\Batching\BatchRepository;
 use Nitro\Queue\Batching\PendingBatch;
 use Nitro\Queue\Contracts\Queue;
@@ -11,6 +13,7 @@ use Nitro\Queue\Drivers\ArrayQueue;
 use Nitro\Queue\Drivers\DatabaseQueue;
 use Nitro\Queue\Drivers\RedisQueue;
 use Nitro\Queue\Drivers\SyncQueue;
+use Nitro\Redis\RedisManager;
 
 /**
  * Resolves named queue connections from config/queue.php on demand,
@@ -34,9 +37,25 @@ class QueueManager
     /** @var array<string, Queue> Resolved connections, keyed by name. */
     private array $connections = [];
 
+    /**
+     * Each collaborator arrives as a factory, not an instance: one connection
+     * is built per request and a batch is rarer still, so nothing here should
+     * construct a redis client for an application running the sync driver.
+     *
+     * @param Closure(): SyncQueue       $syncQueue
+     * @param Closure(): RedisManager    $redis
+     * @param Closure(): BatchRepository $batches
+     * @param Closure(): BatchCallbacks  $batchCallbacks
+     * @param ?Kernel $kernel Absent in a console command, where there is no
+     *        response to wait on.
+     */
     public function __construct(
-        private Container $container,
         private ConfigRepository $config,
+        private Closure $syncQueue,
+        private Closure $redis,
+        private Closure $batches,
+        private Closure $batchCallbacks,
+        private ?Kernel $kernel = null,
     ) {}
 
     public function connection(?string $name = null): Queue
@@ -66,14 +85,14 @@ class QueueManager
 
         $driver = $config['driver'] ?? null;
         return match ($driver) {
-            'sync'     => new SyncQueue($this->container),
+            'sync'     => ($this->syncQueue)(),
             'array'    => new ArrayQueue(),
             'database' => new DatabaseQueue(
                 table: $config['table'] ?? 'jobs',
                 visibilityTimeout: (int) ($config['retry_after'] ?? 90),
             ),
             'redis' => new RedisQueue(
-                connection: $this->container->get('redis')->connection($config['connection'] ?? null),
+                connection: ($this->redis)()->connection($config['connection'] ?? null),
                 prefix: (string) ($config['prefix'] ?? 'nitro:queue:'),
                 visibilityTimeout: (int) ($config['retry_after'] ?? 90),
             ),
@@ -126,10 +145,11 @@ class QueueManager
     public function batch(array|Job $jobs = []): PendingBatch
     {
         return new PendingBatch(
-            $this->container,
             $this,
-            $this->container->resolve(BatchRepository::class),
-            $jobs
+            ($this->batches)(),
+            ($this->batchCallbacks)(),
+            $jobs,
+            $this->kernel,
         );
     }
 }

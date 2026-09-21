@@ -3,7 +3,8 @@
 namespace Nitro\Queue;
 
 use Nitro\Cache\CacheManager;
-use Nitro\Container\Contracts\ContainerInterface as Container;
+use Nitro\Container\Contracts\ClassResolver;
+use Nitro\Events\Contracts\Dispatcher as EventDispatcher;
 use Nitro\Queue\Batching\Batch;
 use Nitro\Queue\Batching\BatchCallbacks;
 use Nitro\Queue\Batching\BatchRepository;
@@ -51,10 +52,12 @@ class Worker
     public function __construct(
         private QueueManager $queues,
         private FailedJobStore $failedStore,
-        private Container $container,
+        private ClassResolver $resolver,
         private ?CacheManager $cache = null,
         private ?BatchRepository $batches = null,
         private ?BatchCallbacks $batchCallbacks = null,
+        private ?UniqueLock $uniqueLock = null,
+        private ?EventDispatcher $events = null,
     ) {
         $this->installSignalHandlers();
     }
@@ -212,21 +215,17 @@ class Worker
     /** Give back the claim that kept a unique job from being queued twice. */
     private function releaseUniqueLock(Job $job): void
     {
-        if (! $job instanceof ShouldBeUnique || ! $this->container->has(UniqueLock::class)) {
+        if (! $job instanceof ShouldBeUnique || $this->uniqueLock === null) {
             return;
         }
 
-        $this->container->resolve(UniqueLock::class)->release($job);
+        $this->uniqueLock->release($job);
     }
 
     /** Dispatch a lifecycle event, when anything is listening. */
     private function event(object $event): void
     {
-        if (! $this->container->has('events')) {
-            return;
-        }
-
-        $this->container->resolve('events')->dispatch($event);
+        $this->events?->dispatch($event);
     }
 
     /** The batch a job belongs to, or null when it is not batched. */
@@ -255,7 +254,7 @@ class Worker
             return;
         }
 
-        Pipeline::make($this->container)
+        Pipeline::make($this->resolver)
             ->send($job)
             ->through($middleware)
             ->then(function (Job $job): void {
@@ -283,7 +282,7 @@ class Worker
         foreach ($reflector->getParameters() as $param) {
             $type = $param->getType();
             if ($type instanceof \ReflectionNamedType && !$type->isBuiltin()) {
-                $args[] = $this->container->resolve($type->getName());
+                $args[] = $this->resolver->resolve($type->getName());
             } elseif ($param->isDefaultValueAvailable()) {
                 $args[] = $param->getDefaultValue();
             } else {
