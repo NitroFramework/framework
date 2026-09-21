@@ -4,6 +4,8 @@ namespace Nitro\Container;
 
 use Nitro\Container\Attributes\ProcessScoped;
 use Nitro\Container\Attributes\RequestScoped;
+use Nitro\Container\Contracts\CallableInvoker;
+use Nitro\Container\Contracts\ClassResolver;
 use Nitro\Container\Contracts\ContainerInterface;
 use Nitro\Container\Exceptions\LifetimeException;
 use Nitro\Container\Exceptions\NotFoundException;
@@ -117,7 +119,22 @@ class Container implements ContainerInterface, \ArrayAccess
     private static ?self $instance = null;
 
     /** Public so tests can create isolated containers instead of the shared singleton. */
-    public function __construct() {}
+    public function __construct()
+    {
+        /*
+         * The container's two capabilities, each on its own, for a class that
+         * must build a type or call a method it does not know until it runs.
+         * Registered here rather than by the Application because both the
+         * contracts and the adapters belong to this package, and because a
+         * class asking for one should get it from any container, not only a
+         * booted application's.
+         */
+        $this->singleton(ClassResolver::class, fn (self $container): ClassResolver
+            => new ContainerClassResolver($container));
+
+        $this->singleton(CallableInvoker::class, fn (self $container): CallableInvoker
+            => new ContainerCallableInvoker($container));
+    }
 
     /**
      * The container the application established.
