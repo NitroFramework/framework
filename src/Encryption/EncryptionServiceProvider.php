@@ -3,6 +3,7 @@
 namespace Nitro\Encryption;
 
 use Nitro\Encryption\Contracts\Encrypter as EncrypterContract;
+use Nitro\Foundation\Contracts\ConfigRepository;
 use Nitro\Foundation\Providers\ServiceProvider;
 
 /**
@@ -15,17 +16,17 @@ class EncryptionServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        $this->container->singleton('encrypter', function () {
-            $config = [
-                'key'    => (string) config('app.key', ''),
-                'cipher' => (string) config('app.cipher', 'aes-256-cbc'),
-                'previous_keys' => (array) config('app.previous_keys', []),
-            ];
+        $this->container->singleton('encrypter', function ($container) {
+            $config = $container->resolve(ConfigRepository::class);
 
-            $encrypter = new Encrypter($this->parseKey($config['key']), $config['cipher']);
+            $key          = (string) $config->get('app.key', '');
+            $cipher       = (string) $config->get('app.cipher', 'aes-256-cbc');
+            $previousKeys = (array) $config->get('app.previous_keys', []);
 
-            if ($config['previous_keys'] !== []) {
-                $encrypter->previousKeys(array_map([$this, 'parseKey'], $config['previous_keys']));
+            $encrypter = new Encrypter($this->parseKey($key), $cipher);
+
+            if ($previousKeys !== []) {
+                $encrypter->previousKeys(array_map([$this, 'parseKey'], $previousKeys));
             }
 
             return $encrypter;

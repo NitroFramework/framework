@@ -2,6 +2,7 @@
 
 namespace Nitro\Foundation\Providers;
 
+use Nitro\Foundation\Contracts\ConfigRepository;
 use Nitro\Mail\Contracts\Mailer as MailerContract;
 use Nitro\Mail\MailManager;
 use Nitro\Mail\Mailer;
@@ -27,7 +28,7 @@ class MailServiceProvider extends ServiceProvider
             // The event bus goes in, so a message can be logged, redirected or
             // stamped without anything having to wrap the mailer.
             return new MailManager(
-                (array) config('mail', []),
+                (array) $container->resolve(ConfigRepository::class)->get('mail', []),
                 $container->resolve('events'),
             );
         });

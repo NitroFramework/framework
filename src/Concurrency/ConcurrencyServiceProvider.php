@@ -2,6 +2,7 @@
 
 namespace Nitro\Concurrency;
 
+use Nitro\Foundation\Contracts\ConfigRepository;
 use Nitro\Foundation\Providers\ServiceProvider;
 
 /**
@@ -20,10 +21,10 @@ class ConcurrencyServiceProvider extends ServiceProvider
 
     public function register(): void
     {
-        $this->container->singleton('concurrency', function () {
-            $driver = function_exists('config') ? (string) config('concurrency.driver', 'process') : 'process';
+        $this->container->singleton('concurrency', function ($container) {
+            $config = $container->resolve(ConfigRepository::class);
 
-            return new Concurrency($driver);
+            return new Concurrency((string) $config->get('concurrency.driver', 'process'));
         });
 
         $this->container->alias(Concurrency::class, 'concurrency');

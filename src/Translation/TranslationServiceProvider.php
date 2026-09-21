@@ -2,6 +2,7 @@
 
 namespace Nitro\Translation;
 
+use Nitro\Foundation\Contracts\ConfigRepository;
 use Nitro\Foundation\PathRegistry;
 use Nitro\Foundation\Providers\ServiceProvider;
 
@@ -26,12 +27,13 @@ class TranslationServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->container->singleton(Translator::class, function ($container) {
-            $paths = $container->resolve(PathRegistry::class);
+            $paths  = $container->resolve(PathRegistry::class);
+            $config = $container->resolve(ConfigRepository::class);
 
             return new Translator(
                 $paths->base('lang'),
-                (string) config('app.locale', 'en'),
-                (string) config('app.fallback_locale', 'en'),
+                (string) $config->get('app.locale', 'en'),
+                (string) $config->get('app.fallback_locale', 'en'),
             );
         });
     }

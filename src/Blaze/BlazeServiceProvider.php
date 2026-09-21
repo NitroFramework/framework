@@ -2,6 +2,7 @@
 
 namespace Nitro\Blaze;
 
+use Nitro\Foundation\Contracts\ConfigRepository;
 use Nitro\Foundation\Providers\ServiceProvider;
 use Nitro\View\Blade;
 
@@ -15,12 +16,14 @@ class BlazeServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        $this->container->singleton(BlazeManager::class, static function (): BlazeManager {
+        $this->container->singleton(BlazeManager::class, static function ($container): BlazeManager {
+            $config = $container->resolve(ConfigRepository::class);
+
             return new BlazeManager(
-                (bool) config('blaze.enabled', true),
+                (bool) $config->get('blaze.enabled', true),
                 base_path('resources/views'),
-                (string) config('blaze.cache_path', storage_path('cache/blaze')),
-                (array) config('blaze.directories', [])
+                (string) $config->get('blaze.cache_path', storage_path('cache/blaze')),
+                (array) $config->get('blaze.directories', [])
             );
         });
 

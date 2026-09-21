@@ -2,6 +2,7 @@
 
 namespace Nitro\Redis;
 
+use Nitro\Foundation\Contracts\ConfigRepository;
 use Nitro\Foundation\Providers\ServiceProvider;
 
 /**
@@ -20,8 +21,10 @@ class RedisServiceProvider extends ServiceProvider
 
     public function register(): void
     {
-        $this->container->singleton('redis', function () {
-            return new RedisManager((array) config('database.redis', []));
+        $this->container->singleton('redis', function ($container) {
+            $config = $container->resolve(ConfigRepository::class);
+
+            return new RedisManager((array) $config->get('database.redis', []));
         });
 
         $this->container->alias(RedisManager::class, 'redis');

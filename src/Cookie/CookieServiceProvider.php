@@ -2,6 +2,7 @@
 
 namespace Nitro\Cookie;
 
+use Nitro\Foundation\Contracts\ConfigRepository;
 use Nitro\Foundation\Providers\ServiceProvider;
 
 /**
@@ -13,8 +14,8 @@ class CookieServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        $this->container->scoped('cookie', function () {
-            $config = (array) config('session', []);
+        $this->container->scoped('cookie', function ($container) {
+            $config = (array) $container->resolve(ConfigRepository::class)->get('session', []);
 
             return new CookieJar(
                 (string) ($config['path'] ?? '/'),
