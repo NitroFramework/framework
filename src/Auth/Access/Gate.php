@@ -3,8 +3,7 @@
 namespace Nitro\Auth\Access;
 
 use Nitro\Auth\Exceptions\AuthorizationException;
-use Nitro\Container\Contracts\ContainerInterface as Container;
-use Throwable;
+use Nitro\Container\Contracts\ClassResolver;
 
 /**
  * Decides whether the current user may perform an action.
@@ -33,7 +32,7 @@ class Gate
     protected mixed $userResolver = null;
 
     public function __construct(
-        protected Container $container,
+        protected ClassResolver $resolver,
         ?callable $userResolver = null,
     ) {
         $this->userResolver = $userResolver;
@@ -75,7 +74,7 @@ class Gate
 
         foreach ($this->policies as $covered => $policy) {
             if ($class === $covered || is_subclass_of($class, $covered)) {
-                return $this->container->resolve($policy);
+                return $this->resolver->resolve($policy);
             }
         }
 
@@ -220,23 +219,25 @@ class Gate
                 ? explode('@', $callback, 2)
                 : [$callback, $ability];
 
-            return (bool) $this->container->resolve($class)->{$method}($user, ...$arguments);
+            return (bool) $this->resolver->resolve($class)->{$method}($user, ...$arguments);
         }
 
         return (bool) $callback($user, ...$arguments);
     }
 
-    /** The user a check is made against, or null when nobody is signed in. */
+    /**
+     * The user a check is made against, or null when nobody is signed in.
+     *
+     * Only the resolver it was given — a gate built without one answers every
+     * check as nobody. Reaching for the guard here instead duplicated what the
+     * resolver already does, on a branch no caller in the framework takes.
+     */
     protected function user(): mixed
     {
-        if ($this->userResolver !== null) {
-            return ($this->userResolver)();
-        }
-
-        try {
-            return $this->container->resolve('auth')->user();
-        } catch (Throwable) {
+        if ($this->userResolver === null) {
             return null;
         }
+
+        return ($this->userResolver)();
     }
 }

@@ -5,6 +5,7 @@ namespace Tests\Unit\Http;
 use Nitro\Auth\Access\Gate;
 use Nitro\Auth\Exceptions\AuthorizationException;
 use Nitro\Container\Container;
+use Nitro\Container\Contracts\ClassResolver;
 use Nitro\Http\Controller\Concerns\AuthorizesRequests;
 use Nitro\Http\Controller\Controller;
 use PHPUnit\Framework\TestCase;
@@ -28,7 +29,7 @@ class AuthorizesRequestsTest extends TestCase
         Container::setInstance(new Container());
         $this->container = Container::getInstance();
 
-        $gate = new Gate($this->container, static fn (): object => (object) ['id' => 7]);
+        $gate = new Gate($this->container->resolve(ClassResolver::class), static fn (): object => (object) ['id' => 7]);
 
         $gate->define('edit-post', static fn (object $user, object $post): bool => $post->authorId === $user->id);
 
