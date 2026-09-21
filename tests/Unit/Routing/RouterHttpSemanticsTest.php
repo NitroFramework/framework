@@ -3,6 +3,8 @@
 namespace Tests\Unit\Routing;
 
 use Nitro\Container\Container;
+use Nitro\Container\Contracts\CallableInvoker;
+use Nitro\Container\Contracts\ClassResolver;
 use Nitro\Exceptions\ExceptionHandler;
 use Nitro\Foundation\Application;
 use Nitro\Foundation\Contracts\ConfigRepository;
@@ -185,6 +187,6 @@ class RouterHttpSemanticsTest extends TestCase
         $app->method('getContainer')->willReturn($container);
         $app->method('isDebug')->willReturn(false);
 
-        return new Kernel($app, $router, new RouteDispatcher($container));
+        return new Kernel($app, $router, new RouteDispatcher($container->resolve(ClassResolver::class), $container->resolve(CallableInvoker::class)));
     }
 }

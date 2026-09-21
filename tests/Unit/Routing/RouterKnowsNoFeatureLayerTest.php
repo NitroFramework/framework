@@ -3,6 +3,8 @@
 namespace Tests\Unit\Routing;
 
 use Nitro\Container\Container;
+use Nitro\Container\Contracts\CallableInvoker;
+use Nitro\Container\Contracts\ClassResolver;
 use Nitro\Foundation\Config;
 use Nitro\Http\Request;
 use Nitro\Routing\Contracts\RouteType;
@@ -63,7 +65,12 @@ class RouterKnowsNoFeatureLayerTest extends TestCase
         $this->assertSame('feed', $route->getType());
         $this->assertSame('latest-posts', $route->getHandler());
 
-        $dispatcher = new RouteDispatcher(new Container(), $types);
+        $container  = new Container();
+        $dispatcher = new RouteDispatcher(
+            $container->resolve(ClassResolver::class),
+            $container->resolve(CallableInvoker::class),
+            $types,
+        );
 
         $this->assertSame(
             'feed: latest-posts',
@@ -99,7 +106,12 @@ class RouterKnowsNoFeatureLayerTest extends TestCase
 
     public function test_the_dispatcher_rejects_a_type_no_layer_claims(): void
     {
-        $dispatcher = new RouteDispatcher(new Container(), new RouteTypes());
+        $container  = new Container();
+        $dispatcher = new RouteDispatcher(
+            $container->resolve(ClassResolver::class),
+            $container->resolve(CallableInvoker::class),
+            new RouteTypes(),
+        );
 
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('Unknown route type: feed');

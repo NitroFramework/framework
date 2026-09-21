@@ -3,6 +3,8 @@
 namespace Tests\Unit\Http;
 
 use Nitro\Container\Container;
+use Nitro\Container\Contracts\CallableInvoker;
+use Nitro\Container\Contracts\ClassResolver;
 use Nitro\Exceptions\ExceptionHandler;
 use Nitro\Foundation\Application;
 use Nitro\Foundation\Contracts\ConfigRepository;
@@ -60,7 +62,7 @@ class GlobalMiddlewareScopeTest extends TestCase
         $router->method('getMiddlewareAlias')->willReturn(null);
         $router->method('getMiddlewareAliases')->willReturn([]);
 
-        return new Kernel($app, $router, new RouteDispatcher($container));
+        return new Kernel($app, $router, new RouteDispatcher($container->resolve(ClassResolver::class), $container->resolve(CallableInvoker::class)));
     }
 
     private function request(): Request
@@ -150,7 +152,7 @@ class GlobalMiddlewareScopeTest extends TestCase
             'platform' => 'PlatformMiddleware',
         ]);
 
-        $kernel = new Kernel($app, $router, new RouteDispatcher($container));
+        $kernel = new Kernel($app, $router, new RouteDispatcher($container->resolve(ClassResolver::class), $container->resolve(CallableInvoker::class)));
 
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('auth, platform');

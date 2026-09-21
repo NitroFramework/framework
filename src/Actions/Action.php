@@ -2,7 +2,7 @@
 
 namespace Nitro\Actions;
 
-use Nitro\Container\Contracts\ContainerInterface as Container;
+use Nitro\Container\Contracts\CallableInvoker;
 use Nitro\Exceptions\HttpException;
 use Nitro\Http\Request;
 use Nitro\Validation\ValidationException;
@@ -82,13 +82,13 @@ abstract class Action
      * Run this action as a route target: authorize, validate, then invoke the
      * action body with the route parameters and any autowired dependencies.
      *
-     * The container is passed in (the dispatcher already holds it) rather than
+     * The invoker is passed in (the dispatcher already holds one) rather than
      * fetched globally — this is framework-internal, so the dependency is explicit
      * here without leaking into the user-facing hooks.
      *
      * @param array<string, mixed> $parameters Route parameters, by name.
      */
-    public function runAsController(Request $request, array $parameters, Container $container): mixed
+    public function runAsController(Request $request, array $parameters, CallableInvoker $invoker): mixed
     {
         $this->request = $request;
 
@@ -109,7 +109,7 @@ abstract class Action
         }
 
         $method   = method_exists($this, 'asController') ? 'asController' : 'handle';
-        $response = $container->call([$this, $method], $parameters);
+        $response = $invoker->call([$this, $method], $parameters);
 
         return $this->negotiate($response, $request);
     }

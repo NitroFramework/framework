@@ -3,6 +3,8 @@
 namespace Tests\Unit\Http;
 
 use Nitro\Container\Container;
+use Nitro\Container\Contracts\CallableInvoker;
+use Nitro\Container\Contracts\ClassResolver;
 use Nitro\Exceptions\ExceptionHandler;
 use Nitro\Exceptions\HttpException;
 use Nitro\Foundation\Application;
@@ -68,7 +70,7 @@ class KernelExitSeamTest extends TestCase
         $router->method('getMiddlewareAlias')->willReturn(null);
         $router->method('getMiddlewareAliases')->willReturn([]);
 
-        $kernel = new Kernel($app, $router, new RouteDispatcher($container));
+        $kernel = new Kernel($app, $router, new RouteDispatcher($container->resolve(ClassResolver::class), $container->resolve(CallableInvoker::class)));
 
         $this->fired = [];
         $kernel->requestReceived(function (): void { $this->fired[] = 'requestReceived'; });

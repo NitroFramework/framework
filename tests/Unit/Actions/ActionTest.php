@@ -4,6 +4,8 @@ namespace Tests\Unit\Actions;
 
 use Nitro\Actions\Action;
 use Nitro\Container\Container;
+use Nitro\Container\Contracts\CallableInvoker;
+use Nitro\Container\Contracts\ClassResolver;
 use Nitro\Exceptions\HttpException;
 use Nitro\Http\Request;
 use Nitro\Validation\ValidationException;
@@ -90,7 +92,7 @@ class ActionTest extends TestCase
         $c->instance('request', $request);
         $c->instance(Request::class, $request);
 
-        return $action->runAsController($request, $params, $c);
+        return $action->runAsController($request, $params, $c->resolve(CallableInvoker::class));
     }
 
     // ─── Object mode ────────────────────────────────────────────────────────

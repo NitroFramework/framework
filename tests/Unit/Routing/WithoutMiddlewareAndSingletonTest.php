@@ -3,6 +3,8 @@
 namespace Tests\Unit\Routing;
 
 use Nitro\Container\Container;
+use Nitro\Container\Contracts\CallableInvoker;
+use Nitro\Container\Contracts\ClassResolver;
 use Nitro\Foundation\Application;
 use Nitro\Foundation\Contracts\ConfigRepository;
 use Nitro\Http\Kernel;
@@ -140,7 +142,7 @@ class WithoutMiddlewareAndSingletonTest extends TestCase
         );
         $router->method('getMiddlewareAliases')->willReturn($aliases);
 
-        $kernel = new Kernel($app, $router, new RouteDispatcher($container));
+        $kernel = new Kernel($app, $router, new RouteDispatcher($container->resolve(ClassResolver::class), $container->resolve(CallableInvoker::class)));
 
         return (new ReflectionMethod($kernel, 'gatherMiddleware'))->invoke($kernel, $route);
     }

@@ -4,7 +4,8 @@ namespace Nitro\Routing;
 
 use Closure;
 use Nitro\Actions\Action;
-use Nitro\Container\Contracts\ContainerInterface as Container;
+use Nitro\Container\Contracts\CallableInvoker;
+use Nitro\Container\Contracts\ClassResolver;
 use Nitro\Http\ViewResponse;
 use Nitro\Http\Request;
 use RuntimeException;
@@ -22,13 +23,15 @@ use RuntimeException;
 class RouteDispatcher
 {
     /**
-     * @param Container  $container  Used to resolve controllers and to
-     *        invoke handlers with dependency/parameter injection.
-     * @param RouteTypes $routeTypes The kinds of route feature layers added;
+     * @param ClassResolver   $resolver   Builds the controller a route names.
+     * @param CallableInvoker $invoker    Calls the handler with its dependencies
+     *        and route parameters bound.
+     * @param RouteTypes      $routeTypes The kinds of route feature layers added;
      *        consulted only for a type this class has no arm for.
      */
     public function __construct(
-        protected Container $container,
+        protected ClassResolver $resolver,
+        protected CallableInvoker $invoker,
         protected RouteTypes $routeTypes = new RouteTypes(),
     ) {}
 
@@ -96,16 +99,16 @@ class RouteDispatcher
             throw new RuntimeException("Invalid controller route configuration");
         }
 
-        // The container throws a descriptive RuntimeException if the class
-        // doesn't exist; Container::call throws if the method doesn't exist.
+        // The resolver throws a descriptive RuntimeException if the class
+        // doesn't exist; the invoker throws if the method doesn't exist.
         // Pre-validating with class_exists / method_exists duplicates that work
         // on the hot path for every dispatch.
-        $controller = $this->container->resolve($controllerClass);
+        $controller = $this->resolver->resolve($controllerClass);
 
         // Single-action classes run through their own pipeline (authorize →
         // validate → body → response negotiation) instead of a plain call.
         if ($controller instanceof Action) {
-            return $controller->runAsController($request, $parameters, $this->container);
+            return $controller->runAsController($request, $parameters, $this->invoker);
         }
 
         /*
@@ -116,11 +119,11 @@ class RouteDispatcher
         if (method_exists($controller, 'callAction')) {
             return $controller->callAction(
                 $method,
-                $this->container->arguments($controller, $method, $parameters)
+                $this->invoker->arguments($controller, $method, $parameters)
             );
         }
 
-        return $this->container->call([$controller, $method], $parameters);
+        return $this->invoker->call([$controller, $method], $parameters);
     }
 
     /**
@@ -138,7 +141,7 @@ class RouteDispatcher
             throw new RuntimeException("Invalid closure handler");
         }
 
-        return $this->container->call($closure, $parameters);
+        return $this->invoker->call($closure, $parameters);
     }
 
     /**
@@ -156,8 +159,8 @@ class RouteDispatcher
             throw new RuntimeException("Handler is not callable");
         }
 
-        // Route through the container so named route params bind correctly and
+        // Route through the invoker so named route params bind correctly and
         // typed dependencies auto-wire (same behavior as closure handlers).
-        return $this->container->call($callable, $parameters);
+        return $this->invoker->call($callable, $parameters);
     }
 }

@@ -3,6 +3,8 @@
 namespace Tests\Unit\Http;
 
 use Nitro\Container\Container;
+use Nitro\Container\Contracts\CallableInvoker;
+use Nitro\Container\Contracts\ClassResolver;
 use Nitro\Foundation\Application;
 use Nitro\Http\Kernel;
 use Nitro\Http\Middleware\AddQueuedCookiesToResponse;
@@ -45,7 +47,7 @@ class MiddlewarePriorityTest extends TestCase
         );
         $router->method('getMiddlewareAliases')->willReturn($aliases);
 
-        $kernel = new Kernel($app, $router, new RouteDispatcher($container));
+        $kernel = new Kernel($app, $router, new RouteDispatcher($container->resolve(ClassResolver::class), $container->resolve(CallableInvoker::class)));
 
         $gather = new ReflectionMethod($kernel, 'gatherMiddleware');
 
@@ -75,7 +77,7 @@ class MiddlewarePriorityTest extends TestCase
         );
         $router->method('getMiddlewareAliases')->willReturn($aliases);
 
-        $kernel = new Kernel($app, $router, new RouteDispatcher($container));
+        $kernel = new Kernel($app, $router, new RouteDispatcher($container->resolve(ClassResolver::class), $container->resolve(CallableInvoker::class)));
         $kernel->addMiddlewarePriority(AuthStub::class, StartSession::class);
 
         $gather = new ReflectionMethod($kernel, 'gatherMiddleware');
@@ -129,7 +131,7 @@ class MiddlewarePriorityTest extends TestCase
         $router = $this->createMock(Router::class);
         $router->method('getMiddlewareAlias')->willReturn(null);
 
-        $kernel = new Kernel($app, $router, new RouteDispatcher($container));
+        $kernel = new Kernel($app, $router, new RouteDispatcher($container->resolve(ClassResolver::class), $container->resolve(CallableInvoker::class)));
         $kernel->addMiddlewarePriority(AuthStub::class, StartSession::class);
 
         $priority = $kernel->getMiddlewarePriority();
@@ -148,7 +150,7 @@ class MiddlewarePriorityTest extends TestCase
         $router = $this->createMock(Router::class);
         $router->method('getMiddlewareAlias')->willReturn(null);
 
-        $kernel = new Kernel($app, $router, new RouteDispatcher($container));
+        $kernel = new Kernel($app, $router, new RouteDispatcher($container->resolve(ClassResolver::class), $container->resolve(CallableInvoker::class)));
         $kernel->addMiddlewarePriority(AuthStub::class, StartSession::class);
         $kernel->addMiddlewarePriority(AuthStub::class, EncryptCookies::class);
 
