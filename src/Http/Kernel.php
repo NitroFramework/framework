@@ -2,6 +2,7 @@
 
 namespace Nitro\Http;
 
+use Nitro\Container\Contracts\ClassResolver;
 use Nitro\Container\Contracts\ContainerInterface as Container;
 use Nitro\Events\Concerns\DispatchesEvents;
 use Nitro\Events\Contracts\ReceivesDispatcher;
@@ -381,7 +382,7 @@ class Kernel implements ReceivesDispatcher
                 => $middleware->handle($request, $next, ...$parameters);
         }
 
-        return Pipeline::make($this->container)
+        return Pipeline::make($this->container->resolve(ClassResolver::class))
             ->send($request)
             ->through($stages)
             ->then(static fn (Request $request): Response => $destination($request));

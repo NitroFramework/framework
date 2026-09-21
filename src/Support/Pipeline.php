@@ -3,20 +3,21 @@
 namespace Nitro\Support;
 
 use Closure;
-use Nitro\Container\Contracts\ContainerInterface as Container;
+use Nitro\Container\Contracts\ClassResolver;
 use RuntimeException;
 
 /**
  * Passes a value through a series of stages, each able to act before and after
  * the next one runs.
  *
- *     Pipeline::make($container)
+ *     Pipeline::make($resolver)
  *         ->send($request)
  *         ->through([Authenticate::class, VerifyCsrfToken::class])
  *         ->then(fn ($request) => $router->dispatch($request));
  *
  * A stage is a callable, an object carrying the method named by {@see via()},
- * or a class name to resolve from the container.
+ * or a class name the resolver builds. Without a resolver a named stage is
+ * constructed directly, so it must take no constructor arguments.
  */
 class Pipeline
 {
@@ -30,13 +31,13 @@ class Pipeline
     protected string $method = 'handle';
 
     public function __construct(
-        protected ?Container $container = null,
+        protected ?ClassResolver $resolver = null,
     ) {}
 
-    /** A pipeline that resolves class-name stages from the given container. */
-    public static function make(?Container $container = null): static
+    /** A pipeline that builds class-name stages through the given resolver. */
+    public static function make(?ClassResolver $resolver = null): static
     {
-        return new static($container);
+        return new static($resolver);
     }
 
     /** Set the value to send through the stages. */
@@ -141,14 +142,14 @@ class Pipeline
     }
 
     /**
-     * Build a stage named by class, from the container when there is one.
+     * Build a stage named by class, through the resolver when there is one.
      *
      * @throws RuntimeException When the class does not exist.
      */
     protected function resolve(string $pipe): object
     {
-        if ($this->container !== null) {
-            return $this->container->resolve($pipe);
+        if ($this->resolver !== null) {
+            return $this->resolver->resolve($pipe);
         }
 
         if (! class_exists($pipe)) {

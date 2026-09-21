@@ -4,6 +4,7 @@ namespace Tests\Unit\Queue;
 
 use Nitro\Cache\RateLimiter;
 use Nitro\Cache\Repository;
+use Nitro\Container\Contracts\ClassResolver;
 use Nitro\Cache\Drivers\ArrayStore;
 use Nitro\Container\Container;
 use Nitro\Queue\Contracts\ShouldBeUnique;
@@ -47,7 +48,7 @@ class QueueFeaturesTest extends TestCase
     /** Run a job through middleware the way the worker does. */
     private function through(array $middleware, Job $job, ?callable $destination = null): mixed
     {
-        return Pipeline::make(Container::getInstance())
+        return Pipeline::make(Container::getInstance()->resolve(ClassResolver::class))
             ->send($job)
             ->through($middleware)
             ->then($destination ?? static function (Job $job): string {
