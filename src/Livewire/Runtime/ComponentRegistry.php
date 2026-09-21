@@ -2,7 +2,8 @@
 
 namespace Nitro\Livewire\Runtime;
 
-use Nitro\Container\Contracts\ContainerInterface as Container;
+use Nitro\Container\Contracts\ClassResolver;
+use Nitro\Foundation\Contracts\ConfigRepository;
 use Nitro\Livewire\Compilation\SingleFileComponent;
 use Nitro\Livewire\Component;
 use RuntimeException;
@@ -28,9 +29,11 @@ class ComponentRegistry
     /** The single-file component compiler, built on first use. */
     protected ?SingleFileComponent $singleFile = null;
 
-    public function __construct(protected Container $container)
-    {
-        $this->namespace = rtrim((string) config('livewire.class_namespace', 'App\\Livewire'), '\\') . '\\';
+    public function __construct(
+        protected ClassResolver $resolver,
+        protected ConfigRepository $config,
+    ) {
+        $this->namespace = rtrim((string) $config->get('livewire.class_namespace', 'App\\Livewire'), '\\') . '\\';
     }
 
     /** Register a component under an explicit name. */
@@ -129,7 +132,7 @@ class ComponentRegistry
 
         if ($class !== null) {
             /** @var Component $component */
-            $component = $this->container->resolve($class);
+            $component = $this->resolver->resolve($class);
             $component->assertPropertiesAreTyped();
 
             // The context name is what the conventional view path is built
@@ -162,7 +165,7 @@ class ComponentRegistry
     public function singleFile(): SingleFileComponent
     {
         return $this->singleFile ??= new SingleFileComponent(
-            (string) config('livewire.view_path', base_path('resources/views/livewire')),
+            (string) $this->config->get('livewire.view_path', base_path('resources/views/livewire')),
             storage_path('cache/livewire-sfc')
         );
     }

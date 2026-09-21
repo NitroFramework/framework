@@ -2,7 +2,7 @@
 
 namespace Nitro\Livewire\Runtime;
 
-use Nitro\Container\Contracts\ContainerInterface as Container;
+use Nitro\Container\Contracts\CallableInvoker;
 use Nitro\Livewire\Component;
 use Nitro\Livewire\Features\SupportsIslands;
 use Nitro\Livewire\Features\SupportsLazyLoading;
@@ -24,7 +24,7 @@ class UpdatePipeline
     protected PropertyHooks $properties;
 
     public function __construct(
-        protected Container $container,
+        protected CallableInvoker $invoker,
         protected Snapshotter $snapshotter,
         protected Renderer $renderer,
         protected ActionInvoker $actions,
@@ -119,7 +119,7 @@ class UpdatePipeline
         }
 
         if (method_exists($component, 'mount')) {
-            $this->container->call([$component, 'mount'], $lazy->deferredParams($memo));
+            $this->invoker->call([$component, 'mount'], $lazy->deferredParams($memo));
         }
 
         $component->hooks()->mount($lazy->deferredParams($memo));

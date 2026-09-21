@@ -2,6 +2,9 @@
 
 namespace Nitro\Livewire;
 
+use Nitro\Container\Contracts\CallableInvoker;
+use Nitro\Container\Contracts\ClassResolver;
+use Nitro\Foundation\Contracts\ConfigRepository;
 use Nitro\Foundation\Providers\ServiceProvider;
 use Nitro\Http\Request;
 use Nitro\Http\Response;
@@ -11,9 +14,10 @@ use Nitro\Livewire\Features\SupportsFileUploads;
 use Nitro\Livewire\Routing\LivewireRouteType;
 use Nitro\Livewire\Runtime\LivewireManager;
 use Nitro\Routing\Contracts\ExtendableRouter;
-use Nitro\Routing\Contracts\RouterInterface;
+use Nitro\Routing\Contracts\RouterInterface as Router;
 use Nitro\Routing\RouteTypes;
 use Nitro\View\Blade;
+use Nitro\View\Contracts\Engine;
 use Nitro\View\Contracts\ViewFinder;
 
 /**
@@ -27,7 +31,12 @@ class LivewireServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->container->singleton(LivewireManager::class, function ($container) {
-            return new LivewireManager($container);
+            return new LivewireManager(
+                $container->resolve(ClassResolver::class),
+                $container->resolve(CallableInvoker::class),
+                $container->resolve(ConfigRepository::class),
+                static fn (): Engine => $container->resolve(Engine::class),
+            );
         });
         $this->container->alias('livewire', LivewireManager::class);
 
@@ -45,26 +54,39 @@ class LivewireServiceProvider extends ServiceProvider
      */
     protected function registerRouteType(): void
     {
-        $this->container->resolve(RouteTypes::class)
-            ->add(new LivewireRouteType($this->container));
+        $container = $this->container;
+
+        $this->container->resolve(RouteTypes::class)->add(new LivewireRouteType(
+            static fn (): LivewireManager => $container->resolve(LivewireManager::class),
+        ));
     }
 
-    public function boot(): void
-    {
-        $this->registerViews();
+    /**
+     * What this layer needs from Nitro, stated once.
+     *
+     * The Application calls boot() through the container, so the parameters
+     * are injected — the helpers below are handed what they need rather than
+     * reaching for it, and the router is resolved once instead of four times.
+     *
+     * The finder, not the engine: a namespace is a lookup path, and asking the
+     * engine for one would build the compiler in boot() on every request.
+     */
+    public function boot(
+        Router $router,
+        ViewFinder $finder,
+        ConfigRepository $config,
+    ): void {
+        $this->registerViews($finder);
         $this->registerRequestMacro();
-        $this->registerAssetRoute();
-        $this->registerUpdateRoute();
-        $this->registerUploadRoute();
+        $this->registerAssetRoute($router);
+        $this->registerUpdateRoute($router, $config);
+        $this->registerUploadRoute($router);
         $this->registerBladeDirectives();
     }
 
     /** Register the livewire:: and livewire-sfc:: view namespaces. */
-    protected function registerViews(): void
+    protected function registerViews(ViewFinder $finder): void
     {
-        // The finder, not the engine: a namespace is a lookup path, and asking
-        // the engine for one would build the compiler in boot() on every request.
-        $finder = $this->container->resolve(ViewFinder::class);
         $finder->addNamespace('livewire', __DIR__ . '/views');
 
         // Compiled single-file component views live here.
@@ -93,7 +115,7 @@ class LivewireServiceProvider extends ServiceProvider
      */
     protected function registerRouterMacro(): void
     {
-        $router = $this->container->resolve(RouterInterface::class);
+        $router = $this->container->resolve(Router::class);
 
         if (! $router instanceof ExtendableRouter) {
             return;
@@ -123,22 +145,20 @@ class LivewireServiceProvider extends ServiceProvider
      * Registered OUTSIDE the 'web' group on purpose: it is a public, cacheable
      * GET asset with no session or CSRF involvement.
      */
-    protected function registerAssetRoute(): void
+    protected function registerAssetRoute(Router $router): void
     {
-        $container = $this->container;
-        $router = $this->container->resolve(RouterInterface::class);
-
-        $router->get('/livewire/livewire.js', function () use ($container): Response {
-            return $container->resolve(LivewireManager::class)->scriptResponse();
+        // The manager is a closure parameter, not a captured lookup: route
+        // handlers are dispatched through the invoker, so it is built when the
+        // asset is actually requested rather than when the route is declared.
+        $router->get('/livewire/livewire.js', static function (LivewireManager $livewire): Response {
+            return $livewire->scriptResponse();
         });
     }
 
     /** POST /livewire/update — the commit endpoint the client posts to. */
-    protected function registerUpdateRoute(): void
+    protected function registerUpdateRoute(Router $router, ConfigRepository $config): void
     {
-        $container = $this->container;
-        $router = $this->container->resolve(RouterInterface::class);
-        $path = config('livewire.update_uri', '/livewire/update');
+        $path = $config->get('livewire.update_uri', '/livewire/update');
 
         // Behind the 'web' group so CSRF is verified (VerifyCsrfToken reads the
         // X-CSRF-TOKEN header livewire.js sends). The snapshot checksum only
@@ -148,15 +168,13 @@ class LivewireServiceProvider extends ServiceProvider
         // posts here rather than to the route that rendered the page, so
         // without this the page's own route middleware never runs on it — see
         // LivewireManager::addPersistentMiddleware().
-        $router->group(['middleware' => array_merge(['web'], LivewireManager::persistentMiddleware())], function () use ($router, $path, $container) {
-            $router->post($path, function () use ($container): Response {
+        $router->group(['middleware' => array_merge(['web'], LivewireManager::persistentMiddleware())], function () use ($router, $path) {
+            $router->post($path, static function (LivewireManager $livewire): Response {
                 // The client posts a JSON commit body, which PHP does not fold
                 // into $_POST — read and decode it directly.
                 $payload = json_decode((string) file_get_contents('php://input'), true) ?: [];
 
-                $result = $container->resolve(LivewireManager::class)->update($payload);
-
-                return Response::json($result);
+                return Response::json($livewire->update($payload));
             });
         });
     }
@@ -166,14 +184,12 @@ class LivewireServiceProvider extends ServiceProvider
      * the temporary directory with a sidecar of its client metadata, and returns
      * the generated temp filenames the client sets on the property.
      */
-    protected function registerUploadRoute(): void
+    protected function registerUploadRoute(Router $router): void
     {
-        $router = $this->container->resolve(RouterInterface::class);
-
         // Uploads are state-changing → behind 'web' for CSRF too (livewire.js
         // sends X-CSRF-TOKEN on the upload request).
         $router->group(['middleware' => array_merge(['web'], LivewireManager::persistentMiddleware())], function () use ($router) {
-            $router->post('/livewire/upload', function (): Response {
+            $router->post('/livewire/upload', function (Request $request): Response {
                 $dir = SupportsFileUploads::temporaryDirectory();
 
                 $saved = [];
@@ -181,7 +197,7 @@ class LivewireServiceProvider extends ServiceProvider
                 // allFiles() returns the same $_FILES-shaped array (name/tmp_name/
                 // size/type/error), so the multi- vs single-file handling below is
                 // unchanged, but it's worker-safe and consistent with the rest.
-                $files = $this->container->resolve(Request::class)->allFiles()['files'] ?? null;
+                $files = $request->allFiles()['files'] ?? null;
 
                 if (is_array($files) && is_array($files['name'])) {
                     for ($i = 0, $count = count($files['name']); $i < $count; $i++) {

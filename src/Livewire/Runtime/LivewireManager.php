@@ -2,7 +2,11 @@
 
 namespace Nitro\Livewire\Runtime;
 
-use Nitro\Container\Contracts\ContainerInterface as Container;
+use Closure;
+use Nitro\Container\Contracts\CallableInvoker;
+use Nitro\Container\Contracts\ClassResolver;
+use Nitro\Foundation\Contracts\ConfigRepository;
+use Nitro\View\Contracts\Engine;
 use Nitro\Http\Response;
 use Nitro\Livewire\Compilation\SingleFileComponent;
 use Nitro\Livewire\Component;
@@ -91,14 +95,25 @@ class LivewireManager
     protected ?UpdatePipeline $pipeline = null;
     protected ?AssetController $assets = null;
 
-    public function __construct(protected Container $container) {}
+    /**
+     * @param ClassResolver $resolver Builds a component from the class its
+     *        name maps to — a type only the application knows.
+     * @param Closure(): Engine $engine Built only when a full page needs its
+     *        layout rendered.
+     */
+    public function __construct(
+        protected ClassResolver $resolver,
+        protected CallableInvoker $invoker,
+        protected ConfigRepository $config,
+        protected Closure $engine,
+    ) {}
 
     // ─── Collaborators ──────────────────────────────────────────────────────
 
     /** The name ↔ class registry. */
     public function registry(): ComponentRegistry
     {
-        return $this->registry ??= new ComponentRegistry($this->container);
+        return $this->registry ??= new ComponentRegistry($this->resolver, $this->config);
     }
 
     /** The synthesizer registry, lazily built with the default synths. */
@@ -111,7 +126,7 @@ class LivewireManager
     public function checksum(): Checksum
     {
         return $this->checksum ??= new Checksum(
-            (string) (config('app.key') ?: 'livewire-insecure-dev-key')
+            (string) ($this->config->get('app.key') ?: 'livewire-insecure-dev-key')
         );
     }
 
@@ -130,14 +145,19 @@ class LivewireManager
     /** The guard every browser-called method passes through. */
     public function actions(): ActionInvoker
     {
-        return $this->actions ??= new ActionInvoker($this->container);
+        return $this->actions ??= new ActionInvoker($this->invoker);
     }
 
     /** The initial-render pipeline. */
     public function mounter(): Mounter
     {
         return $this->mounter ??= new Mounter(
-            $this->container, $this->registry(), $this->renderer(), $this->snapshotter()
+            $this->invoker,
+            $this->engine,
+            $this->registry(),
+            $this->renderer(),
+            $this->snapshotter(),
+            $this->config,
         );
     }
 
@@ -145,7 +165,7 @@ class LivewireManager
     public function pipeline(): UpdatePipeline
     {
         return $this->pipeline ??= new UpdatePipeline(
-            $this->container, $this->snapshotter(), $this->renderer(), $this->actions()
+            $this->invoker, $this->snapshotter(), $this->renderer(), $this->actions()
         );
     }
 

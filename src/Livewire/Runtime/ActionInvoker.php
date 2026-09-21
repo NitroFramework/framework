@@ -2,7 +2,7 @@
 
 namespace Nitro\Livewire\Runtime;
 
-use Nitro\Container\Contracts\ContainerInterface as Container;
+use Nitro\Container\Contracts\CallableInvoker;
 use Nitro\Livewire\Attributes\RenderRegion;
 use Nitro\Livewire\Component;
 use Nitro\Validation\ValidationException;
@@ -28,7 +28,7 @@ class ActionInvoker
         'updating', 'updated', 'rendering', 'rendered',
     ];
 
-    public function __construct(protected Container $container) {}
+    public function __construct(protected CallableInvoker $invoker) {}
 
     /** Invoke a browser-called action, rejecting anything not a public component method. */
     public function call(Component $component, string $method, array $params): void
@@ -40,7 +40,7 @@ class ActionInvoker
         }
 
         try {
-            $this->container->call([$component, $method], $params);
+            $this->invoker->call([$component, $method], $params);
         } catch (ValidationException $exception) {
             // Validation failures are recorded on the component's error bag; swallow
             // so the component re-renders inline with errors instead of 500-ing.

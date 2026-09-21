@@ -2,7 +2,7 @@
 
 namespace Nitro\Livewire\Routing;
 
-use Nitro\Container\Contracts\ContainerInterface as Container;
+use Closure;
 use Nitro\Http\Request;
 use Nitro\Http\Response;
 use Nitro\Livewire\Runtime\LivewireManager;
@@ -20,8 +20,9 @@ use Nitro\Routing\Route;
  */
 class LivewireRouteType implements RouteType
 {
+    /** @param Closure(): LivewireManager $livewire Built when a route dispatches, not when it registers. */
     public function __construct(
-        protected Container $container,
+        protected Closure $livewire,
     ) {}
 
     public function name(): string
@@ -47,7 +48,7 @@ class LivewireRouteType implements RouteType
     public function dispatch(Route $route, Request $request): Response
     {
         return Response::html(
-            $this->container->resolve(LivewireManager::class)->page((string) $route->getHandler())
+            ($this->livewire)()->page((string) $route->getHandler())
         );
     }
 }

@@ -2,7 +2,9 @@
 
 namespace Nitro\Livewire\Runtime;
 
-use Nitro\Container\Contracts\ContainerInterface as Container;
+use Closure;
+use Nitro\Container\Contracts\CallableInvoker;
+use Nitro\Foundation\Contracts\ConfigRepository;
 use Nitro\Livewire\Attributes\Layout;
 use Nitro\Livewire\Component;
 use Nitro\Livewire\Features\SupportsLazyLoading;
@@ -23,11 +25,14 @@ use ReflectionObject;
  */
 class Mounter
 {
+    /** @param Closure(): Engine $engine Built only when a full page needs its layout rendered. */
     public function __construct(
-        protected Container $container,
+        protected CallableInvoker $invoker,
+        protected Closure $engine,
         protected ComponentRegistry $registry,
         protected Renderer $renderer,
         protected Snapshotter $snapshotter,
+        protected ConfigRepository $config,
     ) {}
 
     /**
@@ -62,7 +67,7 @@ class Mounter
         }
 
         if (method_exists($component, 'mount')) {
-            $this->container->call([$component, 'mount'], $params);
+            $this->invoker->call([$component, 'mount'], $params);
         } else {
             // No mount(): a parameter matching a public property sets it. That
             // is what makes <livewire:seat-counter :quantity="3" /> work on a
@@ -114,7 +119,7 @@ class Mounter
             return $this->renderComponentLayout($layout[0], $html);
         }
 
-        return $this->container->resolve(Engine::class)->render('livewire::page', [
+        return ($this->engine)()->render('livewire::page', [
             '__layout'  => $layout[0],
             '__section' => $layout[1],
             '__slot'    => $html,
@@ -140,7 +145,7 @@ class Mounter
     {
         $name = substr($layout, strlen('components.'));
 
-        $engine = $this->container->resolve(Engine::class);
+        $engine = ($this->engine)();
 
         // The bound Engine may be the renderer itself or a factory holding
         // one; both shapes are in use.
@@ -169,8 +174,8 @@ class Mounter
             return [$layout->layout, $layout->section];
         }
 
-        $default = config('livewire.layout');
+        $default = $this->config->get('livewire.layout');
 
-        return $default ? [$default, config('livewire.layout_section', 'content')] : null;
+        return $default ? [$default, $this->config->get('livewire.layout_section', 'content')] : null;
     }
 }
