@@ -2,12 +2,15 @@
 
 namespace Nitro\Cache;
 
+use Closure;
 use Nitro\Cache\Contracts\StoreInterface;
 use Nitro\Cache\Drivers\ArrayStore;
 use Nitro\Cache\Drivers\DatabaseStore;
 use Nitro\Cache\Drivers\FileStore;
 use Nitro\Cache\Drivers\NullStore;
 use Nitro\Cache\Drivers\RedisStore;
+use Nitro\Events\Contracts\Dispatcher;
+use Nitro\Events\Contracts\ReceivesDispatcher;
 use Nitro\Redis\Connector;
 
 /**
@@ -33,9 +36,13 @@ class CacheManager
 
     /**
      * @param array $config The full cache configuration array
+     * @param Closure(): Dispatcher|null $dispatcher Resolved the first time a
+     *        store is built, so an application that caches nothing never
+     *        builds an event bus for it.
      */
     public function __construct(
-        protected array $config = []
+        protected array $config = [],
+        protected ?Closure $dispatcher = null,
     ) {}
 
     // -------------------------------------------------------------------------
@@ -202,7 +209,23 @@ class CacheManager
     {
         // No default-TTL knob: an omitted TTL means "forever" (Laravel/PSR-16),
         // and callers pass an explicit TTL when they want expiry.
-        return new Repository($store);
+        $repository = new Repository($store);
+
+        /*
+         * Every store is wired to the bus as it is built, not when some
+         * particular binding is asked for. Attaching it at one of the two
+         * bindings that hand out the default store meant the store fired
+         * cache.hit/missed/written/forgotten only once something had resolved
+         * that one — in practice, only once the rate limiter happened to be
+         * built. A store handed out before that had no bus, and silently
+         * gained one afterwards, because store() memoizes and both bindings
+         * return the same instance.
+         */
+        if ($this->dispatcher !== null && $repository instanceof ReceivesDispatcher) {
+            $repository->setDispatcher(($this->dispatcher)());
+        }
+
+        return $repository;
     }
 
     // -------------------------------------------------------------------------

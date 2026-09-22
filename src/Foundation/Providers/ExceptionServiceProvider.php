@@ -19,7 +19,7 @@ class ExceptionServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->container->singleton(ExceptionHandler::class);
-        $this->container->alias('exceptions', ExceptionHandler::class);
+        $this->container->alias(ExceptionHandler::class, 'exceptions');
     }
 
     /**

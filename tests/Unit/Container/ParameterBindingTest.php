@@ -3,6 +3,7 @@
 namespace Tests\Unit\Container;
 
 use Nitro\Container\Container;
+use Nitro\Container\Contracts\CallableInvoker;
 use PHPUnit\Framework\TestCase;
 
 /** Stand-in for a route-bound model. */
@@ -18,21 +19,23 @@ class BoundWidget
  */
 class ParameterBindingTest extends TestCase
 {
-    private function container(): Container
+    private function invoker(): CallableInvoker
     {
-        $c = new Container();
-        $c->bindParametersUsing(function (string $type, mixed $value) {
+        $invoker = (new Container())->get(CallableInvoker::class);
+
+        $invoker->bindParametersUsing(function (string $type, mixed $value) {
             if ($type === BoundWidget::class) {
                 return new BoundWidget($value);
             }
-            return Container::PARAM_UNRESOLVED;
+            return CallableInvoker::PARAM_UNRESOLVED;
         });
-        return $c;
+
+        return $invoker;
     }
 
     public function test_typed_param_with_matching_route_value_is_bound_to_object(): void
     {
-        $result = $this->container()->call(
+        $result = $this->invoker()->call(
             fn (BoundWidget $widget) => $widget,
             ['widget' => 42],
         );
@@ -43,7 +46,7 @@ class ParameterBindingTest extends TestCase
 
     public function test_untyped_scalar_param_is_unaffected(): void
     {
-        $result = $this->container()->call(
+        $result = $this->invoker()->call(
             fn ($id) => $id,
             ['id' => 7],
         );
@@ -55,7 +58,7 @@ class ParameterBindingTest extends TestCase
     {
         // No primitive matches the param name, so the binder is never consulted
         // and normal auto-wiring resolves the dependency.
-        $result = $this->container()->call(
+        $result = $this->invoker()->call(
             fn (Container $c) => $c,
         );
 
@@ -64,8 +67,8 @@ class ParameterBindingTest extends TestCase
 
     public function test_no_binder_registered_leaves_scalar_named_override(): void
     {
-        $c = new Container(); // no binder
-        $result = $c->call(fn ($slug) => $slug, ['slug' => 'hello']);
+        $invoker = (new Container())->get(CallableInvoker::class); // no binder
+        $result = $invoker->call(fn ($slug) => $slug, ['slug' => 'hello']);
         $this->assertSame('hello', $result);
     }
 }

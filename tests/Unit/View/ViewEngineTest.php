@@ -8,7 +8,7 @@ use Nitro\View\Engines\CompilerEngine;
 use Nitro\View\Compiler\CompiledTemplateCache;
 use Nitro\View\Compiler\BladeCompiler;
 use Nitro\View\Compiler\ComponentTagCompiler;
-use Nitro\Foundation\PathRegistry;
+use Nitro\Foundation\Contracts\PathRegistry;
 use Nitro\Foundation\Config;
 
 class ViewEngineTest extends TestCase

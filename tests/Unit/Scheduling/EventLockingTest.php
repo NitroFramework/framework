@@ -46,7 +46,7 @@ class EventLockingTest extends TestCase
         ]);
 
         $this->container->instance(CacheManager::class, $cache);
-        $this->container->alias('cache', CacheManager::class);
+        $this->container->alias(CacheManager::class, 'cache');
     }
 
     protected function tearDown(): void

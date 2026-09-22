@@ -5,7 +5,7 @@ namespace Nitro\Thrust\Commands;
 use Nitro\Console\ExitCode;
 use Nitro\Console\Contracts\CommandInterface;
 use Nitro\Console\OutputFormatter;
-use Nitro\Foundation\PathRegistry;
+use Nitro\Foundation\Contracts\PathRegistry;
 use Nitro\Thrust\FrankenPhp\BinaryFinder;
 use Nitro\Thrust\FrankenPhp\BinaryInstaller;
 use Nitro\Thrust\FrankenPhp\ProcessInspector;

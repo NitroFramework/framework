@@ -27,6 +27,6 @@ class ConcurrencyServiceProvider extends ServiceProvider
             return new Concurrency((string) $config->get('concurrency.driver', 'process'));
         });
 
-        $this->container->alias(Concurrency::class, 'concurrency');
+        $this->container->alias('concurrency', Concurrency::class);
     }
 }

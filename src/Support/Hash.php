@@ -14,12 +14,12 @@ namespace Nitro\Support;
  */
 class Hash
 {
-    public static function make(string $value, array $options = []): string
+    public static function make(#[\SensitiveParameter] string $value, array $options = []): string
     {
         return password_hash($value, PASSWORD_DEFAULT, $options);
     }
 
-    public static function check(string $value, ?string $hashedValue): bool
+    public static function check(#[\SensitiveParameter] string $value, ?string $hashedValue): bool
     {
         if ($hashedValue === null || $hashedValue === '') {
             return false;

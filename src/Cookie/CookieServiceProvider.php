@@ -25,6 +25,6 @@ class CookieServiceProvider extends ServiceProvider
             );
         });
 
-        $this->container->alias(CookieJar::class, 'cookie');
+        $this->container->alias('cookie', CookieJar::class);
     }
 }

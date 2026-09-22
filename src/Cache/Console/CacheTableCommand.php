@@ -5,7 +5,7 @@ namespace Nitro\Cache\Console;
 use Nitro\Console\ExitCode;
 use Nitro\Console\Contracts\CommandInterface;
 use Nitro\Console\OutputFormatter;
-use Nitro\Foundation\PathRegistry;
+use Nitro\Foundation\Contracts\PathRegistry;
 
 /**
  * Generates the migration for the database cache driver's table.

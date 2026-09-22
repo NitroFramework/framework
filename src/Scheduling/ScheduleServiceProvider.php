@@ -21,7 +21,7 @@ class ScheduleServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->container->singleton(Schedule::class);
-        $this->container->alias('schedule', Schedule::class);
+        $this->container->alias(Schedule::class, 'schedule');
 
         /*
          * What a due task is allowed to reach for while it runs. Factories, so
@@ -29,9 +29,9 @@ class ScheduleServiceProvider extends ServiceProvider
          */
         $this->container->singleton(ScheduleContext::class, function ($container) {
             return new ScheduleContext(
-                static fn (): CacheManager => $container->resolve(CacheManager::class),
-                static fn (): QueueManager => $container->resolve(QueueManager::class),
-                static fn (): CommandManager => $container->resolve(CommandManager::class),
+                cache: static fn (): CacheManager => $container->resolve(CacheManager::class),
+                queue: static fn (): QueueManager => $container->resolve(QueueManager::class),
+                commands: static fn (): CommandManager => $container->resolve(CommandManager::class),
             );
         });
     }

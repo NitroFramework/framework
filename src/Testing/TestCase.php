@@ -209,11 +209,7 @@ abstract class TestCase extends BaseTestCase
             // The suite is the one place where reflecting over the whole
             // long-lived object graph once per test is affordable, and the only
             // place a capture made outside a constructor can be seen at all.
-            $container = self::$sharedApplication->getContainer();
-
-            if ($container instanceof Container) {
-                $container->detectCapturedState(true);
-            }
+            self::$sharedApplication->detectCapturedState();
 
             self::$sharedHandlers = [
                 self::currentErrorHandler(),

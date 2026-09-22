@@ -1,6 +1,6 @@
 <?php
 
-namespace Nitro\Container\Exceptions;
+namespace Nitro\Thrust\Exceptions;
 
 use RuntimeException;
 

@@ -21,10 +21,10 @@ class FilesystemServiceProvider extends ServiceProvider
             return new FilesystemManager((array) $config->get('filesystems', []));
         });
 
-        $this->container->alias(FilesystemManager::class, 'filesystem');
+        $this->container->alias('filesystem', FilesystemManager::class);
 
         $this->container->bind(Filesystem::class, function ($container) {
             return $container->resolve('filesystem')->disk();
-        });
+        }, true);
     }
 }

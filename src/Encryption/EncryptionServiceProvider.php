@@ -32,8 +32,8 @@ class EncryptionServiceProvider extends ServiceProvider
             return $encrypter;
         });
 
-        $this->container->alias(Encrypter::class, 'encrypter');
-        $this->container->alias(EncrypterContract::class, 'encrypter');
+        $this->container->alias('encrypter', Encrypter::class);
+        $this->container->alias('encrypter', EncrypterContract::class);
     }
 
     /**

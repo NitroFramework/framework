@@ -1,6 +1,6 @@
 <?php
 
-namespace Nitro\Container;
+namespace Nitro\Thrust;
 
 use ReflectionObject;
 use ReflectionProperty;

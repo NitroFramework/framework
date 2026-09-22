@@ -3,7 +3,7 @@
 namespace Tests\Unit\View;
 
 use Nitro\Foundation\Config;
-use Nitro\Foundation\PathRegistry;
+use Nitro\Foundation\Contracts\PathRegistry;
 use Nitro\View\Compiler\BladeCompiler;
 use Nitro\View\Compiler\CompiledTemplateCache;
 use Nitro\View\Compiler\ComponentTagCompiler;

@@ -29,7 +29,7 @@ class Encrypter implements EncrypterContract
 
     protected string $cipher;
 
-    public function __construct(string $key, string $cipher = 'aes-256-cbc')
+    public function __construct(#[\SensitiveParameter] string $key, string $cipher = 'aes-256-cbc')
     {
         if (! static::supported($key, $cipher)) {
             $ciphers = implode(', ', array_keys(self::SUPPORTED_CIPHERS));
@@ -41,7 +41,7 @@ class Encrypter implements EncrypterContract
     }
 
     /** Is this key length valid for the given cipher? */
-    public static function supported(string $key, string $cipher): bool
+    public static function supported(#[\SensitiveParameter] string $key, string $cipher): bool
     {
         $cipherConfig = self::SUPPORTED_CIPHERS[strtolower($cipher)] ?? null;
 
@@ -54,7 +54,7 @@ class Encrypter implements EncrypterContract
         return random_bytes(self::SUPPORTED_CIPHERS[strtolower($cipher)]['size'] ?? 32);
     }
 
-    public function encrypt(mixed $value, bool $serialize = true): string
+    public function encrypt(#[\SensitiveParameter] mixed $value, bool $serialize = true): string
     {
         $iv = random_bytes(openssl_cipher_iv_length(strtolower($this->cipher)));
 
@@ -88,7 +88,7 @@ class Encrypter implements EncrypterContract
         return base64_encode($json);
     }
 
-    public function encryptString(string $value): string
+    public function encryptString(#[\SensitiveParameter] string $value): string
     {
         return $this->encrypt($value, false);
     }
@@ -186,7 +186,7 @@ class Encrypter implements EncrypterContract
 
     // ─── internals ────────────────────────────────────────
 
-    protected function hash(string $iv, string $value, string $key): string
+    protected function hash(string $iv, #[\SensitiveParameter] string $value, #[\SensitiveParameter] string $key): string
     {
         return hash_hmac('sha256', $iv . $value, $key);
     }
@@ -221,7 +221,7 @@ class Encrypter implements EncrypterContract
         return strlen(base64_decode($payload['iv'], true)) === openssl_cipher_iv_length(strtolower($this->cipher));
     }
 
-    protected function validMacForKey(array $payload, string $key): bool
+    protected function validMacForKey(array $payload, #[\SensitiveParameter] string $key): bool
     {
         return hash_equals($this->hash($payload['iv'], $payload['value'], $key), $payload['mac']);
     }

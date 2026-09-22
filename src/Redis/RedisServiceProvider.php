@@ -27,6 +27,6 @@ class RedisServiceProvider extends ServiceProvider
             return new RedisManager((array) $config->get('database.redis', []));
         });
 
-        $this->container->alias(RedisManager::class, 'redis');
+        $this->container->alias('redis', RedisManager::class);
     }
 }

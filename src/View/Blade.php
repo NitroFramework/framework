@@ -3,7 +3,7 @@
 namespace Nitro\View;
 
 use Nitro\Foundation\Contracts\ConfigRepository;
-use Nitro\Foundation\PathRegistry;
+use Nitro\Foundation\Contracts\PathRegistry;
 use Nitro\View\Compiler\DirectiveRegistry;
 use Nitro\View\Contracts\TemplateCache;
 use Nitro\View\Support\ViewExtensions;

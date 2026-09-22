@@ -3,6 +3,7 @@
 namespace Tests\Unit\Container;
 
 use Nitro\Container\Container;
+use Nitro\Container\Contracts\CallableInvoker;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -23,25 +24,27 @@ class ParameterBinderNameTest extends TestCase
     /** The arguments the binder was handed, per call. */
     private array $calls = [];
 
-    private function container(): Container
+    private function invoker(): CallableInvoker
     {
         $container = new Container();
 
         $this->calls = [];
 
-        $container->bindParametersUsing(function (string $type, mixed $value, string $name = '') {
+        $invoker = $container->get(CallableInvoker::class);
+
+        $invoker->bindParametersUsing(function (string $type, mixed $value, string $name = '') {
             $this->calls[] = ['type' => $type, 'value' => $value, 'name' => $name];
 
             return new BoundThing($value, $name);
         });
 
-        return $container;
+        return $invoker;
     }
 
     /** The path a real request takes: the route parameter is keyed by name. */
     public function test_the_name_reaches_the_binder_when_matched_by_name(): void
     {
-        $thing = $this->container()->call(
+        $thing = $this->invoker()->call(
             static fn (BoundThing $post): BoundThing => $post,
             ['post' => 'hello-world'],
         );
@@ -54,7 +57,7 @@ class ParameterBinderNameTest extends TestCase
     /** And the positional path, which a handler with mismatched names takes. */
     public function test_the_name_reaches_the_binder_when_matched_positionally(): void
     {
-        $thing = $this->container()->call(
+        $thing = $this->invoker()->call(
             static fn (BoundThing $post): BoundThing => $post,
             [0 => 'hello-world'],
         );
@@ -68,11 +71,13 @@ class ParameterBinderNameTest extends TestCase
     {
         $container = new Container();
 
-        $container->bindParametersUsing(
+        $invoker = $container->get(CallableInvoker::class);
+
+        $invoker->bindParametersUsing(
             static fn (string $type, mixed $value): BoundThing => new BoundThing($value, 'ignored')
         );
 
-        $thing = $container->call(
+        $thing = $invoker->call(
             static fn (BoundThing $post): BoundThing => $post,
             ['post' => 'hello-world'],
         );
@@ -85,11 +90,13 @@ class ParameterBinderNameTest extends TestCase
     {
         $container = new Container();
 
-        $container->bindParametersUsing(
-            static fn (string $type, mixed $value, string $name = ''): mixed => Container::PARAM_UNRESOLVED
+        $invoker = $container->get(CallableInvoker::class);
+
+        $invoker->bindParametersUsing(
+            static fn (string $type, mixed $value, string $name = ''): mixed => CallableInvoker::PARAM_UNRESOLVED
         );
 
-        $result = $container->call(
+        $result = $invoker->call(
             static fn (string $post): string => $post,
             ['post' => 'hello-world'],
         );

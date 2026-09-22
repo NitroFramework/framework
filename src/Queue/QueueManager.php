@@ -145,11 +145,11 @@ class QueueManager
     public function batch(array|Job $jobs = []): PendingBatch
     {
         return new PendingBatch(
-            $this,
-            ($this->batches)(),
-            ($this->batchCallbacks)(),
-            $jobs,
-            $this->kernel,
+            queue: $this,
+            repository: ($this->batches)(),
+            callbacks: ($this->batchCallbacks)(),
+            jobs: $jobs,
+            kernel: $this->kernel,
         );
     }
 }

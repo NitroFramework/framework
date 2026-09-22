@@ -1,0 +1,28 @@
+parameters:
+    # Raised deliberately, not aspirationally: each level up is a batch of real
+    # findings to work through, and a level whose errors are all ignored tells
+    # you nothing. Move it when the current one is clean.
+    level: 0
+
+    paths:
+        - src
+
+    # The helpers are global functions loaded through composer's "files"
+    # autoload, so config(), app(), view() and the rest must be defined before
+    # analysis or every call to one reads as an unknown function.
+    bootstrapFiles:
+        - vendor/autoload.php
+
+    ignoreErrors:
+        # `new static()` in a non-final class. Idiomatic here — Carbon, Collection
+        # and the query builder all return new instances of the called class on
+        # purpose, and every subclass keeps the parent's constructor signature.
+        - identifier: new.static
+
+        # A macro closure is rebound to the router before it runs
+        # (Macroable::__call does bindTo($this, static::class)), so `$this` is
+        # the router rather than the provider. Static analysis cannot see that.
+        -
+            identifier: method.notFound
+            path: src/Livewire/LivewireServiceProvider.php
+            message: '#Call to an undefined method .*LivewireServiceProvider::get\(\)#'

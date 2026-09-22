@@ -5,7 +5,7 @@ namespace Nitro\Foundation\Bootstrap;
 use Nitro\Foundation\Application;
 use Nitro\Foundation\Config;
 use Nitro\Foundation\Contracts\ConfigRepository;
-use Nitro\Foundation\PathRegistry;
+use Nitro\Foundation\Contracts\PathRegistry;
 use Nitro\Support\Logger;
 
 /**

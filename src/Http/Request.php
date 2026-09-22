@@ -3,7 +3,6 @@
 namespace Nitro\Http;
 
 use ArrayAccess;
-use Nitro\Container\Attributes\RequestScoped;
 use Nitro\Container\Container;
 use Nitro\Support\Macroable;
 
@@ -14,11 +13,11 @@ use Nitro\Support\Macroable;
  * `get`/`set` prefixes (`capture`, `method`, `path`, `header`, `query`, `post`,
  * `input`, `all`, `only`, `except`, `allFiles`, `server`, `ip`, `ajax`, `secure`).
  *
- * Bound with instance() once per request, which on its own would read as
- * process-lived. The attribute is what stops a singleton taking one in its
- * constructor and answering every later request from the first one's input.
+ * Bound with instance() once per request, which on its own reads as no more
+ * short-lived than anything else. The Application marks the name request-scoped
+ * so capture detection can tell when a singleton has taken one in its
+ * constructor and is answering every later request from the first one's input.
  */
-#[RequestScoped]
 class Request implements ArrayAccess
 {
     /**

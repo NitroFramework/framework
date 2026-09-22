@@ -79,8 +79,8 @@ class SessionServiceProvider extends ServiceProvider
         // Scoped: one Store per worker request; the binding declares its own
         // lifecycle rather than relying on a central reset list.
         $this->container->scoped('session', fn($container) => $container->resolve(SessionManager::class)->driver());
-        $this->container->alias(Session::class, 'session');
-        $this->container->alias(Store::class, 'session');
+        $this->container->alias('session', Session::class);
+        $this->container->alias('session', Store::class);
 
         $this->configureNativeSessionPath();
     }
@@ -92,8 +92,14 @@ class SessionServiceProvider extends ServiceProvider
      */
     protected function configureNativeSessionPath(): void
     {
-        // save_path can only be set before a session starts; skip if one's active.
-        if (session_status() === PHP_SESSION_ACTIVE) {
+        /*
+         * save_path can only be set before a session starts AND before any
+         * output. PHP 8.5 warns on the second case too, which the error
+         * handler turns into an exception — so a provider registering after
+         * anything has echoed took the whole request down. Attempting it once
+         * headers are out is futile anyway.
+         */
+        if (session_status() === PHP_SESSION_ACTIVE || headers_sent()) {
             return;
         }
 

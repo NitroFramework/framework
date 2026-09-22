@@ -6,7 +6,7 @@ use Nitro\Container\Contracts\ClassResolver;
 use Nitro\Events\Contracts\Dispatcher as EventDispatcher;
 use Nitro\Events\Contracts\ReceivesDispatcher;
 use Nitro\Foundation\Contracts\ConfigRepository;
-use Nitro\Foundation\PathRegistry;
+use Nitro\Foundation\Contracts\PathRegistry;
 use Nitro\View\Blade;
 use Nitro\View\Compiler\BladeCompiler;
 use Nitro\View\Compiler\CompiledTemplateCache;
@@ -151,7 +151,7 @@ class ViewServiceProvider extends ServiceProvider
             );
         });
 
-        $this->container->alias('vite', \Nitro\View\Vite::class);
+        $this->container->alias(\Nitro\View\Vite::class, 'vite');
     }
 
     /** Each contract routed to the concrete singleton registered above. */
@@ -185,8 +185,8 @@ class ViewServiceProvider extends ServiceProvider
 
         $this->container->singleton(Blade::class);
 
-        $this->container->alias('view', Blade::class);
-        $this->container->alias('view.factory', Factory::class);
+        $this->container->alias(Blade::class, 'view');
+        $this->container->alias(Factory::class, 'view.factory');
     }
 
     public function boot(PathRegistry $paths): void

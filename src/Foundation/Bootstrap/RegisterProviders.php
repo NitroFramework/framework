@@ -46,7 +46,7 @@ class RegisterProviders implements BootstrapperInterface
         if (! $app->isDebug() && is_file($containerCache)) {
             $factories = require $containerCache;
             if (is_array($factories)) {
-                $app->getContainer()->setCompiledFactories($factories);
+                $this->bindCompiledFactories($app->getContainer(), $factories);
             }
         }
 
@@ -58,6 +58,43 @@ class RegisterProviders implements BootstrapperInterface
         $warmup = $app->paths()->cachedViewWarmup();
         if (is_file($warmup)) {
             require_once $warmup;
+        }
+    }
+
+    /**
+     * Register each compiled factory as the binding for its class.
+     *
+     * A compiled factory is a binding — "here is how to build this class" —
+     * so it is registered as one rather than kept in a map the container
+     * consults ahead of its own bindings. Extenders and resolution callbacks
+     * then apply to a compiled class exactly as they do to a reflected one,
+     * which a separate lookup path silently skipped.
+     *
+     * A name a provider has already bound keeps that binding: the compiler
+     * only inlines classes nothing configures, and a provider that registered
+     * one after the map was written is the more current of the two.
+     *
+     * Constructor overrides still reflect. The factory inlines the whole
+     * dependency graph, so it has nowhere to put a value passed for one
+     * parameter, and answering a parameterised request with the unparameterised
+     * object would be wrong rather than merely slower.
+     *
+     * @param \Illuminate\Contracts\Container\Container $container
+     * @param array<string, \Closure>                   $factories
+     */
+    private function bindCompiledFactories(object $container, array $factories): void
+    {
+        foreach ($factories as $abstract => $factory) {
+            if ($container->bound($abstract)) {
+                continue;
+            }
+
+            $container->bind(
+                $abstract,
+                static fn (object $c, array $parameters = []): mixed => $parameters === []
+                    ? $factory($c)
+                    : $c->build($abstract)
+            );
         }
     }
 }

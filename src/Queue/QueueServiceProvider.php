@@ -59,19 +59,19 @@ class QueueServiceProvider extends ServiceProvider
     {
         $this->container->singleton(QueueManager::class, function ($container) {
             return new QueueManager(
-                $container->resolve(ConfigRepository::class),
-                static fn (): SyncQueue => $container->resolve(SyncQueue::class),
-                static fn (): RedisManager => $container->resolve(RedisManager::class),
-                static fn (): BatchRepository => $container->resolve(BatchRepository::class),
-                static fn (): BatchCallbacks => $container->resolve(BatchCallbacks::class),
+                config: $container->resolve(ConfigRepository::class),
+                syncQueue: static fn (): SyncQueue => $container->resolve(SyncQueue::class),
+                redis: static fn (): RedisManager => $container->resolve(RedisManager::class),
+                batches: static fn (): BatchRepository => $container->resolve(BatchRepository::class),
+                batchCallbacks: static fn (): BatchCallbacks => $container->resolve(BatchCallbacks::class),
                 // Absent in a console command; decided here, not looked up later.
-                $container->has(Kernel::class)
+                kernel: $container->has(Kernel::class)
                     ? $container->resolve(Kernel::class)
                     : null,
             );
         });
 
-        $this->container->alias('queue', QueueManager::class);
+        $this->container->alias(QueueManager::class, 'queue');
     }
 
     /** Where a job goes when it has exhausted its attempts. */
@@ -103,8 +103,8 @@ class QueueServiceProvider extends ServiceProvider
             $config = $container->resolve(ConfigRepository::class);
 
             return new DatabaseBatchRepository(
-                $container->resolve(BatchFactory::class),
-                $config->get('queue.batching.table') ?? 'job_batches'
+                factory: $container->resolve(BatchFactory::class),
+                table: $config->get('queue.batching.table') ?? 'job_batches',
             );
         });
 
@@ -116,21 +116,21 @@ class QueueServiceProvider extends ServiceProvider
     {
         $this->container->singleton(Worker::class, function ($container) {
             return new Worker(
-                $container->resolve(QueueManager::class),
-                $container->resolve(FailedJobStore::class),
-                $container->resolve(ClassResolver::class),
+                queues: $container->resolve(QueueManager::class),
+                failedStore: $container->resolve(FailedJobStore::class),
+                resolver: $container->resolve(ClassResolver::class),
                 // Optional collaborators: present in most applications, but the
                 // worker degrades gracefully without them. Availability is
                 // decided here rather than looked up inside the worker.
-                $container->has(CacheManager::class)
+                cache: $container->has(CacheManager::class)
                     ? $container->resolve(CacheManager::class)
                     : null,
-                $container->resolve(BatchRepository::class),
-                $container->resolve(BatchCallbacks::class),
-                $container->has(UniqueLock::class)
+                batches: $container->resolve(BatchRepository::class),
+                batchCallbacks: $container->resolve(BatchCallbacks::class),
+                uniqueLock: $container->has(UniqueLock::class)
                     ? $container->resolve(UniqueLock::class)
                     : null,
-                $container->has('events')
+                events: $container->has('events')
                     ? $container->resolve('events')
                     : null,
             );

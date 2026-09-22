@@ -32,12 +32,12 @@ class MailServiceProvider extends ServiceProvider
                 $container->resolve('events'),
             );
         });
-        $this->container->alias(MailManager::class, 'mail');
+        $this->container->alias('mail', MailManager::class);
 
         $this->container->singleton('mailer', function ($container) {
             return $container->resolve('mail')->mailer();
         });
-        $this->container->alias(Mailer::class, 'mailer');
-        $this->container->alias(MailerContract::class, 'mailer');
+        $this->container->alias('mailer', Mailer::class);
+        $this->container->alias('mailer', MailerContract::class);
     }
 }

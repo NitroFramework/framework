@@ -2,9 +2,10 @@
 
 namespace Nitro\Thrust\Concerns;
 
-use Nitro\Container\Exceptions\CapturedRequestStateException;
 use Nitro\Foundation\Contracts\ResetsBetweenRequests;
 use Nitro\Support\Logger;
+use Nitro\Thrust\Exceptions\CapturedRequestStateException;
+use Nitro\Thrust\RequestStateTracker;
 use Nitro\Thrust\WorkerMode;
 use Throwable;
 
@@ -23,6 +24,9 @@ use Throwable;
  */
 trait ResetsForWorkerMode
 {
+    /** Watches for request state held past its request; null unless asked for. */
+    private ?RequestStateTracker $requestStateTracker = null;
+
     /**
      * Reset request-scoped container instances and per-request state, so the
      * next request starts clean without paying for the full bootstrap again.
@@ -37,7 +41,7 @@ trait ResetsForWorkerMode
         // cleaned for the next request, and the generation never advanced, so
         // one capture would be re-reported on every request after it. Empty
         // unless capture detection was turned on.
-        $captured = $this->container->capturedRequestState();
+        $captured = $this->requestStateTracker?->captured() ?? [];
 
         // Clears the resolved instances but keeps the bindings, so the next
         // get('request') re-resolves from scratch.
@@ -50,9 +54,22 @@ trait ResetsForWorkerMode
 
         $this->resetStatefulServices();
 
-        $this->container->startNewRequestGeneration();
+        $this->requestStateTracker?->startNewRequest();
 
         $this->reportCapturedState($captured);
+    }
+
+    /**
+     * Start watching for request state that outlives its request.
+     *
+     * Off unless asked for: watching holds a reference to every request-lived
+     * object and the scan reflects over the whole long-lived object graph.
+     *
+     * @param array<int, string> $scopedServices Names that live for one request.
+     */
+    public function detectCapturedState(array $scopedServices = ['request', 'auth', 'db', 'session', 'cookie']): void
+    {
+        $this->requestStateTracker = (new RequestStateTracker($this->container, $scopedServices))->watch();
     }
 
     /**

@@ -3,7 +3,7 @@
 namespace Tests\Unit\Container;
 
 use Nitro\Container\Container;
-use Nitro\Container\ContainerCompiler;
+use Nitro\Console\Optimize\ContainerCompiler;
 use PHPUnit\Framework\TestCase;
 
 class CcConn {}
@@ -33,6 +33,21 @@ class ContainerCompilerTest extends TestCase
         return $map;
     }
 
+    /**
+     * Install a compiled map the way the bootstrapper does: each factory
+     * becomes the binding for its class.
+     *
+     * @param array<string, \Closure> $map
+     */
+    private function install(Container $c, array $map): void
+    {
+        foreach ($map as $abstract => $factory) {
+            if (! $c->bound($abstract)) {
+                $c->bind($abstract, $factory);
+            }
+        }
+    }
+
     public function test_inlines_an_unbound_autowire_graph(): void
     {
         $php = (new ContainerCompiler())->compile(new Container(), [CcSvc::class]);
@@ -46,7 +61,7 @@ class ContainerCompilerTest extends TestCase
     public function test_compiled_factory_produces_the_correct_graph(): void
     {
         $c = new Container();
-        $c->setCompiledFactories($this->load($c, [CcSvc::class]));
+        $this->install($c, $this->load($c, [CcSvc::class]));
 
         $svc = $c->resolve(CcSvc::class);
 
@@ -61,10 +76,10 @@ class ContainerCompilerTest extends TestCase
         $c->singleton(CcConn::class); // Conn is now a shared singleton
 
         $php = (new ContainerCompiler())->compile($c, [CcRepoA::class]);
-        $this->assertStringContainsString('$c->resolve(\'' . addslashes(CcConn::class) . '\')', $php);
+        $this->assertStringContainsString('$c->make(\'' . addslashes(CcConn::class) . '\')', $php);
         $this->assertStringNotContainsString('new \\' . CcConn::class, $php);
 
-        $c->setCompiledFactories($this->load($c, [CcRepoA::class]));
+        $this->install($c, $this->load($c, [CcRepoA::class]));
         $a1 = $c->resolve(CcRepoA::class);
         $a2 = $c->resolve(CcRepoA::class);
         $this->assertSame($a1->c, $a2->c, 'bound singleton dep must stay shared through the compiled factory');
@@ -74,12 +89,12 @@ class ContainerCompilerTest extends TestCase
     {
         $c = new Container();
         $c->singleton('lg', CcFileLogger::class);
-        $c->alias(CcLogger::class, 'lg');
+        $c->alias('lg', CcLogger::class);
 
         $php = (new ContainerCompiler())->compile($c, [CcNeedsLogger::class]);
-        $this->assertStringContainsString('$c->resolve(\'' . addslashes(CcLogger::class) . '\')', $php);
+        $this->assertStringContainsString('$c->make(\'' . addslashes(CcLogger::class) . '\')', $php);
 
-        $c->setCompiledFactories($this->load($c, [CcNeedsLogger::class]));
+        $this->install($c, $this->load($c, [CcNeedsLogger::class]));
         $this->assertInstanceOf(CcFileLogger::class, $c->resolve(CcNeedsLogger::class)->l);
     }
 

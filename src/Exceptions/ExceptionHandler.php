@@ -5,6 +5,7 @@ namespace Nitro\Exceptions;
 use Throwable;
 use WeakMap;
 use Nitro\Events\CoreEvents;
+use Nitro\Exceptions\Events\ExceptionEvent;
 use Nitro\Foundation\Application;
 use Nitro\Foundation\Contracts\ConfigRepository;
 use Nitro\Container\Contracts\ContainerInterface as Container;

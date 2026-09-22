@@ -32,13 +32,13 @@ class LivewireServiceProvider extends ServiceProvider
     {
         $this->container->singleton(LivewireManager::class, function ($container) {
             return new LivewireManager(
-                $container->resolve(ClassResolver::class),
-                $container->resolve(CallableInvoker::class),
-                $container->resolve(ConfigRepository::class),
-                static fn (): Engine => $container->resolve(Engine::class),
+                resolver: $container->resolve(ClassResolver::class),
+                invoker: $container->resolve(CallableInvoker::class),
+                config: $container->resolve(ConfigRepository::class),
+                engine: static fn (): Engine => $container->resolve(Engine::class),
             );
         });
-        $this->container->alias('livewire', LivewireManager::class);
+        $this->container->alias(LivewireManager::class, 'livewire');
 
         /* Both must exist before routes load (during boot). */
         $this->registerRouteType();

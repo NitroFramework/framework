@@ -57,8 +57,8 @@ class AuthServiceProvider extends ServiceProvider
             );
         });
 
-        $this->container->alias(SessionGuard::class, 'auth');
-        $this->container->alias(Guard::class, 'auth');
+        $this->container->alias('auth', SessionGuard::class);
+        $this->container->alias('auth', Guard::class);
     }
 
     /**

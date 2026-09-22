@@ -133,7 +133,11 @@ class LivewireManager
     /** The wire boundary: snapshot() / fromSnapshot(). */
     public function snapshotter(): Snapshotter
     {
-        return $this->snapshotter ??= new Snapshotter($this->registry(), $this->synths(), $this->checksum());
+        return $this->snapshotter ??= new Snapshotter(
+            registry: $this->registry(),
+            synths: $this->synths(),
+            checksum: $this->checksum(),
+        );
     }
 
     /** Component → HTML, plus wrapRoot/extractRegion. */
@@ -152,12 +156,12 @@ class LivewireManager
     public function mounter(): Mounter
     {
         return $this->mounter ??= new Mounter(
-            $this->invoker,
-            $this->engine,
-            $this->registry(),
-            $this->renderer(),
-            $this->snapshotter(),
-            $this->config,
+            invoker: $this->invoker,
+            engine: $this->engine,
+            registry: $this->registry(),
+            renderer: $this->renderer(),
+            snapshotter: $this->snapshotter(),
+            config: $this->config,
         );
     }
 
@@ -165,7 +169,10 @@ class LivewireManager
     public function pipeline(): UpdatePipeline
     {
         return $this->pipeline ??= new UpdatePipeline(
-            $this->invoker, $this->snapshotter(), $this->renderer(), $this->actions()
+            invoker: $this->invoker,
+            snapshotter: $this->snapshotter(),
+            renderer: $this->renderer(),
+            actions: $this->actions(),
         );
     }
 

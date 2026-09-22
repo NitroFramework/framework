@@ -3,6 +3,7 @@
 namespace Tests\Unit\Container;
 
 use Nitro\Container\Container;
+use Nitro\Container\Contracts\CallableInvoker;
 use PHPUnit\Framework\TestCase;
 
 /** A service a controller asks the container for. */
@@ -33,20 +34,22 @@ class BoundReport
  */
 class RouteParameterInjectionTest extends TestCase
 {
-    private function container(): Container
+    private function invoker(): CallableInvoker
     {
         $container = new Container();
 
-        $container->bindParametersUsing(function (string $type, mixed $value) {
-            return $type === BoundReport::class ? new BoundReport($value) : Container::PARAM_UNRESOLVED;
+        $invoker = $container->get(CallableInvoker::class);
+
+        $invoker->bindParametersUsing(function (string $type, mixed $value) {
+            return $type === BoundReport::class ? new BoundReport($value) : CallableInvoker::PARAM_UNRESOLVED;
         });
 
-        return $container;
+        return $invoker;
     }
 
     public function test_a_dependency_after_a_route_parameter_is_resolved_not_filled(): void
     {
-        $result = $this->container()->call(
+        $result = $this->invoker()->call(
             fn (string $code, Renderer $renderer) => $code . ':' . $renderer->name(),
             ['code' => 'LP-7K42', 0 => 'LP-7K42'],
         );
@@ -58,7 +61,7 @@ class RouteParameterInjectionTest extends TestCase
     {
         // The route value is still the first positional one, and must reach the
         // scalar rather than being swallowed by the dependency in front of it.
-        $result = $this->container()->call(
+        $result = $this->invoker()->call(
             fn (Renderer $renderer, string $code) => $renderer->name() . ':' . $code,
             [0 => 'LP-7K42'],
         );
@@ -68,7 +71,7 @@ class RouteParameterInjectionTest extends TestCase
 
     public function test_two_route_parameters_still_arrive_in_order(): void
     {
-        $result = $this->container()->call(
+        $result = $this->invoker()->call(
             fn (string $course, string $lesson, Renderer $renderer) => "{$course}/{$lesson}/{$renderer->name()}",
             [0 => 'food-safety', 1 => 'allergens'],
         );
@@ -80,7 +83,7 @@ class RouteParameterInjectionTest extends TestCase
     {
         // Route-model binding by position, for a parameter whose name does not
         // match the segment's.
-        $result = $this->container()->call(
+        $result = $this->invoker()->call(
             fn (BoundReport $report) => $report->id,
             [0 => 42],
         );
@@ -92,7 +95,7 @@ class RouteParameterInjectionTest extends TestCase
     {
         $renderer = new Renderer();
 
-        $result = $this->container()->call(
+        $result = $this->invoker()->call(
             fn (Renderer $given) => $given,
             [0 => $renderer],
         );

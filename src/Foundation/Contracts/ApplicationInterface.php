@@ -3,7 +3,7 @@
 namespace Nitro\Foundation\Contracts;
 
 use Nitro\Container\Contracts\ContainerInterface as Container;
-use Nitro\Foundation\PathRegistry;
+use Nitro\Foundation\Contracts\PathRegistry;
 use Nitro\Foundation\Providers\ServiceProvider;
 
 /**

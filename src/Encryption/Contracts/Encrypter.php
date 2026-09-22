@@ -22,4 +22,14 @@ interface Encrypter
 
     /** The current encryption key (raw bytes). */
     public function getKey(): string;
+
+    /**
+     * The current key plus any previous ones, in the order decrypt tries them.
+     *
+     * EncryptCookies needs the full set to read a cookie written before a key
+     * rotation, so it belongs on the contract rather than only the concrete.
+     *
+     * @return array<int, string>
+     */
+    public function getAllKeys(): array;
 }

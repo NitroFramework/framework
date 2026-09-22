@@ -25,7 +25,7 @@ class DatabaseServiceProvider extends ServiceProvider
         DB::configure($dbConfig['connections'][$default]);
 
         $this->container->singleton(Connection::class, fn() => DB::connection());
-        $this->container->alias('db', Connection::class);
+        $this->container->alias(Connection::class, 'db');
 
         /*
          * A model's booted() hook registers its listeners against whichever
@@ -77,7 +77,7 @@ class DatabaseServiceProvider extends ServiceProvider
         // exists so 'schema' can be resolved as a service and reached through
         // the Schema facade.
         $this->container->singleton(SchemaBuilder::class, fn () => new SchemaBuilder());
-        $this->container->alias('schema', SchemaBuilder::class);
+        $this->container->alias(SchemaBuilder::class, 'schema');
 
         // Migration path set, seeded with the app's default migrations directory.
         // Module providers add their own dirs via loadMigrationsFrom(); the migrate

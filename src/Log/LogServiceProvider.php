@@ -3,7 +3,7 @@
 namespace Nitro\Log;
 
 use Nitro\Foundation\Contracts\ConfigRepository;
-use Nitro\Foundation\PathRegistry;
+use Nitro\Foundation\Contracts\PathRegistry;
 use Nitro\Foundation\Providers\ServiceProvider;
 
 /**
@@ -24,7 +24,7 @@ class LogServiceProvider extends ServiceProvider
             return new LogManager($this->normalise($config, $paths));
         });
 
-        $this->container->alias('log', LogManager::class);
+        $this->container->alias(LogManager::class, 'log');
     }
 
     /**

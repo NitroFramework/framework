@@ -123,4 +123,14 @@ interface Engine
      * Determine whether a view name resolves to a template.
      */
     public function viewExists(string $view): bool;
+
+    /**
+     * Render a template given as a string rather than by name.
+     *
+     * Blade::renderString() forwards straight to this, so it is part of what
+     * an engine has to provide, not an extra the bundled one happens to have.
+     *
+     * @param array<string, mixed> $data
+     */
+    public function renderString(string $template, array $data = []): string;
 }

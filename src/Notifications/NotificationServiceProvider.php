@@ -41,7 +41,7 @@ class NotificationServiceProvider extends ServiceProvider
             return new NotificationSender($container->resolve(ChannelManager::class));
         });
 
-        $this->container->alias(NotificationSender::class, 'notification');
+        $this->container->alias('notification', NotificationSender::class);
     }
 
     public function boot(): void

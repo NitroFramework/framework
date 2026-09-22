@@ -3,6 +3,7 @@
 namespace Nitro\Concurrency;
 
 use Closure;
+use Nitro\Container\Contracts\CallableInvoker;
 
 /**
  * Normalises and runs a single "task" through the container so DI works the same
@@ -23,15 +24,20 @@ class TaskInvoker
     {
         $container = app();
 
-        // Closure / already-bound callable — call through the container so its
+        // Invoked through the capability rather than the container because a
+        // task's args arrive positionally — [ReportService::class, 'for', [$id]]
+        // — and matching values to parameters by position is the invoker's job.
+        $invoker = $container->get(CallableInvoker::class);
+
+        // Closure / already-bound callable — called through the invoker so its
         // parameters are auto-wired, matching how controllers are dispatched.
         if ($task instanceof Closure) {
-            return $container->call($task);
+            return $invoker->call($task);
         }
 
         // Invokable class-string: 'App\Tasks\Foo' -> (new Foo)()
         if (is_string($task) && class_exists($task)) {
-            return $container->call([$container->resolve($task), '__invoke']);
+            return $invoker->call([$container->resolve($task), '__invoke']);
         }
 
         // [class-or-object, method, ...args]
@@ -40,12 +46,12 @@ class TaskInvoker
             $method = $task[1];
             $args   = $task[2] ?? [];
 
-            return $container->call([$target, $method], is_array($args) ? $args : [$args]);
+            return $invoker->call([$target, $method], is_array($args) ? $args : [$args]);
         }
 
         // A plain callable (e.g. 'strlen' or [$obj, 'method']) — call as-is.
         if (is_callable($task)) {
-            return $container->call($task);
+            return $invoker->call($task);
         }
 
         throw new \InvalidArgumentException(

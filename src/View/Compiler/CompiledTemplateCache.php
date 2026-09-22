@@ -4,7 +4,7 @@ namespace Nitro\View\Compiler;
 
 use Nitro\Foundation\Contracts\ConfigRepository;
 use Nitro\Foundation\Contracts\ResetsBetweenRequests;
-use Nitro\Foundation\PathRegistry;
+use Nitro\Foundation\Contracts\PathRegistry;
 use Nitro\View\Contracts\TemplateCache;
 use Nitro\View\Contracts\TemplateCompiler;
 use RuntimeException;

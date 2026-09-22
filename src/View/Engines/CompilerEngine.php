@@ -6,7 +6,7 @@ use Nitro\Events\Concerns\DispatchesEvents;
 use Nitro\Events\Contracts\ReceivesDispatcher;
 use Nitro\Foundation\Contracts\ConfigRepository;
 use Nitro\Foundation\Contracts\ResetsBetweenRequests;
-use Nitro\Foundation\PathRegistry;
+use Nitro\Foundation\Contracts\PathRegistry;
 use Nitro\Support\Arr;
 use Nitro\View\Concerns\ManagesFragments;
 use Nitro\View\Concerns\ManagesLayouts;
@@ -26,6 +26,7 @@ use Nitro\View\Support\DebugRenderPipeline;
 use Nitro\View\Support\Htmlable;
 use Nitro\View\Support\ViewExtensions;
 use Nitro\View\Support\ViewManifest;
+use Nitro\View\View;
 use RuntimeException;
 
 /**

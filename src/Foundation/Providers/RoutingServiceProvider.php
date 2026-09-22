@@ -2,7 +2,7 @@
 
 namespace Nitro\Foundation\Providers;
 
-use Nitro\Container\Container;
+use Nitro\Container\Contracts\CallableInvoker;
 use Nitro\Container\Contracts\ContainerInterface;
 use Nitro\Database\Model\Model;
 use Nitro\Events\Contracts\Dispatcher as EventDispatcher;
@@ -41,9 +41,9 @@ class RoutingServiceProvider extends ServiceProvider
 
        $this->container->singleton(RouteDispatcher::class);
 
-        $this->container->alias(RouterInterface::class, Router::class);
-        $this->container->alias('router', Router::class);
-        $this->container->alias('routeLoader', RouteLoader::class);
+        $this->container->alias(Router::class, RouterInterface::class);
+        $this->container->alias(Router::class, 'router');
+        $this->container->alias(RouteLoader::class, 'routeLoader');
 
         $this->registerRouteModelBinding();
     }
@@ -78,16 +78,20 @@ class RoutingServiceProvider extends ServiceProvider
      * ran: getRouteKeyName() and resolveRouteBinding() existed on the model and
      * nothing in the framework reached them.
      *
-     * Registered as a container parameter binder so the core stays unaware of
-     * the Database/HTTP layers — the policy lives here, in the composition root.
+     * Registered on the callable invoker so the core stays unaware of the
+     * Database/HTTP layers — the policy lives here, in the composition root,
+     * and the invoker is the only thing that has to know a route value may
+     * stand for a model.
      */
     protected function registerRouteModelBinding(): void
     {
         $container = $this->container;
 
-        $container->bindParametersUsing(function (string $type, mixed $value, string $name = '') use ($container) {
+        $invoker = $container->get(CallableInvoker::class);
+
+        $invoker->bindParametersUsing(function (string $type, mixed $value, string $name = '') use ($container) {
             if (!is_subclass_of($type, Model::class)) {
-                return Container::PARAM_UNRESOLVED;
+                return CallableInvoker::PARAM_UNRESOLVED;
             }
 
             $route = $this->currentRoute($container);

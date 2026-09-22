@@ -21,6 +21,30 @@ use Stringable;
  *
  * Arithmetic and parsing are delegated to PHP's own date handling, so month-end
  * rollover, leap years and DST transitions behave as they do in DateTimeImmutable.
+ *
+ * The parts below are served by __get(), so they are declared here for anything
+ * reading this class statically — an editor, or the analyser that would
+ * otherwise call every one of them an access to an undefined property.
+ *
+ * @property-read int    $year
+ * @property-read int    $month
+ * @property-read int    $day
+ * @property-read int    $hour
+ * @property-read int    $minute
+ * @property-read int    $second
+ * @property-read int    $micro
+ * @property-read int    $microsecond
+ * @property-read int    $dayOfWeek
+ * @property-read int    $dayOfWeekIso
+ * @property-read int    $dayOfYear
+ * @property-read int    $weekOfYear
+ * @property-read int    $daysInMonth
+ * @property-read int    $quarter
+ * @property-read int    $timestamp
+ * @property-read string $englishDayOfWeek
+ * @property-read string $englishMonth
+ * @property-read string $timezoneName
+ * @property-read string $tzName
  */
 class Carbon extends DateTimeImmutable implements JsonSerializable, Stringable
 {
@@ -83,9 +107,15 @@ class Carbon extends DateTimeImmutable implements JsonSerializable, Stringable
             ->setTime($hour, $minute, $second);
     }
 
-    public static function createFromTimestamp(int $timestamp, DateTimeZone|string|null $timezone = null): static
+    /**
+     * int|float, not int: PHP 8.4 gave DateTimeImmutable its own
+     * createFromTimestamp() taking int|float, and a child may only widen a
+     * parameter. Narrowing it to int is a fatal on 8.4 and up — the class
+     * cannot even load.
+     */
+    public static function createFromTimestamp(int|float $timestamp, DateTimeZone|string|null $timezone = null): static
     {
-        $instance = new static('@' . $timestamp);
+        $instance = new static('@' . (int) $timestamp);
         $zone = self::timezone($timezone) ?? (new static('now'))->getTimezone();
 
         return $instance->setTimezone($zone);
