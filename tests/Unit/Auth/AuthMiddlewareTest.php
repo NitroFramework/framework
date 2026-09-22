@@ -5,6 +5,7 @@ namespace Tests\Unit\Auth;
 use Nitro\Auth\Contracts\Authenticatable;
 use Nitro\Auth\Contracts\MustVerifyEmail;
 use Nitro\Auth\Contracts\UserProvider;
+use Nitro\Auth\Exceptions\AuthenticationException;
 use Nitro\Auth\Middleware\Authenticate;
 use Nitro\Auth\Middleware\EnsureEmailIsVerified;
 use Nitro\Auth\Middleware\RedirectIfAuthenticated;
@@ -92,13 +93,51 @@ class AuthMiddlewareTest extends TestCase
 
     // ─── Authenticate ────────────────────────────────────────────────────────
 
-    public function test_authenticate_redirects_guests_to_login(): void
+    /**
+     * A guest is refused by throwing, not by returning a redirect.
+     *
+     * The exception carries where a browser should go, so the one handler that
+     * renders it can send a browser to the login page and a JSON client a 401
+     * — a decision every caller would otherwise make again, differently.
+     */
+    public function test_authenticate_refuses_guests_with_the_login_redirect(): void
     {
         [$guard] = $this->guard(null);
-        $res = (new Authenticate($guard, $this->config()))->handle($this->req(), $this->next());
 
-        $this->assertInstanceOf(RedirectResponse::class, $res);
-        $this->assertSame('/login', $res->header('Location'));
+        try {
+            (new Authenticate($guard, $this->config()))->handle($this->req(), $this->next());
+            $this->fail('a guest must not reach the route');
+        } catch (AuthenticationException $exception) {
+            $this->assertSame('/login', $exception->redirectTo());
+        }
+    }
+
+    /** A JSON client gets no redirect, so the handler answers 401 instead. */
+    public function test_a_json_client_is_refused_without_a_redirect(): void
+    {
+        [$guard] = $this->guard(null);
+
+        $request = new Request('GET', '/dashboard', ['accept' => 'application/json']);
+
+        try {
+            (new Authenticate($guard, $this->config()))->handle($request, $this->next());
+            $this->fail('a guest must not reach the route');
+        } catch (AuthenticationException $exception) {
+            $this->assertNull($exception->redirectTo());
+        }
+    }
+
+    /** The guards a route named are reported, for the handler to act on. */
+    public function test_the_guards_a_route_asked_for_are_carried_into_the_failure(): void
+    {
+        [$guard] = $this->guard(null);
+
+        try {
+            (new Authenticate($guard, $this->config()))->handle($this->req(), $this->next(), 'web', 'api');
+            $this->fail('a guest must not reach the route');
+        } catch (AuthenticationException $exception) {
+            $this->assertSame(['web', 'api'], $exception->guards());
+        }
     }
 
     public function test_authenticate_passes_authenticated_users(): void

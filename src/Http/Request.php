@@ -1133,6 +1133,23 @@ class Request implements ArrayAccess
         return $this;
     }
 
+    /**
+     * Replace the query parameters.
+     *
+     * The counterpart to {@see replace()}, which reaches the body only. A
+     * middleware that rewrites input — trimming it, or turning empty strings
+     * into null — has to reach both, or the same value would be cleaned when
+     * it arrives in a form and left alone when it arrives in the URL.
+     *
+     * @param array<string, mixed> $query
+     */
+    public function replaceQuery(array $query): static
+    {
+        $this->query = $query;
+
+        return $this;
+    }
+
     /** @return array<string, mixed> */
     public function toArray(): array
     {

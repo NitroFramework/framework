@@ -32,8 +32,11 @@ class EncryptCookies
         return $this->encrypt($next($request));
     }
 
+    /** @var array<int, string> Exempted for every instance, not just this one. */
+    protected static array $neverEncrypt = [];
+
     /** Names that are never encrypted/decrypted. */
-    protected function except(): array
+    protected function exempted(): array
     {
         return $this->except ??= array_merge(
             [(string) config('session.cookie', 'nitro_session')],
@@ -41,9 +44,47 @@ class EncryptCookies
         );
     }
 
+    /**
+     * Exempt a cookie on this instance.
+     *
+     * The case for it is a cookie something outside the application reads —
+     * an analytics script, a load balancer — which cannot decrypt what it
+     * finds.
+     *
+     * @param array<int, string>|string $name
+     */
+    public function disableFor(array|string $name): void
+    {
+        $this->except = array_merge($this->exempted(), (array) $name);
+    }
+
+    /** Whether a cookie is exempt, by either route. */
+    public function isDisabled(string $name): bool
+    {
+        return in_array($name, array_merge($this->exempted(), static::$neverEncrypt), true);
+    }
+
+    /**
+     * Exempt cookies for every instance of this middleware.
+     *
+     * @param array<int, string>|string $cookies
+     */
+    public static function except(array|string $cookies): void
+    {
+        static::$neverEncrypt = array_values(array_unique(
+            array_merge(static::$neverEncrypt, (array) $cookies)
+        ));
+    }
+
+    /** Drop the global state, so one test cannot leak into the next. */
+    public static function flushState(): void
+    {
+        static::$neverEncrypt = [];
+    }
+
     protected function isExcepted(string $name): bool
     {
-        return in_array($name, $this->except(), true);
+        return $this->isDisabled($name);
     }
 
     /** Replace each encrypted request cookie with its plaintext (invalid → null). */

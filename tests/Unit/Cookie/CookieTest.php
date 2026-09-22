@@ -27,7 +27,9 @@ class CookieTest extends TestCase
                 parent::__construct($e);
             }
 
-            protected function except(): array
+            // exempted(), not except(): the latter is the static that adds a
+            // cookie to the never-encrypt list for every instance.
+            protected function exempted(): array
             {
                 return $this->skip;
             }

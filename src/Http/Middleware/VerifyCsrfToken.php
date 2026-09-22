@@ -4,6 +4,7 @@ namespace Nitro\Http\Middleware;
 
 use Nitro\Cookie\CookieValuePrefix;
 use Nitro\Encryption\Encrypter;
+use Nitro\Http\Middleware\Concerns\ExcludesPaths;
 use Nitro\Exceptions\HttpException;
 use Nitro\Http\Request;
 use Nitro\Http\Response;
@@ -22,6 +23,8 @@ use Nitro\Http\Response;
  */
 class VerifyCsrfToken
 {
+    use ExcludesPaths;
+
     /** HTTP methods that never require a token (they must not mutate state). */
     private const READ_METHODS = ['GET', 'HEAD', 'OPTIONS'];
 
@@ -119,23 +122,17 @@ class VerifyCsrfToken
     }
 
     /** Whether the request URI matches a configured exemption. */
+    /**
+     * Whether this URI is exempt from verification.
+     *
+     * Matched through the shared trait, so an exemption means the same thing
+     * here as it does for maintenance mode. That also gains full-URL matching
+     * and the wildcard handling in Request::is(), which the hand-rolled
+     * version here only approximated for a trailing '/*'.
+     */
     private function isExcept(Request $request): bool
     {
-        if ($this->except === []) {
-            return false;
-        }
-
-        $path = trim($request->path(), '/');
-        foreach ($this->except as $pattern) {
-            $pattern = trim($pattern, '/');
-            if ($pattern === $path) {
-                return true;
-            }
-            if (str_ends_with($pattern, '/*') && str_starts_with($path, rtrim($pattern, '/*'))) {
-                return true;
-            }
-        }
-        return false;
+        return $this->except !== [] && $this->inExceptArray($request);
     }
 
     /**

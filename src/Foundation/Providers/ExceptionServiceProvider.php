@@ -2,6 +2,7 @@
 
 namespace Nitro\Foundation\Providers;
 
+use Nitro\Auth\Exceptions\AuthenticationException;
 use Nitro\Exceptions\ExceptionHandler;
 use Nitro\Http\Request;
 use Nitro\Http\Response;
@@ -77,6 +78,27 @@ class ExceptionServiceProvider extends ServiceProvider
                         'errors'  => $exception->errors()->all(),
                     ], $exception->status)
                     : back()->withInput()->withErrors($exception->errors());
+            }
+        );
+
+        /*
+         * Nobody is signed in.
+         *
+         * The choice a browser and an API client need is different, and this
+         * is the one place that can make it for both: a browser is sent to the
+         * login page the exception carries, while anything asking for JSON —
+         * or a request with no login page to send it to — gets the 401 that
+         * says what actually happened. A fetch() following a 302 would parse
+         * the login form as its response and report nothing useful.
+         */
+        $handler->renderableResponse(
+            AuthenticationException::class,
+            function (AuthenticationException $exception, Request $request): Response {
+                $redirect = $exception->redirectTo();
+
+                return ($request->expectsJson() || $redirect === null)
+                    ? Response::json(['message' => $exception->getMessage()], 401)
+                    : Response::redirect($redirect, 302);
             }
         );
 

@@ -21,6 +21,8 @@ use Nitro\Http\Response;
  */
 class PreventRequestsDuringMaintenance
 {
+    use Concerns\ExcludesPaths;
+
     /** Cookie carrying a bypass, so the secret is used once rather than pasted into every URL. */
     public const BYPASS_COOKIE = 'nitro_maintenance_bypass';
 
@@ -68,10 +70,17 @@ class PreventRequestsDuringMaintenance
         return is_string($cookie) && $this->maintenance->bypassedBy($cookie);
     }
 
-    /** Whether the URI is one that must keep answering while down. */
+    /**
+     * Whether the URI is one that must keep answering while down.
+     *
+     * Matched through the shared trait rather than here, so an exemption
+     * written for this middleware means the same thing as one written for
+     * CSRF — including the leading slash, which is otherwise the kind of
+     * detail two implementations quietly disagree about.
+     */
     protected function isExcepted(Request $request): bool
     {
-        return $this->except !== [] && $request->is(...$this->except);
+        return $this->inExceptArray($request);
     }
 
     /**
