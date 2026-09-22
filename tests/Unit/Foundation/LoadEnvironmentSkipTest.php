@@ -4,7 +4,7 @@ namespace Tests\Unit\Foundation;
 
 use Nitro\Foundation\Application;
 use Nitro\Foundation\Bootstrap\LoadEnvironment;
-use Nitro\Foundation\PathRegistry;
+use Nitro\Foundation\Contracts\PathRegistry;
 use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use PHPUnit\Framework\TestCase;
 

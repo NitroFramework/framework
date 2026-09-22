@@ -48,6 +48,20 @@ class Config implements ConfigRepository
         $this->loadFrom($configPath);
     }
 
+    /**
+     * Files that live under config/ but are not configuration.
+     *
+     * Each returns something other than a settings array — routes.php
+     * registers routes, directives.php returns a callback a provider invokes
+     * at boot — and each is required directly by the layer that owns it.
+     * Merging them in would publish a value nothing reads through config(),
+     * and a callback among them is one the compiled cache then has to drop
+     * and warn about.
+     *
+     * @var array<int, string>
+     */
+    private const NOT_CONFIG = ['routes', 'directives'];
+
     private function loadFrom(string $path): void
     {
         if (!is_dir($path)) {
@@ -57,7 +71,7 @@ class Config implements ConfigRepository
         foreach (glob($path . '/*.php') as $file) {
             $key = basename($file, '.php');
 
-            if ($key === 'routes') {
+            if (in_array($key, self::NOT_CONFIG, true)) {
                 continue;
             }
 

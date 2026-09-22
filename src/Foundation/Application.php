@@ -12,7 +12,6 @@ use Nitro\Concurrency\ConcurrencyServiceProvider;
 use Nitro\Console\Kernel as ConsoleKernel;
 use Nitro\Container\Container;
 use Nitro\Container\Contracts\ContainerInterface;
-use Nitro\Container\Lifetime;
 use Nitro\Context\ContextServiceProvider;
 use Nitro\Context\Repository as ContextRepository;
 use Nitro\Cookie\CookieServiceProvider;
@@ -23,6 +22,7 @@ use Nitro\Events\Dispatcher as BundledEventDispatcher;
 use Nitro\Filesystem\FilesystemServiceProvider;
 use Nitro\Foundation\Bootstrap\BootstrapperInterface;
 use Nitro\Foundation\Contracts\ApplicationInterface;
+use Nitro\Foundation\Contracts\PathRegistry as PathRegistryContract;
 use Nitro\Foundation\Events\ProviderEvent;
 use Nitro\Foundation\Providers\AuthServiceProvider;
 use Nitro\Foundation\Providers\ConsoleServiceProvider;
@@ -53,6 +53,7 @@ use Nitro\Support\Logger;
 use Nitro\Support\Pipeline;
 use Nitro\Support\SupportServiceProvider;
 use Nitro\Testing\ParallelTesting;
+use Nitro\Inertia\InertiaServiceProvider;
 use Nitro\Testing\TestingServiceProvider;
 use Nitro\Thrust\Concerns\ResetsForWorkerMode;
 use Nitro\Translation\TranslationServiceProvider;
@@ -205,6 +206,15 @@ class Application implements ApplicationInterface
      */
     public static function create(string $basePath): static
     {
+        /*
+         * The first stage is everything PHP did before the framework existed —
+         * composer's autoloader, and compiling whatever opcache did not already
+         * hold. On php-fpm that is paid per request and is usually the largest
+         * single figure, so it is separated from the bootstrappers rather than
+         * folded into the first of them.
+         */
+        BootProfile::mark('autoload');
+
         $app = new static($basePath);
         $app->registerFatalHandler();
 
@@ -327,10 +337,32 @@ class Application implements ApplicationInterface
          */
         $this->raise(CoreEvents::APP_BOOTSTRAPPING);
 
+        /*
+         * Counting resolutions costs one call per resolve and answers the
+         * question a duration cannot: whether the container is being asked
+         * for too much, or simply asked slowly.
+         */
+        if (BootProfile::enabled()) {
+            $this->container->observeResolutions(static function (): void {
+                BootProfile::count('resolve');
+            });
+        }
+
         $this->runHooks($this->bootingHooks);
+        BootProfile::mark('bootingHooks');
+
         $this->runBootstrappers();
+
+        /*
+         * Provider boot() is its own stage. It runs after the bootstrappers,
+         * so without a mark here its cost is charged to whatever is measured
+         * next — which made route matching look far dearer than it is.
+         */
         $this->bootProviders();
+        BootProfile::mark('bootProviders');
+
         $this->runHooks($this->bootedHooks);
+        BootProfile::mark('bootedHooks');
 
         $this->bootstrapped = true;
 
@@ -401,6 +433,7 @@ class Application implements ApplicationInterface
     {
         $this->container->instance('paths', $this->paths);
         $this->container->instance(PathRegistry::class, $this->paths);
+        $this->container->instance(PathRegistryContract::class, $this->paths);
     }
 
     /**
@@ -426,8 +459,8 @@ class Application implements ApplicationInterface
          * aliased too so an application that named it keeps working. Binding
          * something else to the contract replaces the bus everywhere.
          */
-        $this->container->alias(EventDispatcher::class, 'events');
-        $this->container->alias(BundledEventDispatcher::class, 'events');
+        $this->container->alias('events', EventDispatcher::class);
+        $this->container->alias('events', BundledEventDispatcher::class);
 
         /*
          * A singleton so that a fake installed in a test is the same instance
@@ -438,7 +471,7 @@ class Application implements ApplicationInterface
 
         $this->registerFacadeBindings();
 
-        $this->container->alias(HttpClientFactory::class, 'http.client');
+        $this->container->alias('http.client', HttpClientFactory::class);
 
         /*
          * The HTTP kernel is a singleton so lifecycle hooks (requestReceived,
@@ -452,13 +485,7 @@ class Application implements ApplicationInterface
          * $_SERVER is available. Binding a capture closure here AND re-capturing
          * in the Kernel produced two Request objects per request, only one of
          * which was ever used.
-         *
-         * Its lifetime is declared, though, because instance() alone reads as
-         * process-lived and the declaration has to be in place before anything
-         * resolved during boot can ask for one.
          */
-        $this->container->declareLifetime('request', Lifetime::Request);
-        $this->container->declareLifetime(Request::class, Lifetime::Request);
 
         Logger::setPath($this->paths->storage('logs/nitro.log'));
     }
@@ -507,7 +534,7 @@ class Application implements ApplicationInterface
              * back to it closes a loop: resolving either one asks for the
              * other for as long as the process has memory.
              */
-            $this->container->alias($name, $class);
+            $this->container->alias($class, $name);
         }
 
         /*
@@ -599,6 +626,19 @@ class Application implements ApplicationInterface
 
             if ($instance instanceof BootstrapperInterface) {
                 $instance->bootstrap($this);
+            }
+
+            /*
+             * Marked here rather than inside each bootstrapper so the stage
+             * names cannot drift from the list that produced them, and a
+             * bootstrapper an application adds is timed without knowing it.
+             * Guarded rather than passed straight in, so naming the stage
+             * costs nothing when nobody is profiling.
+             */
+            if (BootProfile::enabled()) {
+                $short = strrchr($bootstrapper, '\\');
+
+                BootProfile::mark(lcfirst($short === false ? $bootstrapper : substr($short, 1)));
             }
         }
     }
@@ -706,6 +746,7 @@ class Application implements ApplicationInterface
             TranslationServiceProvider::class,
             BroadcastServiceProvider::class,
             TestingServiceProvider::class,
+            InertiaServiceProvider::class,
         ];
     }
 
@@ -904,7 +945,7 @@ class Application implements ApplicationInterface
      */
 
     /** Get the path registry instance */
-    public function paths(): PathRegistry
+    public function paths(): PathRegistryContract
     {
         return $this->paths;
     }

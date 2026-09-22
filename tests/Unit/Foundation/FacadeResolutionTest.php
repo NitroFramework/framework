@@ -178,10 +178,7 @@ class FacadeResolutionTest extends TestCase
     {
         $container = $this->bootedContainer();
 
-        $targets = new ReflectionProperty($container, 'aliasTargets');
-        $targets->setAccessible(true);
-
-        $aliases = $targets->getValue($container);
+        $aliases = $container->registeredAliases();
         $cycles = [];
 
         foreach ($aliases as $alias => $target) {

@@ -10,6 +10,8 @@ use Nitro\Events\CoreEvents;
 use Nitro\Exceptions\ExceptionHandler;
 use Nitro\Exceptions\HttpException;
 use Nitro\Foundation\Application;
+use Nitro\Foundation\BootProfile;
+use Nitro\Foundation\Contracts\PathRegistry;
 use Nitro\Http\Contracts\Responsable;
 use Nitro\Http\Controller\HasMiddleware;
 use Nitro\Http\Controller\Middleware as ControllerMiddleware;
@@ -149,6 +151,8 @@ class Kernel implements ReceivesDispatcher
         $this->container->instance('request', $request);
         $this->container->instance(Request::class, $request);
 
+        BootProfile::mark('capture');
+
         $response = $this->handle($request);
 
         // Response mutation (perf-bar injection, HTMX nav trimming, …) happens in
@@ -172,6 +176,8 @@ class Kernel implements ReceivesDispatcher
             ),
         );
 
+        BootProfile::mark('responseReady');
+
         $response->send();
 
         /**
@@ -191,10 +197,25 @@ class Kernel implements ReceivesDispatcher
             ),
         );
 
+        /*
+         * Taken after send() rather than after terminate(), so the figure is
+         * what the client waited for. Written here because php-fpm tears the
+         * process down next, and a profile that is never flushed measures
+         * nothing.
+         */
+        if (BootProfile::enabled()) {
+            BootProfile::mark('send');
+            BootProfile::write(
+                $this->container->resolve(PathRegistry::class)->storage('logs/profile.log'),
+                $request->method(),
+                $request->path(),
+            );
+        }
+
         $this->terminate($request, $response);
     }
 
-    
+
 
     // --- Request Handling ---
 
@@ -327,7 +348,17 @@ class Kernel implements ReceivesDispatcher
             $this->middleware,
             $request,
             function (Request $request): Response {
+                /*
+                 * Two marks, not one: the global middleware stack has already
+                 * run by the time this closure is entered — session start and
+                 * cookie decryption among it — and that is separate work from
+                 * finding the route.
+                 */
+                BootProfile::mark('globalMiddleware');
+
                 $resolvedRoute = $this->router->findMatchingRoute($request);
+
+                BootProfile::mark('match');
 
                 if (! $resolvedRoute) {
                     return $this->createUnmatchedResponse($request);
@@ -336,6 +367,8 @@ class Kernel implements ReceivesDispatcher
                 $this->router->substituteBindings($resolvedRoute);
 
                 $request->setRouteResolver(static fn () => $resolvedRoute);
+
+                BootProfile::mark('bindings');
 
                 return $this->pipeline(
                     $this->gatherMiddleware($resolvedRoute),
@@ -738,6 +771,13 @@ class Kernel implements ReceivesDispatcher
         // 1. Get the raw result from the Dispatcher
         $result = $this->routeDispatcher->dispatchToHandler($resolvedRoute, $request);
 
+        /*
+         * The handler has returned but a view it asked for has not been
+         * rendered yet, so this separates the application's own work from the
+         * view engine's — the two things a slow response is usually made of.
+         */
+        BootProfile::mark('handler');
+
         /**
          * Emit point — route.dispatched
          *
@@ -761,7 +801,11 @@ class Kernel implements ReceivesDispatcher
         // 2. Handle the "Decoupled View" (The DTO)
         if ($result instanceof ViewResponse) {
             $renderer = $this->container->resolve(Engine::class);
-            return Response::html($renderer->render($result->template, $result->data));
+            $html = $renderer->render($result->template, $result->data);
+
+            BootProfile::mark('render');
+
+            return Response::html($html);
         }
 
         // 3. Handle standard Responses

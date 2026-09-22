@@ -56,6 +56,33 @@ class ConfigDefaultsTest extends TestCase
         $this->assertSame('production', $config->get('app.env'));
     }
 
+    /**
+     * Not everything under config/ is configuration.
+     *
+     * routes.php registers routes and directives.php returns a callback a
+     * provider invokes at boot; both are required by the layer that owns them.
+     * Merging them in published a key nothing reads, and since a callback
+     * cannot be var_export'd, `optimize` then dropped it and warned about a
+     * divergence that did not exist — the directives were registered either
+     * way.
+     */
+    public function test_files_that_are_not_configuration_are_not_merged(): void
+    {
+        file_put_contents(
+            $this->configDir . '/directives.php',
+            "<?php\nreturn function (\$app) { return 'registered'; };\n"
+        );
+        file_put_contents($this->configDir . '/routes.php', "<?php\nreturn ['never' => 'merged'];\n");
+
+        $config = new Config($this->stubPaths($this->configDir), true);
+
+        $this->assertNull($config->get('directives'), 'a boot callback is not a config value');
+        $this->assertNull($config->get('routes'), 'the routes file is not a config value');
+
+        // And an ordinary config file beside them is still merged.
+        $this->assertTrue($config->get('app.debug'));
+    }
+
     /** A PathRegistry whose config()/cache() point at the temp dir. */
     private function stubPaths(string $dir): PathRegistry
     {
