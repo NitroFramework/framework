@@ -6,10 +6,13 @@ use Nitro\Support\Collection;
 use Nitro\Support\Str;
 use Nitro\Database\DB;
 use Nitro\Database\Query\QueryBuilder;
+use Nitro\Database\Model\Concerns\GuardsAttributes;
 use Nitro\Database\Model\Concerns\HasAttributes;
 use Nitro\Database\Model\Concerns\HasCrud;
 use Nitro\Database\Model\Concerns\HasEvents;
 use Nitro\Database\Model\Concerns\HasRelationships;
+use Nitro\Database\Model\Concerns\HasTimestamps;
+use Nitro\Database\Model\Concerns\HidesAttributes;
 use Nitro\Database\Model\Concerns\InteractsWithModelState;
 use Nitro\Database\Model\Concerns\SerializesData;
 
@@ -32,10 +35,13 @@ use Nitro\Database\Model\Concerns\SerializesData;
  */
 abstract class Model implements \ArrayAccess, \JsonSerializable
 {
+    use GuardsAttributes;
     use HasAttributes;
     use HasCrud;
     use HasEvents;
     use HasRelationships;
+    use HasTimestamps;
+    use HidesAttributes;
     use InteractsWithModelState;
     use SerializesData;
 

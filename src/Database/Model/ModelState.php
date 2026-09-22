@@ -11,12 +11,17 @@ use Nitro\Events\Contracts\Dispatcher;
  * Both belong to the model layer as a whole rather than to any one model, and
  * {@see \Nitro\Foundation\Providers\DatabaseServiceProvider} has to set them
  * before the first model is built. Holding them on {@see Model} made that a
- * problem: Model composes six Concerns traits, and touching any static member
- * loads the class and every trait with it — so a request that never queried
- * anything still paid for the whole model layer to reset an array.
+ * problem: Model composes nine Concerns traits, and touching any static member
+ * loads the class and every trait with it — eleven files — so a request that
+ * never queried anything still paid for the whole model layer to reset an
+ * array.
  *
  * This class carries nothing but the two slots, so the provider loads one small
  * file and Model is loaded when a model is actually used.
+ *
+ * The saving only survives while nothing else reaches for a Model static during
+ * boot, which is an easy thing to undo by accident — so it is held by a test:
+ * {@see \Tests\Wiring\BootLoadsNoModelClassTest}.
  *
  * Not the public API: application code goes through Model::setEventDispatcher()
  * and friends, which forward here.
