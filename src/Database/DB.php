@@ -146,6 +146,19 @@ class DB
         return static::$transaction;
     }
 
+    /**
+     * The transaction tracker, if anything has started one.
+     *
+     * Deliberately does not create it: this is what an after-commit callback
+     * asks in order to find out whether there is a commit to wait for, and
+     * building a tracker to answer would open a connection to establish that
+     * nothing is happening. Null means nothing is, so the work runs now.
+     */
+    public static function transactions(): ?Transaction
+    {
+        return static::$transaction;
+    }
+
     public static function transaction(Closure $callback): mixed
     {
         return static::transactor()->transaction($callback);

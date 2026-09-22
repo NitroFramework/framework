@@ -451,6 +451,16 @@ class Application implements ApplicationInterface
             $dispatcher = new BundledEventDispatcher();
             $dispatcher->setContainer($container);
 
+            /*
+             * How an after-commit event finds out whether there is a commit to
+             * wait for. Null when nothing has started a transaction, which is
+             * also the answer in an application with no database — and in both
+             * cases dispatching immediately is correct.
+             */
+            $dispatcher->setTransactionManagerResolver(
+                static fn (): ?object => \Nitro\Database\DB::transactions()
+            );
+
             return $dispatcher;
         });
 
