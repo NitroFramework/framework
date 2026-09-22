@@ -3,6 +3,8 @@
 namespace Nitro\Events;
 
 use Nitro\Queue\Job;
+use ReflectionClass;
+use Throwable;
 
 /**
  * The job that runs a queued event listener.
@@ -18,9 +20,27 @@ use Nitro\Queue\Job;
  * will not survive the trip. Put ids on events, not objects — the listener
  * re-queries, and it gets current data rather than a snapshot from whenever the
  * job was pushed.
+ *
+ * The listener's own terms travel with it. A listener that says it may be
+ * tried three times means the same thing queued as it does called directly,
+ * and reading them off the listener at push time is the only chance to do it —
+ * the worker has a job, not a listener.
  */
 class CallQueuedListener extends Job
 {
+    /** Middleware the listener asked its work to run through. */
+    public array $middleware = [];
+
+    /** Seconds before the job becomes eligible, from withDelay(). */
+    private int $listenerDelay = 0;
+
+    /** Set from the listener, overriding what this class declares. */
+    private ?string $listenerQueue = null;
+
+    private ?string $listenerConnection = null;
+
+    private ?int $listenerRetryUntil = null;
+
     /**
      * @param  class-string  $listenerClass
      * @param  string        $method  Usually 'handle'.
@@ -39,17 +59,114 @@ class CallQueuedListener extends Job
     }
 
     /**
+     * Read the listener's queue terms and carry them on the job.
+     *
+     * A method is asked before a property, and both before this class's own
+     * defaults. viaQueue, viaConnection and withDelay are given the event when
+     * they take one, so a listener can route by what happened rather than
+     * having to decide once for everything.
+     *
+     * @param array<int, mixed> $arguments The event, as it was dispatched.
+     */
+    public function propagateOptionsFrom(object $listener, array $arguments = []): void
+    {
+        $event = $arguments[0] ?? null;
+
+        $this->listenerQueue = $this->ask($listener, 'viaQueue', 'queue', $event);
+        $this->listenerConnection = $this->ask($listener, 'viaConnection', 'connection', $event);
+        $this->listenerDelay = max(0, (int) $this->ask($listener, 'withDelay', 'delay', $event));
+
+        $tries = $this->ask($listener, 'tries', 'tries', $event);
+
+        if ($tries !== null) {
+            $this->tries = (int) $tries;
+        }
+
+        $backoff = $this->ask($listener, 'backoff', 'backoff', $event);
+
+        if (is_int($backoff)) {
+            $this->backoff = $backoff;
+        }
+
+        $timeout = $this->ask($listener, 'timeout', 'timeout', $event);
+
+        if ($timeout !== null) {
+            $this->timeout = (int) $timeout;
+        }
+
+        $retryUntil = $this->ask($listener, 'retryUntil', 'retryUntil', $event);
+
+        $this->listenerRetryUntil = $retryUntil instanceof \DateTimeInterface
+            ? $retryUntil->getTimestamp()
+            : ($retryUntil === null ? null : (int) $retryUntil);
+
+        $this->middleware = array_merge(
+            (array) ($this->ask($listener, 'middleware', 'middleware', $event) ?? []),
+        );
+    }
+
+    /**
+     * What the listener says about one term, by method or by property.
+     *
+     * A method that takes no parameter is called without the event rather
+     * than with one it would refuse.
+     */
+    private function ask(object $listener, string $method, string $property, mixed $event): mixed
+    {
+        if (method_exists($listener, $method)) {
+            $reflector = new \ReflectionMethod($listener, $method);
+
+            return $reflector->getNumberOfParameters() > 0 && $event !== null
+                ? $listener->{$method}($event)
+                : $listener->{$method}();
+        }
+
+        if (property_exists($listener, $property)) {
+            return (new ReflectionClass($listener))->getDefaultProperties()[$property] ?? null;
+        }
+
+        return null;
+    }
+
+    /**
      * Route to the queue the listener asks for, so a slow listener can be kept
      * off the queue that sends password resets.
      */
     public function queueName(): string
     {
-        if (property_exists($this->listenerClass, 'queue')) {
-            return (new \ReflectionClass($this->listenerClass))
-                ->getDefaultProperties()['queue'] ?? 'default';
-        }
+        return $this->listenerQueue ?? 'default';
+    }
 
-        return 'default';
+    public function connectionName(): ?string
+    {
+        return $this->listenerConnection;
+    }
+
+    /** Seconds the listener asked to wait before running. */
+    public function delay(): int
+    {
+        return $this->listenerDelay;
+    }
+
+    public function retryUntil(): ?int
+    {
+        return $this->listenerRetryUntil;
+    }
+
+    /**
+     * Tell the listener its work failed.
+     *
+     * The listener wrote the work and is the only thing that knows what an
+     * unfinished one leaves behind; without this the failure is recorded and
+     * nothing that could act on it is ever told.
+     */
+    public function failed(Throwable $exception): void
+    {
+        $listener = \app($this->listenerClass);
+
+        if (method_exists($listener, 'failed')) {
+            $listener->failed($this->event, $exception);
+        }
     }
 
     /**

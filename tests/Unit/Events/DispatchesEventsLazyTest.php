@@ -67,9 +67,12 @@ class DispatchesEventsLazyTest extends TestCase
             $received = $data;
         });
 
-        $emitter->eventLazy('watched.event', fn() => ['payload' => 42]);
+        $payload = new \stdClass();
+        $payload->value = 42;
 
-        // The listener receives the payload as its single argument, untouched.
-        $this->assertSame(['payload' => 42], $received);
+        $emitter->eventLazy('watched.event', fn() => $payload);
+
+        // The builder ran, and what it built reached the listener whole.
+        $this->assertSame($payload, $received);
     }
 }

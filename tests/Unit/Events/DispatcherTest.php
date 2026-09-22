@@ -24,14 +24,43 @@ class DispatcherTest extends TestCase
         $this->assertSame(['a', 'b'], $d->dispatch('e'));
     }
 
-    public function test_payload_is_passed_as_single_argument(): void
+    /**
+     * A payload is spread across the listener's parameters.
+     *
+     * So a listener is written with the arguments it actually wants, rather
+     * than taking one array and unpacking it by hand. A lone object arrives
+     * as one argument, which is the shape almost every event uses.
+     */
+    public function test_a_single_payload_arrives_as_one_argument(): void
     {
         $d = new Dispatcher();
         $seen = null;
-        $d->listen('e', function ($payload) use (&$seen) { $seen = $payload; });
+        $payload = new \stdClass();
+        $d->listen('e', function ($event) use (&$seen) { $seen = $event; });
+
+        $d->dispatch('e', $payload);
+        $this->assertSame($payload, $seen);
+    }
+
+    public function test_a_list_payload_is_spread_across_the_parameters(): void
+    {
+        $d = new Dispatcher();
+        $seen = [];
+        $d->listen('e', function ($first, $second) use (&$seen) { $seen = [$first, $second]; });
+
+        $d->dispatch('e', ['one', 'two']);
+        $this->assertSame(['one', 'two'], $seen);
+    }
+
+    /** Spreading goes by position, so an associative payload loses its keys. */
+    public function test_an_associative_payload_is_spread_by_value(): void
+    {
+        $d = new Dispatcher();
+        $seen = null;
+        $d->listen('e', function ($value) use (&$seen) { $seen = $value; });
 
         $d->dispatch('e', ['k' => 'v']);
-        $this->assertSame(['k' => 'v'], $seen);
+        $this->assertSame('v', $seen);
     }
 
     public function test_until_halts_at_first_non_null_response(): void

@@ -52,7 +52,8 @@
             "src/Support/Helpers/cache.php",
             "src/Support/Helpers/cookie.php",
             "src/Support/Helpers/translation.php",
-            "src/Support/Helpers/inertia.php"
+            "src/Support/Helpers/inertia.php",
+            "src/Support/Helpers/event.php"
         ]
     },
     "autoload-dev": {
