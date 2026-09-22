@@ -7,8 +7,8 @@ use Nitro\Validation\Validator;
 /**
  * Validating input from inside an action.
  *
- * Standalone: it reads the request through the `input()` helper rather than a
- * sibling trait, so opting into it brings nothing else with it. For the
+ * Standalone: it reads the request through the `request()` helper rather than
+ * a sibling trait, so opting into it brings nothing else with it. For the
  * envelope a failure is reported in, see
  * {@see RespondsWithJson::validateRequest()}.
  */
@@ -24,7 +24,13 @@ trait PerformsValidation
      */
     protected function validate(array $rules, ?array $data = null, array $messages = []): array
     {
-        $validator = $this->makeValidator($data ?? (array) input(), $rules, $messages);
+        /*
+         * request()->all(), not input(): the latter takes a key and returns
+         * one value, so calling it bare to mean "everything" is an argument
+         * error rather than the whole input — which made the documented
+         * default here throw on every use.
+         */
+        $validator = $this->makeValidator($data ?? request()->all(), $rules, $messages);
         $validator->validate();
 
         $errors = [];

@@ -2,6 +2,8 @@
 
 namespace Nitro\Http\Middleware;
 
+use Nitro\Cookie\CookieValuePrefix;
+use Nitro\Encryption\Encrypter;
 use Nitro\Exceptions\HttpException;
 use Nitro\Http\Request;
 use Nitro\Http\Response;
@@ -44,10 +46,70 @@ class VerifyCsrfToken
     public function handle(Request $request, callable $next): Response
     {
         if ($this->isReading($request) || $this->isExcept($request) || $this->tokensMatch($request)) {
-            return $next($request);
+            return $this->addCookieToResponse($request, $next($request));
         }
 
         throw new HttpException(419, 'CSRF token mismatch.');
+    }
+
+    /**
+     * Publish the token as a cookie a browser script can read.
+     *
+     * A form gets its token from `@csrf`, but a client that builds its own
+     * requests has no markup to read it from. The convention every such
+     * client follows is to look for an XSRF-TOKEN cookie and echo it back in
+     * the X-XSRF-TOKEN header — which {@see tokenFrom()} already accepts, so
+     * without this the framework was reading a header nothing could send.
+     *
+     * Deliberately not http-only: a cookie script cannot read is a cookie
+     * that cannot be echoed back, which defeats the whole exchange. It is
+     * safe to expose because possession of the token is not authentication —
+     * it only proves the request came from a page this application served.
+     */
+    private function addCookieToResponse(Request $request, Response $response): Response
+    {
+        // csrf_token() starts the session and mints a token if there is none,
+        // and returns '' when there is no session to start — a console run or
+        // a route outside the web group, where a cookie would mean nothing.
+        $token = csrf_token();
+
+        if ($token === '') {
+            return $response;
+        }
+
+        $config = $this->sessionConfig();
+
+        $response->cookie(
+            'XSRF-TOKEN',
+            $token,
+            (int) ($config['lifetime'] ?? 120),
+            (string) ($config['path'] ?? '/'),
+            $config['domain'] ?? null,
+            (bool) ($config['secure'] ?? false),
+            false,
+            (string) ($config['same_site'] ?? 'Lax'),
+        );
+
+        return $response;
+    }
+
+    /**
+     * The session cookie settings, or none when configuration is unavailable.
+     *
+     * Guarded the same way {@see csrf_token()} guards the session: this runs
+     * as a response passes through, and a context without a config repository
+     * bound should get a cookie with sensible defaults rather than an error
+     * raised on the way out of a request that already succeeded.
+     *
+     * @return array<string, mixed>
+     */
+    private function sessionConfig(): array
+    {
+        try {
+            return (array) config('session', []);
+        } catch (\Throwable) {
+            return [];
+        }
     }
 
     /** Read verbs are inherently safe and skip verification. */
@@ -95,7 +157,45 @@ class VerifyCsrfToken
             return $token;
         }
 
-        return $request->header('X-CSRF-TOKEN')
-            ?? $request->header('X-XSRF-TOKEN');
+        $header = $request->header('X-CSRF-TOKEN');
+        if (is_string($header) && $header !== '') {
+            return $header;
+        }
+
+        $xsrf = $request->header('X-XSRF-TOKEN');
+
+        return is_string($xsrf) && $xsrf !== '' ? $this->decryptXsrf($xsrf) : null;
+    }
+
+    /**
+     * An X-XSRF-TOKEN header holds whatever was in the XSRF-TOKEN cookie, and
+     * that cookie is encrypted on the way out.
+     *
+     * EncryptCookies decrypts incoming *cookies*; this value arrives as a
+     * header, so nothing has touched it. Comparing the ciphertext against the
+     * session's plaintext token would fail every time — which is the whole
+     * reason the header path had never worked.
+     */
+    private function decryptXsrf(string $value): ?string
+    {
+        try {
+            $encrypter = app(Encrypter::class);
+
+            /*
+             * The same two steps EncryptCookies performs on an incoming
+             * cookie, because this value is one — decryptString, then strip
+             * the name-bound prefix it was encrypted with. Using the plain
+             * decrypt() would leave that prefix in place and never match.
+             */
+            return CookieValuePrefix::validate(
+                'XSRF-TOKEN',
+                $encrypter->decryptString($value),
+                $encrypter->getAllKeys(),
+            );
+        } catch (\Throwable) {
+            // A value this application did not encrypt proves nothing, and a
+            // forged one should read as a mismatch rather than an error.
+            return null;
+        }
     }
 }

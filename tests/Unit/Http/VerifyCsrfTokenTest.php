@@ -110,4 +110,59 @@ class VerifyCsrfTokenTest extends TestCase
 
         $this->assertSame('passed', $response->getContent());
     }
+
+    /**
+     * The token is published as a cookie a script can read.
+     *
+     * {@see VerifyCsrfToken::tokenFrom()} accepts an X-XSRF-TOKEN header, but
+     * a client can only send that if something gave it the value first. A
+     * form reads it from `@csrf`; a client that builds its own requests —
+     * Inertia, or anything on fetch — reads this cookie. Without it the
+     * header was an input nothing could supply.
+     */
+    public function test_a_readable_xsrf_cookie_is_published(): void
+    {
+        $response = (new VerifyCsrfToken())->handle($this->request('GET', '/dashboard'), $this->next());
+
+        $cookie = $this->cookieNamed($response, 'XSRF-TOKEN');
+
+        $this->assertNotNull($cookie, 'the token must be published for non-form clients');
+        $this->assertSame(self::TOKEN, $cookie->value);
+    }
+
+    /** Http-only would make it unreadable, and so unusable. */
+    public function test_the_xsrf_cookie_is_reachable_from_script(): void
+    {
+        $response = (new VerifyCsrfToken())->handle($this->request('GET', '/dashboard'), $this->next());
+
+        $this->assertFalse(
+            $this->cookieNamed($response, 'XSRF-TOKEN')?->httpOnly ?? true,
+            'a cookie script cannot read is a token it cannot echo back'
+        );
+    }
+
+    /** Cookies are queued as a list, so it is found by name rather than keyed. */
+    private function cookieNamed(Response $response, string $name): ?\Nitro\Http\Cookie
+    {
+        foreach ($response->cookies() as $cookie) {
+            if ($cookie->name === $name) {
+                return $cookie;
+            }
+        }
+
+        return null;
+    }
+
+    /** A rejected request gets no cookie, because it never reaches the response. */
+    public function test_a_rejected_request_publishes_nothing(): void
+    {
+        $mw = new VerifyCsrfToken();
+
+        try {
+            $mw->handle($this->request('POST', '/save'), $this->next());
+            $this->fail('a POST without a token must be rejected');
+        } catch (HttpException) {
+            $this->addToAssertionCount(1);
+        }
+    }
 }
