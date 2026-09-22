@@ -180,6 +180,18 @@ class Paginator implements IteratorAggregate, Countable
     }
 
     /**
+     * The query-string parameter this paginator reads its page from.
+     *
+     * Readable because a caller that builds its own links — an infinite
+     * scroll asking for the next page by name — needs to know which parameter
+     * the paginator will answer to, and setPageName() can have changed it.
+     */
+    public function getPageName(): string
+    {
+        return $this->pageName;
+    }
+
+    /**
      * Keep additional query parameters on every generated link.
      *
      * @param array<string, mixed> $parameters

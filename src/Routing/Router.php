@@ -1828,6 +1828,8 @@ class Router implements RouterInterface, ExtendableRouter, ReportsAllowedMethods
      */
     protected function createRoute(array $routeData, array $parameters = []): Route
     {
+        $routeData = $this->restoreRouteData($routeData);
+
         return $this->buildRoute($routeData, $parameters)
             ->setBindingFields($routeData['binding_fields'] ?? [])
             ->setExcludedMiddleware($routeData['without_middleware'] ?? [])

@@ -2,6 +2,8 @@
 
 namespace Tests\Unit\Routing;
 
+use Nitro\Container\Container;
+use Nitro\Container\ContainerClassResolver;
 use Nitro\Foundation\Config;
 use Nitro\Foundation\PathRegistry;
 use Nitro\Http\Request;
@@ -147,6 +149,6 @@ class GroupPrefixAndNameTest extends TestCase
             public function config(string $path = ''): string { return sys_get_temp_dir() . '/nitro-none/' . $path; }
         };
 
-        return new RouteLoader($paths, $config);
+        return new RouteLoader($paths, $config, new ContainerClassResolver(new Container()));
     }
 }

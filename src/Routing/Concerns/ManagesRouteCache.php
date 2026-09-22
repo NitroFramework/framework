@@ -12,6 +12,42 @@ namespace Nitro\Routing\Concerns;
 trait ManagesRouteCache
 {
     /**
+     * Turns one cached route's stored form back into a usable one, or null
+     * when routes came from source and nothing needs restoring.
+     *
+     * @var \Closure(array<string, mixed>): array<string, mixed>|null
+     */
+    private ?\Closure $handlerRestorer = null;
+
+    /**
+     * Install the callback that restores a cached route when it is matched.
+     *
+     * A cached closure handler costs real time to rebuild — PHP has to compile
+     * the stored source — so the payload keeps handlers in their stored form
+     * and this runs for the one route a request actually matches, rather than
+     * for all of them at load. Passing null turns restoration off again.
+     *
+     * @param \Closure(array<string, mixed>): array<string, mixed>|null $restorer
+     */
+    public function restoreHandlersUsing(?\Closure $restorer): void
+    {
+        $this->handlerRestorer = $restorer;
+    }
+
+    /**
+     * One stored route, in the form the router can build a {@see \Nitro\Routing\Route} from.
+     *
+     * @param  array<string, mixed> $routeData
+     * @return array<string, mixed>
+     */
+    protected function restoreRouteData(array $routeData): array
+    {
+        return $this->handlerRestorer === null
+            ? $routeData
+            : ($this->handlerRestorer)($routeData);
+    }
+
+    /**
      * Return the pre-compiled lookup structures (static map, dynamic list and
      * compiled regex patterns) for persisting to the route cache.
      */
