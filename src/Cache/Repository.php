@@ -2,6 +2,9 @@
 
 namespace Nitro\Cache;
 
+use Closure;
+use InvalidArgumentException;
+use Nitro\Cache\Contracts\Lock as LockContract;
 use Nitro\Cache\Contracts\StoreInterface;
 use Nitro\Cache\Contracts\TaggableStoreInterface;
 use Nitro\Cache\Tags\TaggedCache;
@@ -163,17 +166,224 @@ class Repository implements ReceivesDispatcher
      * @param  int      $seconds How long the lock may be held before it lapses.
      * @return mixed The callback's return value, or null when the lock was taken.
      */
-    public function lock(string $key, int $seconds, \Closure $callback): mixed
+    /**
+     * A lock by that name.
+     *
+     * Returns the lock rather than running a callback under it, because a
+     * lock often has to outlive the call that took it — a queued job holds
+     * one for its whole run, and a second process finishes work the first
+     * started. `->get($callback)` is still there for the simple case.
+     *
+     * @throws \BadMethodCallException When the store cannot hold a lock.
+     */
+    public function lock(string $name, int $seconds = 0, ?string $owner = null): LockContract
     {
-        if (! $this->add('lock:' . $key, 1, $seconds)) {
-            return null;
+        if (! method_exists($this->store, 'lock')) {
+            throw new \BadMethodCallException(
+                'The [' . $this->store::class . '] cache store does not support locking.'
+            );
         }
 
-        try {
-            return $callback();
-        } finally {
-            $this->forget('lock:' . $key);
+        return $this->store->lock($name, $seconds, $owner);
+    }
+
+    /**
+     * A lock somebody else already holds, by its owner token.
+     *
+     * @throws \BadMethodCallException When the store cannot hold a lock.
+     */
+    public function restoreLock(string $name, string $owner): LockContract
+    {
+        return $this->lock($name, 0, $owner);
+    }
+
+    /** Whether this store can tag entries. */
+    public function supportsTags(): bool
+    {
+        return method_exists($this->store, 'tags');
+    }
+
+    /** The inverse of {@see has()}, for a condition that reads better that way. */
+    public function missing(string $key): bool
+    {
+        return ! $this->has($key);
+    }
+
+    /**
+     * Give an existing entry a new lifetime without rebuilding its value.
+     *
+     * A zero or negative lifetime forgets it, matching put(): asking for
+     * something to live no time at all is asking for it to be gone.
+     */
+    public function touch(string $key, int $seconds): bool
+    {
+        if ($seconds <= 0) {
+            return $this->forget($key);
         }
+
+        $value = $this->get($key);
+
+        return $value === null ? false : $this->put($key, $value, $seconds);
+    }
+
+    /** Reads as intent where rememberForever() reads as mechanism. */
+    public function sear(string $key, Closure $callback): mixed
+    {
+        return $this->rememberForever($key, $callback);
+    }
+
+    // ─── Typed reads ──────────────────────────────────────
+    //
+    // A cache round-trip loses type: a driver may return '5' where an int was
+    // stored, and a caller that assumes otherwise fails somewhere further on,
+    // with nothing pointing back here. These fail at the read instead, naming
+    // the key.
+
+    public function integer(string $key, mixed $default = null): int
+    {
+        $value = $this->get($key, $default);
+
+        if (is_int($value)) {
+            return $value;
+        }
+
+        if (filter_var($value, FILTER_VALIDATE_INT) !== false) {
+            return (int) $value;
+        }
+
+        throw new InvalidArgumentException(
+            sprintf('Cache value for key [%s] must be an integer, %s given.', $key, gettype($value))
+        );
+    }
+
+    public function float(string $key, mixed $default = null): float
+    {
+        $value = $this->get($key, $default);
+
+        if (is_float($value) || is_int($value)) {
+            return (float) $value;
+        }
+
+        if (filter_var($value, FILTER_VALIDATE_FLOAT) !== false) {
+            return (float) $value;
+        }
+
+        throw new InvalidArgumentException(
+            sprintf('Cache value for key [%s] must be a float, %s given.', $key, gettype($value))
+        );
+    }
+
+    public function string(string $key, mixed $default = null): string
+    {
+        $value = $this->get($key, $default);
+
+        if (! is_string($value)) {
+            throw new InvalidArgumentException(
+                sprintf('Cache value for key [%s] must be a string, %s given.', $key, gettype($value))
+            );
+        }
+
+        return $value;
+    }
+
+    public function boolean(string $key, mixed $default = null): bool
+    {
+        $value = $this->get($key, $default);
+
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        $filtered = filter_var($value, FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE);
+
+        if ($filtered === null) {
+            throw new InvalidArgumentException(
+                sprintf('Cache value for key [%s] must be a boolean, %s given.', $key, gettype($value))
+            );
+        }
+
+        return $filtered;
+    }
+
+    /** @return array<array-key, mixed> */
+    public function array(string $key, mixed $default = null): array
+    {
+        $value = $this->get($key, $default);
+
+        if (! is_array($value)) {
+            throw new InvalidArgumentException(
+                sprintf('Cache value for key [%s] must be an array, %s given.', $key, gettype($value))
+            );
+        }
+
+        return $value;
+    }
+
+    // ─── PSR-16 ───────────────────────────────────────────
+    //
+    // The same operations under the names the interop standard uses, so a
+    // package written against PSR-16 can be handed this repository.
+
+    public function set(string $key, mixed $value, ?int $ttl = null): bool
+    {
+        return $this->put($key, $value, $ttl);
+    }
+
+    public function delete(string $key): bool
+    {
+        return $this->forget($key);
+    }
+
+    public function clear(): bool
+    {
+        return $this->flush();
+    }
+
+    /**
+     * @param  iterable<array-key, string> $keys
+     * @return array<string, mixed>
+     */
+    public function getMultiple(iterable $keys, mixed $default = null): array
+    {
+        $values = $this->many(is_array($keys) ? $keys : iterator_to_array($keys));
+
+        return array_map(static fn (mixed $value): mixed => $value ?? $default, $values);
+    }
+
+    /** @param iterable<string, mixed> $values */
+    public function setMultiple(iterable $values, ?int $ttl = null): bool
+    {
+        return $this->putMany(is_array($values) ? $values : iterator_to_array($values), $ttl);
+    }
+
+    /** @param iterable<array-key, string> $keys */
+    public function deleteMultiple(iterable $keys): bool
+    {
+        $result = true;
+
+        foreach ($keys as $key) {
+            // Every key is attempted, then the worst outcome reported — a
+            // failure partway through should not leave the rest in place.
+            if (! $this->forget($key)) {
+                $result = false;
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * Anything else, asked of the store directly.
+     *
+     * A driver may offer more than the contract names — a Redis store's own
+     * connection, a counter a backend implements natively — and this keeps
+     * the repository from having to enumerate what every driver can do.
+     *
+     * @param array<int, mixed> $parameters
+     */
+    public function __call(string $method, array $parameters): mixed
+    {
+        return $this->store->{$method}(...$parameters);
     }
 
     /**

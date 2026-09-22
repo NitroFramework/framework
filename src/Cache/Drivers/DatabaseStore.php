@@ -23,6 +23,8 @@ use Throwable;
  */
 class DatabaseStore implements StoreInterface
 {
+    use \Nitro\Cache\Locks\HasCacheLock;
+
     /**
      * @param string $table  Table holding the entries.
      * @param string $prefix Prepended to every key.

@@ -230,11 +230,28 @@ class Event
         }
 
         if ($this->withoutOverlapping !== null) {
-            return $context->cache()->store()->lock(
+            $lock = $context->cache()->store()->lock(
                 $this->mutexName(),
                 $this->withoutOverlapping,
-                fn (): mixed => $this->execute($context),
             );
+
+            /*
+             * Acquired explicitly rather than through get(), which reports a
+             * held lock as false. A task that did not run reports null here,
+             * and a task that ran and returned false would otherwise be
+             * indistinguishable from one that was skipped.
+             */
+            if (! $lock->acquire()) {
+                return null;
+            }
+
+            try {
+                return $this->execute($context);
+            } finally {
+                // Released even if the task throws; otherwise a failing task
+                // blocks every later run until the lock expires.
+                $lock->release();
+            }
         }
 
         return $this->execute($context);

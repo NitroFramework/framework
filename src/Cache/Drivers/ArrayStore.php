@@ -9,6 +9,8 @@ use Nitro\Cache\Contracts\StoreInterface;
  */
 class ArrayStore implements StoreInterface
 {
+    use \Nitro\Cache\Locks\HasCacheLock;
+
     /**
      * The array of stored values.
      *

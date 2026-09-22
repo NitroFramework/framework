@@ -13,6 +13,8 @@ use RecursiveIteratorIterator;
  */
 class FileStore implements StoreInterface
 {
+    use \Nitro\Cache\Locks\HasCacheLock;
+
     /**
      * @param string     $directory       The cache directory path.
      * @param string     $prefix          Cache key prefix.

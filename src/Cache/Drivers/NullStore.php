@@ -9,6 +9,24 @@ use Nitro\Cache\Contracts\StoreInterface;
  */
 class NullStore implements StoreInterface
 {
+    /**
+     * A lock that is always free.
+     *
+     * This store keeps nothing, so it cannot hold a claim either. Work guarded
+     * by a lock still runs — which is what a deliberately disabled cache
+     * should do, rather than blocking the application because nothing can
+     * grant it permission.
+     */
+    public function lock(string $name, int $seconds = 0, ?string $owner = null): \Nitro\Cache\Contracts\Lock
+    {
+        return new \Nitro\Cache\Locks\NoLock($name, $seconds, $owner);
+    }
+
+    public function restoreLock(string $name, string $owner): \Nitro\Cache\Contracts\Lock
+    {
+        return $this->lock($name, 0, $owner);
+    }
+
     public function get(string $key): mixed
     {
         return null;

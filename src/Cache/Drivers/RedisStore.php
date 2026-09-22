@@ -11,6 +11,8 @@ use Nitro\Cache\Tags\TagSet;
  */
 class RedisStore implements TaggableStoreInterface
 {
+    use \Nitro\Cache\Locks\HasCacheLock;
+
     /**
      * The Redis connection instance.
      *
