@@ -5,7 +5,7 @@ namespace Nitro\Console\Commands;
 use Nitro\Console\ExitCode;
 use Nitro\Console\Contracts\CommandInterface;
 use Nitro\Console\OutputFormatter;
-use Nitro\Foundation\PathRegistry;
+use Nitro\Foundation\Contracts\PathRegistry;
 
 /**
  * Generate the application key used to derive Nitro's encryption/HMAC secrets
@@ -58,24 +58,49 @@ class KeyGenerateCommand implements CommandInterface
 
         $contents = (string) file_get_contents($path);
 
+        /*
+         * Handled line by line rather than with a multiline pattern, because
+         * neither anchor behaves on a CRLF file: `.` matches the carriage
+         * return, so an empty APP_KEY= reads as a one-character value and looks
+         * like a key that is already set, while `$` only matches before a
+         * newline, so a pattern excluding \r never matches the line at all. A
+         * .env edited through a browser is CRLF — that is how HTML submits a
+         * textarea — so a hosting panel's environment editor produces exactly
+         * this file.
+         */
+        $newline = str_contains($contents, "\r\n") ? "\r\n" : "\n";
+        $lines = preg_split('/\r\n|\n|\r/', $contents) ?: [];
+
+        $index = null;
+        $current = null;
+
+        foreach ($lines as $number => $line) {
+            if (preg_match('/^APP_KEY=(.*)$/', $line, $matches) === 1) {
+                $index = $number;
+                $current = $matches[1];
+                break;
+            }
+        }
+
         // Refuse to clobber an existing key unless --force, so a stray run can't
         // silently invalidate every already-encrypted payload / signed session.
-        if (!$force && preg_match('/^APP_KEY=.+$/m', $contents)) {
+        if (!$force && $current !== null && trim($current) !== '') {
             $this->output->warning('Application key already set. Use --force to overwrite it.');
 
             return ExitCode::FAILURE;
         }
 
-        if (preg_match('/^APP_KEY=.*$/m', $contents)) {
-            $contents = preg_replace_callback(
-                '/^APP_KEY=.*$/m',
-                static fn (): string => 'APP_KEY=' . $key,
-                $contents,
-                1,
-            );
+        if ($index !== null) {
+            $lines[$index] = 'APP_KEY=' . $key;
+        } elseif (end($lines) === '') {
+            // Keep the file's trailing newline where it was.
+            array_splice($lines, count($lines) - 1, 0, ['APP_KEY=' . $key]);
         } else {
-            $contents = rtrim($contents, "\n") . "\nAPP_KEY=" . $key . "\n";
+            $lines[] = 'APP_KEY=' . $key;
+            $lines[] = '';
         }
+
+        $contents = implode($newline, $lines);
 
         if (file_put_contents($path, $contents) === false) {
             $this->output->error('Unable to write the application key to .env.');

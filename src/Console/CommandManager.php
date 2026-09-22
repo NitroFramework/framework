@@ -3,8 +3,14 @@
 namespace Nitro\Console;
 
 use Nitro\Concurrency\Console\ConcurrencyInvokeCommand;
+use Nitro\Cache\Repository;
+use Nitro\Console\Contracts\Isolatable;
+use Nitro\Console\Events\CommandEvent;
+use Nitro\Console\Events\ConsoleEvents;
 use Nitro\Container\Contracts\ClassResolver;
-use Nitro\Foundation\PathRegistry;
+use Nitro\Events\Contracts\Dispatcher;
+use Nitro\Events\Contracts\ReceivesDispatcher;
+use Nitro\Foundation\Contracts\PathRegistry;
 use Nitro\Cache\Console\CacheTableCommand;
 use Nitro\Session\Console\SessionTableCommand;
 use Nitro\Thrust\Commands\ThrustCommands;
@@ -16,8 +22,14 @@ use Nitro\Thrust\Commands\ThrustCommands;
  * commands, maps each signature to its handling class, and resolves + runs the
  * invoked command through the container. Every command implements CommandInterface.
  */
-class CommandManager
+class CommandManager implements CommandRunner, ReceivesDispatcher
 {
+    /** The bus command events are raised on; null until one is given. */
+    private ?Dispatcher $events = null;
+
+    /** Where isolated commands hold their lock; null until one is given. */
+    private ?Repository $locks = null;
+
     /**
      * Now stores [signature => className] or [signature => object]
      */
@@ -86,7 +98,6 @@ class CommandManager
             Commands\LifecycleCommand::class,
             Commands\RouteListCommand::class,
             Commands\VariableAuditCommand::class,
-            Commands\LifetimeCheckCommand::class,
             ConcurrencyInvokeCommand::class,
             SessionTableCommand::class,
             CacheTableCommand::class,
@@ -137,15 +148,130 @@ class CommandManager
 
     public function resolve(string $name, array $arguments = []): int
     {
+        return $this->dispatch($name, $arguments, Verbosity::fromArguments($arguments));
+    }
+
+    /**
+     * Run a command on behalf of another one.
+     *
+     * The verbosity is the caller's, so a command run quietly stays quiet
+     * however loud the command it runs would normally be.
+     *
+     * @param array<int, string> $arguments
+     */
+    public function call(string $command, array $arguments = [], Verbosity $verbosity = Verbosity::Normal): int
+    {
+        return $this->dispatch($command, $arguments, $verbosity);
+    }
+
+    /**
+     * Give the console the bus it raises its events on.
+     *
+     * Asked for rather than assumed, like the router's: a console with no
+     * dispatcher simply raises nothing.
+     */
+    public function setDispatcher(Dispatcher $dispatcher): void
+    {
+        $this->events = $dispatcher;
+    }
+
+    /** @param array<int, string> $arguments */
+    private function dispatch(string $name, array $arguments, Verbosity $verbosity): int
+    {
         if (!isset($this->commands[$name])) {
             throw new \Exception("Command '{$name}' not found.");
         }
 
+        $event = new CommandEvent($name, $arguments, $verbosity);
+
+        $this->events?->dispatch(ConsoleEvents::STARTING, $event);
+
+        try {
+            $code = $this->runCommand($name, $arguments, $verbosity);
+        } finally {
+            // In a finally so a command that throws is still reported as
+            // finished: a listener timing or auditing commands should not lose
+            // the failures, which are the ones worth hearing about.
+            $this->events?->dispatch(
+                ConsoleEvents::FINISHED,
+                $event->finished($code ?? ExitCode::FAILURE)
+            );
+        }
+
+        return $code;
+    }
+
+    /**
+     * Give the console the cache its isolated commands lock in.
+     *
+     * Optional: without one, `--isolated` cannot be honoured and says so
+     * rather than running unlocked, since a command that asked not to overlap
+     * and silently overlapped is worse than one that refuses to start.
+     */
+    public function setLockStore(Repository $cache): void
+    {
+        $this->locks = $cache;
+    }
+
+    /**
+     * Run the command, holding its lock if it asked to be isolated.
+     *
+     * @param array<int, string> $arguments
+     */
+    private function runCommand(string $name, array $arguments, Verbosity $verbosity): int
+    {
         $entry = $this->commands[$name];
 
-        // Class strings are built now (lazy) so a command's dependencies (and
-        // HelpCommand's back-reference to this manager) resolve only on demand.
         $command = is_string($entry) ? $this->resolver->resolve($entry) : $entry;
+
+        if (! $command instanceof Isolatable || ! in_array('--isolated', $arguments, true)) {
+            return $this->execute($name, $command, $arguments, $verbosity);
+        }
+
+        if ($this->locks === null) {
+            $this->output->error(
+                "[{$name}] asked to run isolated, but no cache is configured to hold the lock. "
+                . 'Configure a cache store, or drop --isolated.'
+            );
+
+            return ExitCode::FAILURE;
+        }
+
+        $lock = new CommandLock($this->locks, $name, $command->isolationSeconds());
+
+        if (! $lock->acquire()) {
+            if ($verbosity->allows(Verbosity::Normal)) {
+                $this->output->info("[{$name}] is already running elsewhere; nothing to do.");
+            }
+
+            // Success: the work is in hand, which is what a scheduler needs to
+            // know. A failure code here would page someone every time two runs
+            // overlapped as designed.
+            return ExitCode::SUCCESS;
+        }
+
+        try {
+            $code = $this->execute($name, $command, $arguments, $verbosity);
+        } finally {
+            $lock->release();
+        }
+
+        return $code;
+    }
+
+    /**
+     * @param  object             $command
+     * @param  array<int, string> $arguments
+     */
+    private function execute(string $name, object $command, array $arguments, Verbosity $verbosity): int
+    {
+        // Removed before the command parses its own signature: --isolated is
+        // the dispatcher's flag, not the command's, and would otherwise read
+        // as an option the command never declared.
+        $arguments = array_values(array_filter(
+            $arguments,
+            static fn (string $argument): bool => $argument !== '--isolated'
+        ));
 
         // Two shapes are supported: a single Command (its own signature +
         // handle()), or a grouped CommandInterface (handle(sig, args)). Both
@@ -154,7 +280,22 @@ class CommandManager
         // so a refused db:wipe and a failed migration both looked like success
         // to CI.
         if ($command instanceof Command) {
-            return (int) $command->run($arguments);
+            $command->setRunner($this);
+
+            return (int) $command->run($arguments, $verbosity);
+        }
+
+        // A grouped command writes through the OutputFormatter, which echoes,
+        // so silencing one is a matter of catching the buffer rather than
+        // asking it to keep quiet.
+        if ($verbosity === Verbosity::Quiet) {
+            ob_start();
+
+            try {
+                return $command->handle($name, $arguments);
+            } finally {
+                ob_end_clean();
+            }
         }
 
         return $command->handle($name, $arguments);

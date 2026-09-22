@@ -122,6 +122,18 @@ class Style
             return false;
         }
 
+        /*
+         * Asked first, and on every platform: output that is piped or
+         * redirected has no terminal to colour, whoever is running. Checking
+         * the Windows environment variables without this said yes to a
+         * redirected file as readily as to a console, so `nitro route:list >
+         * routes.txt` wrote escape sequences into the file.
+         */
+        if (! self::isTerminal()) {
+            return false;
+        }
+
+        // A terminal on Windows still has to be one that understands ANSI.
         if (DIRECTORY_SEPARATOR === '\\') {
             return getenv('ANSICON') !== false
                 || getenv('WT_SESSION') !== false
@@ -129,6 +141,22 @@ class Style
                 || function_exists('sapi_windows_vt100_support');
         }
 
-        return function_exists('posix_isatty') ? @posix_isatty(STDOUT) : true;
+        return true;
+    }
+
+    /**
+     * Whether STDOUT is attached to a terminal.
+     *
+     * stream_isatty answers on every platform, where posix_isatty needs an
+     * extension that Windows does not have — which is why Windows used to
+     * skip the question entirely.
+     */
+    protected static function isTerminal(): bool
+    {
+        if (function_exists('stream_isatty')) {
+            return @stream_isatty(STDOUT);
+        }
+
+        return function_exists('posix_isatty') && @posix_isatty(STDOUT);
     }
 }

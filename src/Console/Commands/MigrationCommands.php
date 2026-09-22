@@ -11,7 +11,7 @@ use Nitro\Database\Migration\MigrationPathRegistry;
 use Nitro\Database\Schema\SchemaBuilder;
 use Nitro\Database\Schema\SchemaCache;
 use Nitro\Foundation\Contracts\ConfigRepository;
-use Nitro\Foundation\PathRegistry;
+use Nitro\Foundation\Contracts\PathRegistry;
 
 /**
  * Migration command bundle, Laravel-ish surface.
@@ -104,8 +104,8 @@ class MigrationCommands implements CommandInterface
         try {
             $this->ensureMigrationsTableExists();
 
-            match ($command) {
-                'migrate:install'   => $this->output->success("Migrations table is ready."),
+            $code = match ($command) {
+                'migrate:install'   => $this->reportMigrationsTableReady(),
                 'migrate', 'migrate:run' => $this->runMigrations($arguments),
                 'migrate:rollback'  => $this->rollbackMigrations($arguments),
                 'migrate:reset'     => $this->resetMigrations($arguments),
@@ -123,6 +123,17 @@ class MigrationCommands implements CommandInterface
                 SchemaCache::clear();
             }
         }
+
+        return $code;
+    }
+
+    /**
+     * migrate:install has nothing left to do: ensureMigrationsTableExists()
+     * has already created the table if it was missing.
+     */
+    private function reportMigrationsTableReady(): int
+    {
+        $this->output->success('Migrations table is ready.');
 
         return ExitCode::SUCCESS;
     }

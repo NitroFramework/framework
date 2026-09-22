@@ -13,7 +13,7 @@ use Nitro\Database\Schema\SchemaBuilder;
 use Nitro\Database\Schema\SchemaCache;
 use Nitro\Foundation\Application;
 use Nitro\Foundation\Config;
-use Nitro\Foundation\PathRegistry;
+use Nitro\Foundation\Contracts\PathRegistry;
 use Nitro\Routing\Contracts\RouterInterface;
 use Nitro\Routing\RouteLoader;
 use Nitro\View\Blade;
@@ -167,11 +167,28 @@ class OptimizeCommand implements CommandInterface
 
             $skippedClosures = $routeLoader->cache($router);
             if ($skippedClosures > 0) {
+                $blocking = $routeLoader->uncacheableRoutes();
+
                 $this->output->writeln($this->output->color(
-                    "  ⚠ Route cache skipped: {$skippedClosures} closure route(s) can't be serialized. "
-                    . "Convert them to controller actions to enable route caching.",
+                    "  ⚠ Route cache skipped: {$skippedClosures} route(s) have a handler that can't be "
+                    . 'serialized — usually a closure that captures another closure. Convert these to '
+                    . 'controller actions to enable route caching:',
                     'yellow'
                 ));
+
+                // Named rather than counted: a count tells you there is a
+                // problem, the list tells you where it is.
+                foreach (array_slice($blocking, 0, 10) as $route) {
+                    $this->output->writeln($this->output->color('      ' . $route, 'gray'));
+                }
+
+                if (count($blocking) > 10) {
+                    $this->output->writeln($this->output->color(
+                        '      … and ' . (count($blocking) - 10) . ' more',
+                        'gray'
+                    ));
+                }
+
                 return;
             }
 
@@ -214,7 +231,14 @@ class OptimizeCommand implements CommandInterface
             }
             $entries = array_values(array_unique($entries));
 
-            $php = (new \Nitro\Container\ContainerCompiler())->compile($container, $entries);
+            // Deferred services are not bound until asked for, so has() cannot
+            // show them to the compiler; named here so it defers them as well
+            // rather than inlining a `new` that skips their provider.
+            $php = (new \Nitro\Console\Optimize\ContainerCompiler())->compile(
+                $container,
+                $entries,
+                array_keys($this->app->getDeferredServices()),
+            );
             file_put_contents($this->paths->cachedContainer(), $php);
 
             $this->output->writeln($this->output->color(

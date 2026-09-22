@@ -4,7 +4,7 @@ namespace Nitro\Console\Support;
 
 use Nitro\Console\OutputFormatter;
 use Nitro\Foundation\Contracts\ConfigRepository;
-use Nitro\Foundation\PathRegistry;
+use Nitro\Foundation\Contracts\PathRegistry;
 use Nitro\View\Blade;
 use Nitro\View\Support\ViewExtensions;
 use Nitro\View\Support\ViewManifest;

@@ -2,6 +2,8 @@
 
 namespace Nitro\Console;
 
+use Nitro\Console\Support\Style;
+
 /**
  * Output formatter for console commands.
  * 
@@ -40,8 +42,37 @@ class OutputFormatter
      * @param bool $bold Whether to make the text bold
      * @return string The formatted text with ANSI color codes
      */
+    /**
+     * Whether output is going somewhere that can render colour.
+     *
+     * Null until first asked, and answered then rather than in the
+     * constructor: this class is built without one in places — a test naming
+     * a command's dependencies it does not intend to use — and a typed
+     * property with no value is a fatal the moment anything prints.
+     */
+    private ?bool $decorated = null;
+
+    public function __construct(?bool $decorated = null)
+    {
+        $this->decorated = $decorated;
+    }
+
+    /** Force colour on or off, whatever the terminal says. */
+    public function setDecorated(bool $decorated): void
+    {
+        $this->decorated = $decorated;
+    }
+
     public function color(string $text, string $color, bool $bold = false): string
     {
+        $this->decorated ??= (new Style())->isDecorated();
+
+        // Escape sequences in a redirected file are noise nobody asked for:
+        // `nitro migrate > deploy.log` should leave a log that reads.
+        if (! $this->decorated) {
+            return $text;
+        }
+
         $colorCode = self::COLORS[$color] ?? '';
         $boldCode = $bold ? self::COLORS['bold'] : '';
         $resetCode = self::COLORS['reset'];

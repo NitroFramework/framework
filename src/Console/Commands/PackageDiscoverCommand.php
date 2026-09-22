@@ -6,7 +6,7 @@ use Nitro\Console\ExitCode;
 use Nitro\Console\Contracts\CommandInterface;
 use Nitro\Console\OutputFormatter;
 use Nitro\Foundation\PackageManifest;
-use Nitro\Foundation\PathRegistry;
+use Nitro\Foundation\Contracts\PathRegistry;
 
 /**
  * `php nitro package:discover` — (re)build the cached map of auto-discovered

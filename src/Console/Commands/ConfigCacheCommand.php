@@ -6,7 +6,7 @@ use Nitro\Console\ExitCode;
 use Nitro\Console\Contracts\CommandInterface;
 use Nitro\Console\OutputFormatter;
 use Nitro\Foundation\Config;
-use Nitro\Foundation\PathRegistry;
+use Nitro\Foundation\Contracts\PathRegistry;
 
 /**
  * Console commands: compile (config:cache) and clear (config:clear) the config cache.

@@ -7,7 +7,7 @@ use Nitro\Console\Contracts\CommandInterface;
 use Nitro\Console\OutputFormatter;
 use Nitro\Container\Contracts\ContainerInterface as Container;
 use Nitro\Database\Seeder\Seeder;
-use Nitro\Foundation\PathRegistry;
+use Nitro\Foundation\Contracts\PathRegistry;
 
 /**
  * Seeder commands.

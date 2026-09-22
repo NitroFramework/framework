@@ -104,4 +104,79 @@ class KeyGenerateCommandTest extends TestCase
 
         $this->assertNotSame($first, $second);
     }
+
+    /** The APP_KEY value, whatever the file's line endings are. */
+    private function key(): ?string
+    {
+        $lines = preg_split('/\r\n|\n|\r/', $this->readEnv()) ?: [];
+
+        $keys = array_values(array_filter(
+            $lines,
+            static fn (string $line): bool => str_starts_with($line, 'APP_KEY=')
+        ));
+
+        $this->assertCount(1, $keys, 'the file must hold exactly one APP_KEY line');
+
+        return substr($keys[0], 8);
+    }
+
+    /**
+     * A .env saved through a browser has CRLF endings, because that is how
+     * HTML submits a textarea — a hosting panel's environment editor produces
+     * exactly this file. The empty value used to read as a one-character one,
+     * so the command reported the key was already set and wrote nothing.
+     */
+    public function test_writes_the_key_into_a_crlf_file(): void
+    {
+        $this->env("APP_NAME=Nitro\r\nAPP_KEY=\r\n");
+
+        $code = $this->command()->handle('key:generate', []);
+
+        $this->assertSame(0, $code);
+        $this->assertStringStartsWith('base64:', (string) $this->key());
+    }
+
+    public function test_a_crlf_file_keeps_its_line_endings(): void
+    {
+        $this->env("APP_NAME=Nitro\r\nAPP_KEY=\r\n");
+
+        $this->command()->handle('key:generate', []);
+
+        $contents = $this->readEnv();
+
+        $this->assertSame(
+            substr_count($contents, "\n"),
+            substr_count($contents, "\r\n"),
+            'every newline must still be preceded by a carriage return'
+        );
+    }
+
+    public function test_appending_to_a_crlf_file_adds_one_key_line(): void
+    {
+        $this->env("APP_NAME=Nitro\r\n");
+
+        $this->command()->handle('key:generate', []);
+
+        $this->assertStringStartsWith('base64:', (string) $this->key());
+    }
+
+    public function test_a_crlf_file_with_a_real_key_is_still_protected(): void
+    {
+        $this->env("APP_KEY=base64:EXISTING\r\n");
+
+        $code = $this->command()->handle('key:generate', []);
+
+        $this->assertNotSame(0, $code, 'an existing key must not be overwritten without --force');
+        $this->assertSame('base64:EXISTING', $this->key());
+    }
+
+    /** A value of only spaces is no key at all. */
+    public function test_a_whitespace_only_key_is_replaced(): void
+    {
+        $this->env("APP_KEY=   \n");
+
+        $this->command()->handle('key:generate', []);
+
+        $this->assertStringStartsWith('base64:', (string) $this->key());
+    }
 }

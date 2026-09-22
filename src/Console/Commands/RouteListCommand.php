@@ -6,7 +6,8 @@ use Nitro\Console\ExitCode;
 use Closure;
 use Nitro\Console\Contracts\CommandInterface;
 use Nitro\Console\OutputFormatter;
-use Nitro\Foundation\PathRegistry;
+use Nitro\Console\Support\Terminal;
+use Nitro\Foundation\Contracts\PathRegistry;
 use Nitro\Routing\RouteLoader;
 use Nitro\Routing\Contracts\RouterInterface as Router;
 
@@ -253,32 +254,100 @@ class RouteListCommand implements CommandInterface
     }
 
     /** @param array<int, array<string, string>> $rows */
+    /**
+     * One route per line, the verb and path on the left and what handles it on
+     * the right, joined by dots.
+     *
+     * Columns padded to the widest value pushed every action into the same far
+     * column, so a list with one long path left a gap across every other row
+     * and the eye had nothing to follow. Dots run from each path to its own
+     * handler instead, which is the shape that stays readable however wide the
+     * paths are.
+     */
     private function render(array $rows): int
     {
-        $widths = [
-            'method' => $this->widest($rows, 'method', 6),
-            'uri' => $this->widest($rows, 'uri', 3),
-            'name' => $this->widest($rows, 'name', 4),
-        ];
+        $method = $this->widest($rows, 'method', 3);
+        $width = Terminal::width();
 
         $this->output->writeln('');
 
         foreach ($rows as $row) {
-            $line = '  '
-                . $this->output->color(str_pad($row['method'], $widths['method']), $this->methodColour($row['method']), true)
-                . '  ' . str_pad($row['uri'], $widths['uri'])
-                . '  ' . $this->output->color(str_pad($row['name'], $widths['name']), 'cyan')
-                . '  ' . $this->output->color($row['action'], 'yellow');
+            $left = str_pad($row['method'], $method) . '  ' . $row['uri'];
 
-            $this->output->writeln($line);
+            $right = $row['name'] !== ''
+                ? $row['name'] . ' › ' . $row['action']
+                : $row['action'];
+
+            $this->output->writeln($this->leader($left, $right, $width, $row));
 
             if ($row['middleware'] !== '') {
-                $indent = str_repeat(' ', $widths['method'] + 4);
-                $this->output->writeln($indent . $this->output->color($row['middleware'], 'magenta'));
+                $this->output->writeln(
+                    str_repeat(' ', $method + 4)
+                    . $this->output->color('⇂ ' . $row['middleware'], 'gray')
+                );
             }
         }
 
         return ExitCode::SUCCESS;
+    }
+
+    /**
+     * A line of the form "  GET  /path ....... name › action".
+     *
+     * Colour is applied after the dots are measured: escape sequences have a
+     * length that does not appear on screen, so counting them would shorten
+     * every run of dots by exactly the amount of styling on the line.
+     */
+    private function leader(string $left, string $right, int $width, array $row): string
+    {
+        /*
+         * Shortened in two steps when the line will not fit. The route name
+         * goes first, because the handler is what someone reading this list is
+         * looking for; only if the handler alone still overflows is it trimmed,
+         * and then from the front, so a deeply namespaced controller keeps the
+         * class and method rather than the namespace it shares with every other
+         * row.
+         */
+        $room = $width - mb_strlen($left) - 6;
+
+        /*
+         * A path long enough to fill the line on its own leaves no room for
+         * the handler, and giving up there simply let the row run past the
+         * edge. The path is shortened instead, from the front, since its tail
+         * is the part that distinguishes it from its neighbours.
+         */
+        if ($room < 12) {
+            $keep = max(8, $width - 18);
+            $left = mb_substr($left, 0, $keep - 1) . '…';
+            $room = $width - mb_strlen($left) - 6;
+        }
+
+        if ($room > 0 && mb_strlen($right) > $room) {
+            $row['name'] = '';
+            $right = $row['action'];
+
+            if (mb_strlen($right) > $room) {
+                $right = '…' . mb_substr($right, -($room - 1));
+                $row['action'] = $right;
+            }
+        }
+
+        $plain = '  ' . $left . ' ' . $right;
+        $dots = max(1, $width - mb_strlen($plain) - 2);
+
+        $colouredLeft = $this->output->color(
+            str_pad($row['method'], strlen($row['method'])),
+            $this->methodColour($row['method']),
+            true
+        ) . substr($left, strlen($row['method']));
+
+        $colouredRight = $row['name'] !== ''
+            ? $this->output->color($row['name'], 'cyan') . ' › ' . $this->output->color($row['action'], 'yellow')
+            : $this->output->color($row['action'], 'yellow');
+
+        return '  ' . $colouredLeft . ' '
+            . $this->output->color(str_repeat('.', $dots), 'gray')
+            . ' ' . $colouredRight;
     }
 
     private function widest(array $rows, string $key, int $minimum): int

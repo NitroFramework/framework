@@ -5,6 +5,8 @@ namespace Tests\Unit\Console;
 use Nitro\Console\Commands\RouteCommands;
 use Nitro\Console\ExitCode;
 use Nitro\Console\OutputFormatter;
+use Nitro\Container\Container;
+use Nitro\Container\ContainerClassResolver;
 use Nitro\Foundation\Config;
 use Nitro\Foundation\PathRegistry;
 use Nitro\Routing\RouteLoader;
@@ -17,10 +19,14 @@ use PHPUnit\Framework\TestCase;
  *
  * {@see RouteLoader::cache()} returns the number of routes that stopped it
  * writing a cache file, and the command discarded that value. An application
- * with a single closure route was told "Routes cached successfully!", shown a
- * cache file that did not exist, and handed exit code 0 — so a deploy script
- * running `nitro route:cache && ...` carried straight on, and the app served
- * every request off the uncached path with nobody aware of it.
+ * with one such route was told "Routes cached successfully!", shown a cache
+ * file that did not exist, and handed exit code 0 — so a deploy script running
+ * `nitro route:cache && ...` carried straight on, and the app served every
+ * request off the uncached path with nobody aware of it.
+ *
+ * A plain closure is not what blocks it: those are serialized. A handler
+ * holding something that cannot be written out at all — an open connection, a
+ * part-consumed generator — is.
  */
 class RouteCacheReportingTest extends TestCase
 {
@@ -51,8 +57,9 @@ class RouteCacheReportingTest extends TestCase
     public function test_a_refused_cache_is_reported_as_a_failure(): void
     {
         $this->writeRoutes(<<<'PHP'
+        $stream = (function () { yield 'row'; })();
         $router->get('/users', 'UserController@index');
-        $router->get('/ping', function () { return 'pong'; });
+        $router->get('/ping', function () use ($stream) { return $stream; });
         PHP);
 
         [$exitCode, $output] = $this->invoke('route:cache');
@@ -67,8 +74,9 @@ class RouteCacheReportingTest extends TestCase
     public function test_a_refused_cache_names_the_blocking_route(): void
     {
         $this->writeRoutes(<<<'PHP'
+        $stream = (function () { yield 'row'; })();
         $router->get('/users', 'UserController@index');
-        $router->get('/ping', function () { return 'pong'; });
+        $router->get('/ping', function () use ($stream) { return $stream; });
         PHP);
 
         [, $output] = $this->invoke('route:cache');
@@ -153,7 +161,7 @@ class RouteCacheReportingTest extends TestCase
         $config->method('get')->willReturn('App\\Controllers\\');
 
         $commands = new RouteCommands(
-            new RouteLoader($paths, $config),
+            new RouteLoader($paths, $config, new ContainerClassResolver(new Container())),
             new Router($config, new RouteTypes()),
             $paths,
             new OutputFormatter(),

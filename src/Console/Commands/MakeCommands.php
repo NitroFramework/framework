@@ -5,7 +5,7 @@ namespace Nitro\Console\Commands;
 use Nitro\Console\ExitCode;
 use Nitro\Console\Contracts\CommandInterface;
 use Nitro\Console\OutputFormatter;
-use Nitro\Foundation\PathRegistry;
+use Nitro\Foundation\Contracts\PathRegistry;
 
 /**
  * Class generators, Laravel's make:* surface.

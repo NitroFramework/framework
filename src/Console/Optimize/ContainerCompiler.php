@@ -1,8 +1,9 @@
 <?php
 
-namespace Nitro\Container;
+namespace Nitro\Console\Optimize;
 
 use Closure;
+use Illuminate\Container\Container;
 use ReflectionClass;
 use ReflectionNamedType;
 use ReflectionParameter;
@@ -13,12 +14,14 @@ use ReflectionParameter;
  * Given a set of entry classes (bound class-string services + route controllers
  * + middleware), it emits a PHP file returning a map of
  *   [ class => static fn($c) => new \Class(...inlined graph...) ]
- * so production resolves those classes with ZERO runtime reflection — the
- * container just calls the closure (see {@see Container::$compiledFactories}).
+ * so production resolves those classes with ZERO runtime reflection. Each
+ * closure is registered as that class's binding at boot, so extenders and
+ * resolution callbacks apply to a compiled class exactly as they do to a
+ * reflected one.
  *
  * Rules that keep it correct:
  *   - A dependency that is BOUND, an interface/abstract, or that we can't fully
- *     inline is deferred to `$c->resolve(Dep::class)` — so bindings, aliases,
+ *     inline is deferred to `$c->make(Dep::class)` — so bindings, aliases,
  *     singletons and deferred providers still apply.
  *   - Only UNBOUND, instantiable, contextual-free concrete classes are inlined
  *     (recursively). Anything we can't compile is simply dropped from the map,
@@ -28,11 +31,25 @@ use ReflectionParameter;
 class ContainerCompiler
 {
     /**
+     * Names a deferred provider will bind once something asks for them.
+     *
+     * Not in the container while it is compiled, so has() cannot see them;
+     * inlining one would build it with `new` and skip the provider that
+     * configures it, in production only.
+     *
+     * @var array<string, true>
+     */
+    private array $deferred = [];
+
+    /**
      * @param array<int, class-string> $entryClasses
+     * @param array<int, string>       $deferred     Services deferred providers promise; see {@see $deferred}.
      * @return string PHP source returning array<string, Closure>.
      */
-    public function compile(Container $container, array $entryClasses): string
+    public function compile(Container $container, array $entryClasses, array $deferred = []): string
     {
+        $this->deferred = array_fill_keys($deferred, true);
+
         $entries = [];
 
         foreach (array_unique($entryClasses) as $class) {
@@ -68,7 +85,7 @@ class ContainerCompiler
         }
 
         $reflector = new ReflectionClass($class);
-        if (! $reflector->isInstantiable() || $container->hasContextualBindings($class)) {
+        if (! $reflector->isInstantiable() || ! empty($container->contextual[$class])) {
             return null;
         }
 
@@ -101,10 +118,16 @@ class ContainerCompiler
                 return $this->defaultExpr($param); // can't autowire — need a default
             }
 
-            // Bound, or an interface/abstract → defer to the container so the
-            // binding / alias / singleton / deferred provider still applies.
-            if ($container->has($name) || ! class_exists($name) || ! (new ReflectionClass($name))->isInstantiable()) {
-                return '$c->resolve(' . var_export($name, true) . ')';
+            // Bound, promised by a deferred provider, or an interface/abstract →
+            // defer to the container so the binding / alias / singleton /
+            // deferred provider still applies.
+            if (
+                $container->has($name)
+                || isset($this->deferred[$name])
+                || ! class_exists($name)
+                || ! (new ReflectionClass($name))->isInstantiable()
+            ) {
+                return '$c->make(' . var_export($name, true) . ')';
             }
 
             // Unbound concrete → inline recursively; if that fails, defer at runtime.

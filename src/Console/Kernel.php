@@ -3,6 +3,7 @@
 namespace Nitro\Console;
 
 use Nitro\Container\Container;
+use Nitro\Events\Contracts\Dispatcher;
 use Nitro\Exceptions\ExceptionHandler;
 use Throwable;
 
@@ -11,15 +12,26 @@ use Throwable;
  */
 class Kernel
 {
+    /**
+     * The dispatcher is taken here rather than wired in a provider's boot()
+     * because resolving the CommandManager builds it, and building it scans
+     * the filesystem for commands. Only a console run should pay that, and
+     * only a console run constructs this kernel.
+     */
     public function __construct(
         protected OutputFormatter $output,
-        protected CommandManager $commandManager
+        protected CommandManager $commandManager,
+        protected ?Dispatcher $events = null,
     ) {}
 
     public function run(array $argv): int
     {
         $commandName = $argv[1] ?? 'help';
         $arguments = array_slice($argv, 2);
+
+        if ($this->events !== null) {
+            $this->commandManager->setDispatcher($this->events);
+        }
 
         try {
             return $this->commandManager->resolve($commandName, $arguments);
