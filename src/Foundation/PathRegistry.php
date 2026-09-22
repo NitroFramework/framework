@@ -2,14 +2,16 @@
 
 namespace Nitro\Foundation;
 
+use Nitro\Foundation\Contracts\PathRegistry as PathRegistryContract;
+
 /**
  * Centralized path registry for the application
- * 
+ *
  * Provides a single source of truth for all application directory paths.
  * All paths are derived from the base path, with methods chaining
  * into subdirectories (e.g. cache() delegates to storage('cache')).
  */
-class PathRegistry
+class PathRegistry implements PathRegistryContract
 {
     private string $base;
 
