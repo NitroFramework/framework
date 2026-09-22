@@ -5,6 +5,7 @@ namespace Nitro\Queue;
 use Nitro\Cache\CacheManager;
 use Nitro\Cache\Repository as CacheRepository;
 use Nitro\Container\Contracts\ClassResolver;
+use Nitro\Exceptions\ExceptionHandler;
 use Nitro\Foundation\Contracts\ConfigRepository;
 use Nitro\Foundation\Providers\ServiceProvider;
 use Nitro\Http\Kernel;
@@ -67,6 +68,9 @@ class QueueServiceProvider extends ServiceProvider
                 // Absent in a console command; decided here, not looked up later.
                 kernel: $container->has(Kernel::class)
                     ? $container->resolve(Kernel::class)
+                    : null,
+                events: $container->has('events')
+                    ? $container->resolve('events')
                     : null,
             );
         });
@@ -132,6 +136,9 @@ class QueueServiceProvider extends ServiceProvider
                     : null,
                 events: $container->has('events')
                     ? $container->resolve('events')
+                    : null,
+                exceptions: $container->has(ExceptionHandler::class)
+                    ? $container->resolve(ExceptionHandler::class)
                     : null,
             );
         });

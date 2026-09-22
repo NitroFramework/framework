@@ -30,11 +30,28 @@ interface Queue
      */
     public function push(QueuedJob $job, string $queue = 'default'): int|string;
 
+    /** push(), with the queue named first. */
+    public function pushOn(string $queue, QueuedJob $job): int|string;
+
     /**
      * Push a job that won't become eligible to run until $delay seconds
      * from now. Used by retry-with-backoff and by ->delay(N) at dispatch.
      */
     public function later(int $delay, QueuedJob $job, string $queue = 'default'): int|string;
+
+    /** later(), with the queue named first. */
+    public function laterOn(string $queue, int $delay, QueuedJob $job): int|string;
+
+    /**
+     * Push many jobs onto the same queue at once.
+     *
+     * A batch dispatches hundreds of jobs in one call, and a driver that
+     * can write them in one statement should — pushing individually
+     * turns one insert into hundreds of round trips.
+     *
+     * @param array<int, QueuedJob> $jobs
+     */
+    public function bulk(array $jobs, string $queue = 'default'): void;
 
     /**
      * Reserve and return the next runnable job on the named queue, or
@@ -65,4 +82,15 @@ interface Queue
      * including reserved jobs — exact accounting is not required.
      */
     public function size(string $queue = 'default'): int;
+
+    /**
+     * The name this connection is configured under.
+     *
+     * A driver is built from one entry in config/queue.php but does not
+     * otherwise know which; the worker needs the name to say where a
+     * job came from in the events it fires.
+     */
+    public function getConnectionName(): string;
+
+    public function setConnectionName(string $name): static;
 }

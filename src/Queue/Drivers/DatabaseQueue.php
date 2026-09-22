@@ -3,6 +3,7 @@
 namespace Nitro\Queue\Drivers;
 
 use Nitro\Database\DB;
+use Nitro\Queue\Concerns\QueuesJobs;
 use Nitro\Queue\Contracts\Queue;
 use Nitro\Queue\QueuedJob;
 
@@ -24,6 +25,8 @@ use Nitro\Queue\QueuedJob;
  */
 class DatabaseQueue implements Queue
 {
+    use QueuesJobs;
+
     public function __construct(
         private string $table = 'jobs',
         private int $visibilityTimeout = 90,
@@ -37,6 +40,37 @@ class DatabaseQueue implements Queue
     public function later(int $delay, QueuedJob $job, string $queue = 'default'): int|string
     {
         return $this->insert($job, $queue, max(0, $delay));
+    }
+
+    /**
+     * Insert every job in one statement.
+     *
+     * A batch dispatches its jobs together, and one round trip per job
+     * is what makes dispatching a thousand of them slow. The rows come
+     * back without ids — the driver assigns those — so the envelopes
+     * are left as they were rather than given a guessed one.
+     *
+     * @param array<int, QueuedJob> $jobs
+     */
+    public function bulk(array $jobs, string $queue = 'default'): void
+    {
+        if ($jobs === []) {
+            return;
+        }
+
+        $now = time();
+
+        DB::table($this->table)->insert(array_map(
+            static fn (QueuedJob $job): array => [
+                'queue'        => $queue,
+                'payload'      => $job->payload,
+                'attempts'     => $job->attempts,
+                'reserved_at'  => null,
+                'available_at' => max($job->availableAt, $now),
+                'created_at'   => $now,
+            ],
+            array_values($jobs),
+        ));
     }
 
     private function insert(QueuedJob $job, string $queue, int $delay): int

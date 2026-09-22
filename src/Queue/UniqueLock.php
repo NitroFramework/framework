@@ -47,9 +47,24 @@ class UniqueLock
         return 'unique-job:' . $job::class . ($id === '' ? '' : ':' . $id);
     }
 
-    /** How long the claim survives a worker that never releases it. */
+    /**
+     * How long the claim survives a worker that never releases it.
+     *
+     * A $uniqueFor property answers first; failing that the class may
+     * carry #[UniqueFor], and failing both an hour is long enough to
+     * cover any reasonable job and short enough that a lost claim
+     * clears itself the same day.
+     */
     private function seconds(ShouldBeUnique $job): int
     {
-        return property_exists($job, 'uniqueFor') ? max(1, (int) $job->uniqueFor) : 3600;
+        if (property_exists($job, 'uniqueFor')) {
+            return max(1, (int) $job->uniqueFor);
+        }
+
+        $attributes = (new \ReflectionClass($job))->getAttributes(Attributes\UniqueFor::class);
+
+        return $attributes === []
+            ? 3600
+            : max(1, $attributes[0]->newInstance()->uniqueFor);
     }
 }

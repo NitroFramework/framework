@@ -27,6 +27,7 @@ namespace Nitro\Queue;
  * Subclass knobs (override as needed):
  *   protected int    $tries       = 3;     // max attempts before failure
  *   protected int    $backoff     = 5;     // seconds between retries
+ *   protected int    $timeout     = 60;    // seconds one attempt may run
  *   protected string $queueName   = '...'; // route to a specific queue
  *   protected ?string $onConnection = null; // override default connection
  *
@@ -38,12 +39,55 @@ namespace Nitro\Queue;
 abstract class Job
 {
     use Dispatchable;
+    use Attributes\ReadsQueueAttributes;
 
     /** Maximum number of attempts before this job is considered failed. */
     protected int $tries = 3;
 
-    /** Default backoff (seconds) between attempts when handle() throws. */
+    /**
+     * Seconds between attempts when handle() throws.
+     *
+     * A per-attempt schedule goes through backoff() rather than here: a
+     * subclass may not widen this type, so making the property itself
+     * accept an array would break every job that declares `protected
+     * int $backoff`.
+     */
     protected int $backoff = 5;
+
+    /**
+     * Seconds one attempt may run before the worker kills the process.
+     *
+     * Null defers to the worker's --timeout. The guard needs pcntl, so
+     * on a build without it this is not enforced.
+     */
+    protected ?int $timeout = null;
+
+    /**
+     * Whether a job that hits its timeout is failed outright.
+     *
+     * The default is to let it be retried, on the reading that a
+     * timeout is usually a slow dependency rather than a broken job.
+     */
+    protected bool $failOnTimeout = false;
+
+    /**
+     * Exceptions to tolerate before failing, independent of attempts.
+     *
+     * A job that releases itself repeatedly can attempt many times
+     * without ever throwing; this caps the throws rather than the
+     * attempts. Null leaves it to $tries alone.
+     */
+    protected ?int $maxExceptions = null;
+
+    /**
+     * When to stop retrying, as a timestamp or a date.
+     *
+     * A time budget rather than a count: a job worth retrying for an
+     * hour should not stop after three quick failures, and one that has
+     * been failing for an hour is not going to succeed on attempt four.
+     * Set, this replaces $tries entirely.
+     */
+    protected \DateTimeInterface|int|null $retryUntil = null;
 
     /** Named queue this job runs on. Override at the class level or via ->onQueue(). */
     protected string $queueName = 'default';
@@ -95,24 +139,66 @@ abstract class Job
      *   public function backoff(): int {
      *       return min(60, 2 ** $this->currentAttempts);
      *   }
+     *
+     * Return an array to give each attempt its own wait; the last entry
+     * covers every attempt past the end of it.
+     *
+     * @return int|array<int, int>
      */
-    public function backoff(): int
+    public function backoff(): int|array
     {
-        return $this->backoff;
+        /** @var int|array<int, int> */
+        return $this->queueAttribute(Attributes\Backoff::class, 'backoff', 0);
     }
 
     public function tries(): int
     {
-        return $this->tries;
+        return (int) $this->queueAttribute(Attributes\Tries::class, 'tries', 1);
+    }
+
+    /** Seconds this job may run, or null to take the worker's limit. */
+    public function timeout(): ?int
+    {
+        $timeout = $this->queueAttribute(Attributes\Timeout::class, 'timeout');
+
+        return $timeout === null ? null : (int) $timeout;
+    }
+
+    /** Whether hitting the timeout fails the job rather than retrying it. */
+    public function shouldFailOnTimeout(): bool
+    {
+        return (bool) $this->queueAttribute(Attributes\FailOnTimeout::class, 'failOnTimeout', false);
+    }
+
+    /** Throws to tolerate before failing, or null to go by attempts alone. */
+    public function maxExceptions(): ?int
+    {
+        $max = $this->queueAttribute(Attributes\MaxExceptions::class, 'maxExceptions');
+
+        return $max === null ? null : (int) $max;
+    }
+
+    /**
+     * The timestamp past which this job is no longer retried.
+     *
+     * Null means the attempt count decides instead.
+     */
+    public function retryUntil(): ?int
+    {
+        return $this->retryUntil instanceof \DateTimeInterface
+            ? $this->retryUntil->getTimestamp()
+            : $this->retryUntil;
     }
 
     public function queueName(): string
     {
-        return $this->queueName;
+        return (string) $this->queueAttribute(Attributes\Queue::class, 'queueName', 'default');
     }
 
     public function connectionName(): ?string
     {
-        return $this->onConnection;
+        $connection = $this->queueAttribute(Attributes\Connection::class, 'onConnection');
+
+        return $connection === null ? null : (string) $connection;
     }
 }

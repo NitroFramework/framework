@@ -219,6 +219,16 @@ class QueueFeaturesTest extends TestCase
 
     // ─── ThrottlesExceptions ──────────────────────────────
 
+    /**
+     * A job arriving while the circuit is open waits out the window.
+     *
+     * Not the configured backoff: that governs the wait after an
+     * exception this job actually caused. A job turned away because
+     * something else broke the dependency should come back when the
+     * dependency is due to be tried again, and the few seconds on top
+     * keep one released at the boundary from arriving a tick early and
+     * being turned away a second time.
+     */
     public function test_the_circuit_opens_after_repeated_failures(): void
     {
         $throwing = static function (): void {
@@ -226,19 +236,73 @@ class QueueFeaturesTest extends TestCase
         };
 
         for ($i = 0; $i < 2; $i++) {
-            try {
-                $this->through([new ThrottlesExceptions(2, 10)], new FeatureJob(), $throwing);
-            } catch (\RuntimeException) {
-                // counted
-            }
+            $this->through([new ThrottlesExceptions(2, 10)], new FeatureJob(), $throwing);
         }
 
         $blocked = (new FeatureJob())->withFakeQueueInteractions();
 
-        $this->assertNull($this->through([(new ThrottlesExceptions(2, 10))->backoff(30)], $blocked, $throwing));
+        $this->assertNull($this->through([(new ThrottlesExceptions(2, 10))->backoff(1)], $blocked, $throwing));
 
-        $blocked->assertReleased(30);
+        $blocked->assertReleased(13);
         $this->assertFalse($blocked->ran);
+    }
+
+    /**
+     * A counted exception releases the job rather than escaping.
+     *
+     * The throttle exists to keep a failing dependency from spending
+     * every queued job's attempts; letting the exception through to
+     * the worker would do exactly that. backoff() is in minutes.
+     */
+    public function test_a_counted_exception_releases_the_job_for_the_backoff(): void
+    {
+        $throwing = static function (): void {
+            throw new \RuntimeException('dependency down');
+        };
+
+        $job = (new FeatureJob())->withFakeQueueInteractions();
+
+        $this->assertNull(
+            $this->through([(new ThrottlesExceptions(5, 10))->by('counted')->backoff(2)], $job, $throwing)
+        );
+
+        $job->assertReleased(120);
+    }
+
+    /** A named exception type can be failed outright instead. */
+    public function test_fail_when_fails_the_job_rather_than_retrying(): void
+    {
+        $throwing = static function (): void {
+            throw new \DomainException('will never succeed');
+        };
+
+        $job = (new FeatureJob())->withFakeQueueInteractions();
+
+        $this->through(
+            [(new ThrottlesExceptions(5, 10))->by('failing')->failWhen(\DomainException::class)],
+            $job,
+            $throwing,
+        );
+
+        $job->assertFailedWith(\DomainException::class);
+    }
+
+    /** As can one that is simply not worth keeping. */
+    public function test_delete_when_drops_the_job(): void
+    {
+        $throwing = static function (): void {
+            throw new \DomainException('nothing to do');
+        };
+
+        $job = (new FeatureJob())->withFakeQueueInteractions();
+
+        $this->through(
+            [(new ThrottlesExceptions(5, 10))->by('deleting')->deleteWhen(\DomainException::class)],
+            $job,
+            $throwing,
+        );
+
+        $job->assertDeleted();
     }
 
     public function test_an_unlisted_exception_does_not_count(): void

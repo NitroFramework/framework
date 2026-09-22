@@ -10,5 +10,6 @@ class QueueBusy
     public function __construct(
         public ?string $connectionName = null,
         public string $queue = 'default',
+        public int $size = 0,
     ) {}
 }

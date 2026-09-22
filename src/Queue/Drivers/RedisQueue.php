@@ -2,6 +2,7 @@
 
 namespace Nitro\Queue\Drivers;
 
+use Nitro\Queue\Concerns\QueuesJobs;
 use Nitro\Queue\Contracts\Queue;
 use Nitro\Queue\QueuedJob;
 
@@ -27,6 +28,8 @@ use Nitro\Queue\QueuedJob;
  */
 class RedisQueue implements Queue
 {
+    use QueuesJobs;
+
     /**
      * Move every member scored at or below ARGV[1] from the sorted set into the
      * ready list, in one atomic step.

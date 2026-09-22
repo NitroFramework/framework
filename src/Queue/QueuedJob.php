@@ -26,6 +26,10 @@ namespace Nitro\Queue;
  *                   timeout — a row reserved-but-not-deleted for too
  *                   long is presumed orphaned by a dead worker).
  *   - $createdAt    First-push timestamp. Stable across releases.
+ *
+ * Identity: $id belongs to the driver and changes when a job is retried
+ * onto a fresh row, so anything that has to follow one job across its
+ * attempts keys off the payload's uuid instead.
  */
 final class QueuedJob
 {
@@ -78,12 +82,39 @@ final class QueuedJob
     }
 
     /**
+     * The job's own identifier, stable across releases and retries.
+     *
+     * Written at push time, so a payload from an older release has
+     * none; callers that key off it treat null as "cannot track this
+     * one" rather than inventing a fresh value each read.
+     */
+    public function uuid(): ?string
+    {
+        $decoded = json_decode($this->payload, true);
+
+        return is_array($decoded) && isset($decoded['uuid']) && is_string($decoded['uuid'])
+            ? $decoded['uuid']
+            : null;
+    }
+
+    /** The job's class name, without deserializing its arguments. */
+    public function resolveName(): string
+    {
+        $decoded = json_decode($this->payload, true);
+
+        return is_array($decoded) && isset($decoded['class']) && is_string($decoded['class'])
+            ? $decoded['class']
+            : 'job';
+    }
+
+    /**
      * Build a payload string from a Job instance. Inverse of decode().
      * Used by drivers in push() to produce the stored row body.
      */
     public static function encode(Job $job): string
     {
         return json_encode([
+            'uuid'  => bin2hex(random_bytes(16)),
             'class' => $job::class,
             'data'  => serialize($job),
         ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);

@@ -27,7 +27,24 @@ final class PendingDispatch
     private int $delay = 0;
     private bool $committed = false;
 
-    public function __construct(private Job $job) {}
+    public function __construct(private Job $job)
+    {
+        $this->delay = $this->declaredDelay($job);
+    }
+
+    /**
+     * A delay the job asks for by attribute.
+     *
+     * Dispatch-time ->delay() still wins; this is for a job that is
+     * always deferred by the same amount, where repeating it at every
+     * call site is how one of them ends up forgetting.
+     */
+    private function declaredDelay(Job $job): int
+    {
+        $attributes = (new \ReflectionClass($job))->getAttributes(Attributes\Delay::class);
+
+        return $attributes === [] ? 0 : max(0, $attributes[0]->newInstance()->delay);
+    }
 
     /** Pick a non-default connection (driver) by name from config/queue.php. */
     public function onConnection(?string $name): self
@@ -62,29 +79,17 @@ final class PendingDispatch
         }
         $this->committed = true;
 
+        $manager = \app(QueueManager::class);
+
         // A unique job already queued or running is dropped rather than
         // queued a second time.
         if ($this->job instanceof ShouldBeUnique && ! $this->claimUniqueness($this->job)) {
+            $manager->reportSkipped($this->job);
+
             return null;
         }
 
-        $manager = \app(QueueManager::class);
-        $queue = $manager->connection($this->connection);
-        $queueName = $this->queue ?? $this->job->queueName();
-
-        $envelope = new QueuedJob(
-            id: null,
-            queue: $queueName,
-            payload: QueuedJob::encode($this->job),
-            attempts: 0,
-            availableAt: time() + $this->delay,
-            reservedAt: null,
-            createdAt: time(),
-        );
-
-        return $this->delay > 0
-            ? $queue->later($this->delay, $envelope, $queueName)
-            : $queue->push($envelope, $queueName);
+        return $manager->dispatch($this->job, $this->queue, $this->connection, $this->delay);
     }
 
     /**

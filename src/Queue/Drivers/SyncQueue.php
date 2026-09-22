@@ -3,6 +3,7 @@
 namespace Nitro\Queue\Drivers;
 
 use Nitro\Container\Contracts\ClassResolver;
+use Nitro\Queue\Concerns\QueuesJobs;
 use Nitro\Queue\Contracts\Queue;
 use Nitro\Queue\QueuedJob;
 
@@ -26,6 +27,8 @@ use Nitro\Queue\QueuedJob;
  */
 class SyncQueue implements Queue
 {
+    use QueuesJobs;
+
     public function __construct(private ClassResolver $resolver) {}
 
     public function push(QueuedJob $job, string $queue = 'default'): int|string

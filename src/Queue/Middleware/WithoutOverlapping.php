@@ -26,6 +26,9 @@ class WithoutOverlapping
 
     protected string $prefix = 'overlap';
 
+    /** Whether the lock key leaves the job's class out. */
+    protected bool $shareKey = false;
+
     public function __construct(
         public mixed $key = '',
     ) {}
@@ -63,8 +66,26 @@ class WithoutOverlapping
     }
 
     /** The cache key this middleware locks on. */
+    /**
+     * Let jobs of different classes contend for the same lock.
+     *
+     * The default keys by class, so two jobs that touch the same
+     * account do not exclude each other; this is for the case where
+     * the key names the resource and the class is beside the point.
+     */
+    public function shared(): static
+    {
+        $this->shareKey = true;
+
+        return $this;
+    }
+
     public function getLockKey(mixed $job): string
     {
+        if ($this->shareKey) {
+            return $this->prefix . ':' . $this->stringKey();
+        }
+
         return $this->prefix . ':' . (is_object($job) ? $job::class : 'job') . ':' . $this->stringKey();
     }
 

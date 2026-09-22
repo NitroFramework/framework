@@ -91,32 +91,47 @@ class QueueCommands implements CommandInterface
             ));
         };
 
-        $worker->run($options);
-
-        return ExitCode::SUCCESS;
+        return $worker->run($options);
     }
 
     private function parseWorkOptions(array $args): array
     {
         $options = [
-            'connection' => null,
-            'queue'      => 'default',
-            'sleep'      => 1,
-            'tries'      => null,
-            'maxJobs'    => 0,
-            'maxTime'    => 0,
-            'maxMemory'  => 128,
-            'once'       => false,
+            'connection'       => null,
+            'queue'            => 'default',
+            'sleep'            => 1,
+            'tries'            => null,
+            'backoff'          => 0,
+            'timeout'          => 60,
+            'rest'             => 0,
+            'maxJobs'          => 0,
+            'maxTime'          => 0,
+            'maxMemory'        => 128,
+            'force'            => false,
+            'stopWhenEmpty'    => false,
+            'stopWhenEmptyFor' => 0,
+            'once'             => false,
         ];
         foreach ($args as $arg) {
-            if ($arg === '--once') { $options['once'] = true; continue; }
+            if ($arg === '--once')            { $options['once'] = true; continue; }
+            if ($arg === '--force')           { $options['force'] = true; continue; }
+            if ($arg === '--stop-when-empty') { $options['stopWhenEmpty'] = true; continue; }
             if (str_starts_with($arg, '--connection=')) { $options['connection'] = substr($arg, 13); continue; }
             if (str_starts_with($arg, '--queue='))      { $options['queue']      = substr($arg, 8);  continue; }
-            if (str_starts_with($arg, '--sleep='))      { $options['sleep']      = (int) substr($arg, 8); continue; }
+            if (str_starts_with($arg, '--sleep='))      { $options['sleep']      = (float) substr($arg, 8); continue; }
             if (str_starts_with($arg, '--tries='))      { $options['tries']      = (int) substr($arg, 8); continue; }
+            // Kept as the string it was given: a comma-separated list is a
+            // per-attempt schedule, which the worker indexes by attempt.
+            if (str_starts_with($arg, '--backoff='))    { $options['backoff']    = substr($arg, 10); continue; }
+            if (str_starts_with($arg, '--timeout='))    { $options['timeout']    = (int) substr($arg, 10); continue; }
+            if (str_starts_with($arg, '--rest='))       { $options['rest']       = (float) substr($arg, 7); continue; }
             if (str_starts_with($arg, '--max-jobs='))   { $options['maxJobs']    = (int) substr($arg, 11); continue; }
             if (str_starts_with($arg, '--max-time='))   { $options['maxTime']    = (int) substr($arg, 11); continue; }
             if (str_starts_with($arg, '--max-memory=')) { $options['maxMemory']  = (int) substr($arg, 13); continue; }
+            if (str_starts_with($arg, '--stop-when-empty-for=')) {
+                $options['stopWhenEmptyFor'] = (int) substr($arg, 22);
+                continue;
+            }
         }
         return $options;
     }

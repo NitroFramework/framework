@@ -2,6 +2,7 @@
 
 namespace Nitro\Queue\Drivers;
 
+use Nitro\Queue\Concerns\QueuesJobs;
 use Nitro\Queue\Contracts\Queue;
 use Nitro\Queue\QueuedJob;
 
@@ -22,6 +23,8 @@ use Nitro\Queue\QueuedJob;
  */
 class ArrayQueue implements Queue
 {
+    use QueuesJobs;
+
     /** @var array<string, list<QueuedJob>> Queue name → ordered job list. */
     private array $queues = [];
 

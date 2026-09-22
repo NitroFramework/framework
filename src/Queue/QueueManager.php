@@ -3,6 +3,7 @@
 namespace Nitro\Queue;
 
 use Closure;
+use Nitro\Events\Contracts\Dispatcher as EventDispatcher;
 use Nitro\Foundation\Contracts\ConfigRepository;
 use Nitro\Http\Kernel;
 use Nitro\Queue\Batching\BatchCallbacks;
@@ -56,6 +57,7 @@ class QueueManager
         private Closure $batches,
         private Closure $batchCallbacks,
         private ?Kernel $kernel = null,
+        private ?EventDispatcher $events = null,
     ) {}
 
     public function connection(?string $name = null): Queue
@@ -63,7 +65,7 @@ class QueueManager
         $name ??= $this->config->get('queue.default');
 
         if (!isset($this->connections[$name])) {
-            $this->connections[$name] = $this->resolve($name);
+            $this->connections[$name] = $this->resolve($name)->setConnectionName($name);
         }
         return $this->connections[$name];
     }
@@ -108,7 +110,7 @@ class QueueManager
      */
     public function extend(string $name, Queue $queue): void
     {
-        $this->connections[$name] = $queue;
+        $this->connections[$name] = $queue->setConnectionName($name);
     }
 
     /**
@@ -120,19 +122,62 @@ class QueueManager
      */
     public function push(Job $job, ?string $queue = null, ?string $connection = null): int|string
     {
+        return $this->dispatch($job, $queue, $connection, 0);
+    }
+
+    /**
+     * Push a job that only becomes runnable after a delay.
+     *
+     * @param  int         $delay      Seconds from now.
+     * @param  string|null $queue      Queue name, or the job's own.
+     * @param  string|null $connection Connection name, or the default.
+     * @return int|string Identifier the driver gave the queued job.
+     */
+    public function later(int $delay, Job $job, ?string $queue = null, ?string $connection = null): int|string
+    {
+        return $this->dispatch($job, $queue, $connection, max(0, $delay));
+    }
+
+    /**
+     * Wrap a job in an envelope and hand it to a connection.
+     *
+     * Every dispatch path runs through here, so the queueing events fire
+     * once wherever a job entered from — a listener does not have to
+     * know whether the call site used the manager or a PendingDispatch.
+     */
+    public function dispatch(Job $job, ?string $queue, ?string $connection, int $delay): int|string
+    {
         $queueName = $queue ?? $job->queueName();
+        $now = time();
 
         $envelope = new QueuedJob(
             id: null,
             queue: $queueName,
             payload: QueuedJob::encode($job),
             attempts: 0,
-            availableAt: time(),
+            availableAt: $now + $delay,
             reservedAt: null,
-            createdAt: time(),
+            createdAt: $now,
         );
 
-        return $this->connection($connection)->push($envelope, $queueName);
+        $driver = $this->connection($connection);
+        $name = $driver->getConnectionName();
+
+        $this->events?->dispatch(new Events\JobQueueing($envelope, $name, $job, $delay));
+
+        $id = $delay > 0
+            ? $driver->later($delay, $envelope, $queueName)
+            : $driver->push($envelope, $queueName);
+
+        $this->events?->dispatch(new Events\JobQueued($envelope, $name, $job, $delay));
+
+        return $id;
+    }
+
+    /** Report that a unique job was dropped rather than queued. */
+    public function reportSkipped(Job $job): void
+    {
+        $this->events?->dispatch(new Events\UniqueJobSkipped($job));
     }
 
     /**
