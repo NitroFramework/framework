@@ -3,7 +3,7 @@
 namespace Tests\Container;
 
 use Nitro\Container\Container;
-use Nitro\Container\ContextualBindingBuilder;
+use Illuminate\Contracts\Container\ContextualBindingBuilder;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -47,12 +47,59 @@ class ContainerApiTest extends TestCase
     public function test_alias_accessors(): void
     {
         $this->container->singleton('real', fn () => new \stdClass());
-        $this->container->alias('nickname', 'real');
+        $this->container->alias('real', 'nickname');
 
         $this->assertTrue($this->container->isAlias('nickname'));
         $this->assertFalse($this->container->isAlias('real'));
         $this->assertSame('real', $this->container->getAlias('nickname'));
         $this->assertSame('real', $this->container->getAlias('real'));
+    }
+
+    /**
+     * The bound name comes first and the alias second.
+     *
+     * Both arguments are strings, so calling this the other way round is not a
+     * type error — it registers a working alias pointing the wrong way, and is
+     * found later as a service resolving to the wrong object. The order is
+     * asserted here so a change to it fails loudly.
+     */
+    public function test_alias_names_the_bound_service_first(): void
+    {
+        $widget = new \stdClass();
+
+        $this->container->instance(Greeter::class, $widget);
+        $this->container->alias(Greeter::class, 'greeter');
+
+        $this->assertSame($widget, $this->container->resolve('greeter'));
+        $this->assertSame(Greeter::class, $this->container->getAlias('greeter'));
+        $this->assertFalse($this->container->isAlias(Greeter::class));
+    }
+
+    /**
+     * make() is resolve() under the name the wider ecosystem uses.
+     *
+     * Kept working so code and tooling written against Laravel's vocabulary
+     * resolves correctly here rather than reaching the container's own rules
+     * by a path that skips them.
+     */
+    public function test_make_is_resolve(): void
+    {
+        $this->container->singleton('svc', fn () => new \stdClass());
+
+        $this->assertSame($this->container->resolve('svc'), $this->container->make('svc'));
+        $this->assertSame($this->container->resolve('svc'), $this->container->makeWith('svc', []));
+
+        // make() must go through resolve(), or the deferred-provider hook, the
+        // cycle guard and the resolution observer are all bypassed.
+        $seen = [];
+        $this->container->observeResolutions(function (string $name) use (&$seen): void {
+            $seen[] = $name;
+        });
+
+        $this->container->make('svc');
+        $this->container->observeResolutions(null);
+
+        $this->assertContains('svc', $seen);
     }
 
     public function test_get_bindings(): void
@@ -264,13 +311,13 @@ class ContainerApiTest extends TestCase
     {
         $this->container->bind('one', fn () => 'first', false);
         $this->container->bind('two', fn () => 'second', false);
-        $this->container->tag('things', 'one', 'two');
+        $this->container->tag(['one', 'two'], 'things');
 
         $this->container->when(EnglishConsumer::class)->needs('$items')->giveTagged('things');
 
         $this->assertSame(
             ['first', 'second'],
-            $this->container->tagged('things')
+            iterator_to_array($this->container->tagged('things'))
         );
     }
 
@@ -281,7 +328,8 @@ class ContainerApiTest extends TestCase
         $seen = [];
 
         $this->container->singleton('svc', fn () => 'first');
-        $this->container->rebinding('svc', function ($instance) use (&$seen) {
+        // The callback is handed the container first, then the new instance.
+        $this->container->rebinding('svc', function ($container, $instance) use (&$seen) {
             $seen[] = $instance;
         });
 
@@ -320,16 +368,18 @@ class ContainerApiTest extends TestCase
         $this->container->singleton('svc', fn () => new \stdClass());
         $this->container->get('svc');
 
+        $first = $this->container->get('svc');
+
         $this->container->forgetInstances();
 
         $this->assertTrue($this->container->bound('svc'));
-        $this->assertFalse($this->container->resolved('svc'));
+        $this->assertNotSame($first, $this->container->get('svc'));
     }
 
     public function test_flush_clears_everything(): void
     {
         $this->container->singleton('svc', fn () => new \stdClass());
-        $this->container->alias('nick', 'svc');
+        $this->container->alias('svc', 'nick');
         $this->container->get('svc');
 
         $this->container->flush();

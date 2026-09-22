@@ -2,16 +2,16 @@
 
 namespace Nitro\Container\Exceptions;
 
+use Psr\Container\NotFoundExceptionInterface;
 use RuntimeException;
 
 /**
  * Thrown when a requested service is not registered and cannot be resolved.
  *
- * Extends RuntimeException so existing `catch (RuntimeException)` blocks keep
- * working, while giving callers a dedicated type to catch "service not found"
- * specifically. Mirrors PSR-11's NotFoundExceptionInterface semantics without
- * taking on the psr/container dependency.
+ * A RuntimeException so that a caller guarding a lookup with `catch
+ * (RuntimeException)` still catches it, and a PSR-11 NotFoundExceptionInterface
+ * so that one written against the standard does too.
  */
-class NotFoundException extends RuntimeException
+class NotFoundException extends RuntimeException implements NotFoundExceptionInterface
 {
 }
