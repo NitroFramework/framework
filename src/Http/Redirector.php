@@ -27,10 +27,37 @@ class Redirector
         return $this->to(app('router')->route($name, $parameters), $status);
     }
 
-    /** Redirect to the previous page (Referer), or $fallback when absent. */
+    /**
+     * Redirect to the previous page.
+     *
+     * Referer first, then the URL the session recorded, then the fallback.
+     * The session entry matters because a browser omits Referer on a
+     * cross-origin navigation and may be configured not to send it at all —
+     * without it, a validation failure that should return the user to the form
+     * they were filling in drops them at the fallback instead.
+     */
     public function back(string $fallback = '/', int $status = 302): RedirectResponse
     {
-        return $this->to(app('request')->header('referer') ?? $fallback, $status);
+        $referer = app('request')->header('referer');
+
+        return $this->to($referer ?: ($this->previousUrlFromSession() ?: $fallback), $status);
+    }
+
+    /**
+     * The URL StartSession recorded, or null.
+     *
+     * Guarded because a stateless route has no session at all, and asking for
+     * one there would turn a redirect into an error.
+     */
+    private function previousUrlFromSession(): ?string
+    {
+        try {
+            $session = app('session');
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return method_exists($session, 'previousUrl') ? $session->previousUrl() : null;
     }
 
     /**

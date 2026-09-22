@@ -20,6 +20,9 @@ class AuthenticateSession
     /** Session key holding the hash the session was established with. */
     protected const PASSWORD_HASH = 'password_hash';
 
+    /** @var (callable(Request): ?string)|null */
+    protected static $redirectToCallback = null;
+
     public function __construct(
         protected Guard $auth,
     ) {}
@@ -83,10 +86,54 @@ class AuthenticateSession
      */
     protected function logout(Request $request): void
     {
-        $this->auth->logout();
+        $this->guard()->logout();
 
         $request->session()->flush();
 
-        throw new AuthenticationException('Unauthenticated.');
+        /*
+         * Carries the redirect, so the same handler that turns an ordinary
+         * auth failure into a login page turns this one into it too. Without
+         * it a user whose password changed elsewhere gets a bare 401 in a
+         * browser rather than being asked to sign in again.
+         */
+        throw new AuthenticationException(
+            'Unauthenticated.',
+            [],
+            $request->expectsJson() ? null : $this->redirectTo($request),
+        );
+    }
+
+    /**
+     * The guard this middleware checks.
+     *
+     * An override point rather than a direct property read, so a subclass can
+     * name a different one without reimplementing the hash comparison.
+     */
+    protected function guard(): Guard
+    {
+        return $this->auth;
+    }
+
+    /** Where a browser should be sent once the session is invalidated. */
+    protected function redirectTo(Request $request): ?string
+    {
+        if (static::$redirectToCallback !== null) {
+            return (static::$redirectToCallback)($request);
+        }
+
+        return null;
+    }
+
+    /**
+     * Decide that redirect from the request.
+     *
+     * Separate from {@see \Nitro\Auth\Middleware\Authenticate::redirectUsing()}
+     * because the two failures differ: this one means a session that was valid
+     * has been invalidated elsewhere, which an application may want to say
+     * something about.
+     */
+    public static function redirectUsing(?callable $redirectToCallback): void
+    {
+        static::$redirectToCallback = $redirectToCallback;
     }
 }

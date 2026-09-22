@@ -77,6 +77,14 @@ class SessionTableCommand implements CommandInterface
             {
                 $schema->create('sessions', function ($table) {
                     $table->string('id')->primary();
+
+                    // Who and where, so an application can show a user their
+                    // active sessions and end one. Nullable because a session
+                    // exists before anybody signs in.
+                    $table->integer('user_id')->nullable()->index();
+                    $table->string('ip_address', 45)->nullable();
+                    $table->text('user_agent')->nullable();
+
                     $table->text('payload');
                     $table->integer('last_activity')->index();
                 });

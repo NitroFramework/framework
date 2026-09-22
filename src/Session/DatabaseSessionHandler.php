@@ -2,6 +2,7 @@
 
 namespace Nitro\Session;
 
+use Closure;
 use Nitro\Database\DB;
 use SessionHandlerInterface;
 use Throwable;
@@ -14,8 +15,17 @@ use Throwable;
  * same state. The payload is base64-encoded on the way in because a serialized
  * session is binary and the column is text.
  *
+ * Each row also records who the session belongs to and where it came from,
+ * which is what lets an application show a signed-in user their active
+ * sessions — this browser, that phone, an address they do not recognise — and
+ * end one. Without those columns a session is an opaque blob and the only
+ * available answer to "where am I signed in?" is "somewhere".
+ *
  * Expected schema:
  *   id            string, primary key
+ *   user_id       integer, nullable, indexed
+ *   ip_address    string(45), nullable
+ *   user_agent    text, nullable
  *   payload       text
  *   last_activity integer, indexed
  */
@@ -24,10 +34,67 @@ class DatabaseSessionHandler implements SessionHandlerInterface, ExistenceAwareI
     /** Whether the session is known to be persisted already; null when unknown. */
     private ?bool $exists = null;
 
+    /**
+     * @param Closure(): (int|string|null) $userId  Who is signed in, or null.
+     * @param Closure(): array{ip_address?: ?string, user_agent?: ?string} $requestContext
+     *   Where the request came from.
+     *
+     * Closures rather than a container, for the same reason the manager takes
+     * them: the session layer must not require the auth or http layers to be
+     * registered when neither is in use. Absent, the two sets of columns are
+     * simply not written.
+     */
     public function __construct(
         private string $table = 'sessions',
         private int $minutes = 120,
+        private ?Closure $userId = null,
+        private ?Closure $requestContext = null,
     ) {}
+
+    /**
+     * The columns every write sets.
+     *
+     * Built in one place so an insert and an update store the same thing —
+     * otherwise a session updated in place keeps the address it was first
+     * seen from, and the record stops meaning what it appears to mean.
+     *
+     * @return array<string, mixed>
+     */
+    protected function defaultPayload(string $data): array
+    {
+        $payload = [
+            'payload'       => base64_encode($data),
+            'last_activity' => time(),
+        ];
+
+        $this->addUserInformation($payload);
+        $this->addRequestInformation($payload);
+
+        return $payload;
+    }
+
+    /** @param array<string, mixed> $payload */
+    protected function addUserInformation(array &$payload): void
+    {
+        if ($this->userId === null) {
+            return;
+        }
+
+        $payload['user_id'] = ($this->userId)();
+    }
+
+    /** @param array<string, mixed> $payload */
+    protected function addRequestInformation(array &$payload): void
+    {
+        if ($this->requestContext === null) {
+            return;
+        }
+
+        $context = ($this->requestContext)();
+
+        $payload['ip_address'] = $context['ip_address'] ?? null;
+        $payload['user_agent'] = $context['user_agent'] ?? null;
+    }
 
     public function open(string $path, string $name): bool
     {
@@ -79,10 +146,7 @@ class DatabaseSessionHandler implements SessionHandlerInterface, ExistenceAwareI
 
     public function write(string $id, string $data): bool
     {
-        $values = [
-            'payload'       => base64_encode($data),
-            'last_activity' => time(),
-        ];
+        $values = $this->defaultPayload($data);
 
         if ($this->exists !== false && DB::table($this->table)->where('id', $id)->update($values) > 0) {
             return true;

@@ -34,7 +34,33 @@ class SessionManager
         private ?Closure $cookie = null,
         private ?Closure $cache = null,
         private ?Closure $encrypter = null,
+        private ?Closure $userId = null,
+        private ?Closure $requestContext = null,
     ) {}
+
+    /**
+     * Drivers an application registered, by name.
+     *
+     * @var array<string, Closure(array<string, mixed>): SessionHandlerInterface>
+     */
+    private array $custom = [];
+
+    /**
+     * Register a driver of your own.
+     *
+     * The match below names the backends this framework ships. An application
+     * storing sessions somewhere else — a document store, a service — had no
+     * way to say so, and adding one meant editing the framework. A registered
+     * name wins over a built-in one, so a driver can also be replaced.
+     *
+     * @param Closure(array<string, mixed>): SessionHandlerInterface $callback
+     */
+    public function extend(string $driver, Closure $callback): static
+    {
+        $this->custom[$driver] = $callback;
+
+        return $this;
+    }
 
     /**
      * Build a Store for a driver (defaults to the configured one).
@@ -74,6 +100,11 @@ class SessionManager
     {
         $lifetime = (int) ($this->config['lifetime'] ?? 120);
 
+        // Checked first, so a registered driver can replace a built-in one.
+        if (isset($this->custom[$name])) {
+            return ($this->custom[$name])($this->config);
+        }
+
         return match ($name) {
             'null'  => new NullSessionHandler(),
             'array' => new ArraySessionHandler($lifetime),
@@ -98,6 +129,8 @@ class SessionManager
             'database' => new DatabaseSessionHandler(
                 (string) ($this->config['table'] ?? 'sessions'),
                 $lifetime,
+                $this->userId,
+                $this->requestContext,
             ),
             default => throw new InvalidArgumentException("Unsupported session driver [{$name}]."),
         };

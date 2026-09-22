@@ -62,6 +62,26 @@ class SessionServiceProvider extends ServiceProvider
                 $container->has('cookie') ? $cookie : null,
                 $container->has('cache') ? $cache : null,
                 $container->has('encrypter') ? $encrypter : null,
+
+                /*
+                 * Who the session belongs to and where it came from, for the
+                 * database driver's own columns. Resolved per write rather
+                 * than captured, because a session is written after a login
+                 * that happened during the same request — captured at build
+                 * time it would record the visitor who arrived, not the user
+                 * who signed in. Null when the layer is absent, which is what
+                 * keeps a session usable in a console command.
+                 */
+                static fn (): int|string|null => $container->has('auth')
+                    ? $container->resolve('auth')->user()?->getAuthIdentifier()
+                    : null,
+
+                static fn (): array => $container->has('request')
+                    ? [
+                        'ip_address' => $container->resolve('request')->ip(),
+                        'user_agent' => $container->resolve('request')->userAgent(),
+                    ]
+                    : [],
             );
         });
 

@@ -60,6 +60,41 @@ class StartSession
 
         $session->start();
 
+        $this->storeCurrentUrl($request, $session);
+
         return $next($request);
+    }
+
+    /**
+     * Remember where the user is, so a later redirect can send them back.
+     *
+     * Without this, back() has only the Referer header to work from — which a
+     * browser may omit, and which is stripped on a cross-origin navigation, so
+     * a validation failure that should return the user to the form they were
+     * filling in sends them to the fallback instead.
+     *
+     * Only a plain GET is worth remembering. A POST is the action itself, an
+     * AJAX call is not where the user is, and a prefetch is a page they have
+     * not visited — recording any of those would send them somewhere they were
+     * never looking at.
+     */
+    private function storeCurrentUrl(Request $request, Session $session): void
+    {
+        if (! $request->isMethod('GET')
+            || $request->route() === null
+            || $request->ajax()
+            || $request->prefetch()) {
+            return;
+        }
+
+        $session->setPreviousUrl($request->fullUrl());
+
+        if (method_exists($session, 'setPreviousRoute')) {
+            $route = $request->route();
+
+            $session->setPreviousRoute(
+                (is_object($route) && method_exists($route, 'getName')) ? (string) $route->getName() : ''
+            );
+        }
     }
 }
