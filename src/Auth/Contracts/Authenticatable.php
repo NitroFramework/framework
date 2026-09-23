@@ -29,4 +29,20 @@ interface Authenticatable
      * The hashed password used for credential verification.
      */
     public function getAuthPassword(): string;
+
+    /** The column the password is stored in. */
+    public function getAuthPasswordName(): string;
+
+    /**
+     * The token a remember-me cookie is checked against.
+     *
+     * Separate from the password so signing out everywhere can revoke
+     * every cookie without changing the credential.
+     */
+    public function getRememberToken(): ?string;
+
+    public function setRememberToken(?string $token): void;
+
+    /** The column that token is stored in. */
+    public function getRememberTokenName(): string;
 }

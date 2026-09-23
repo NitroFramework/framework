@@ -52,6 +52,18 @@ class StubUserProvider implements UserProvider
     {
         return true;
     }
+
+    public function retrieveByToken(mixed $identifier, string $token): ?Authenticatable
+    {
+        $user = $this->retrieveById($identifier);
+
+        return $user !== null && $user->getRememberToken() === $token ? $user : null;
+    }
+
+    public function updateRememberToken(Authenticatable $user, ?string $token): void
+    {
+        $user->setRememberToken($token);
+    }
 }
 
 class PasswordBrokerTest extends TestCase
@@ -60,6 +72,8 @@ class PasswordBrokerTest extends TestCase
     private function fakeUser(): Authenticatable
     {
         return new class implements Authenticatable {
+            use \Nitro\Auth\Concerns\RemembersUser;
+
             public function getAuthIdentifierName(): string { return 'id'; }
             public function getAuthIdentifier(): mixed { return 1; }
             public function getAuthPassword(): string { return ''; }

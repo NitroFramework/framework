@@ -36,6 +36,8 @@ class AuthMiddlewareTest extends TestCase
     private function user(bool $verified = true): Authenticatable
     {
         return new class($verified) implements Authenticatable, MustVerifyEmail {
+            use \Nitro\Auth\Concerns\RemembersUser;
+
             public function __construct(private bool $verified) {}
             public function getAuthIdentifierName(): string { return 'id'; }
             public function getAuthIdentifier(): mixed { return 1; }
@@ -53,6 +55,8 @@ class AuthMiddlewareTest extends TestCase
             public function retrieveById(mixed $id): ?Authenticatable { return $this->user; }
             public function retrieveByCredentials(array $c): ?Authenticatable { return $this->user; }
             public function validateCredentials(Authenticatable $u, array $c): bool { return true; }
+            public function retrieveByToken(mixed $id, string $token): ?Authenticatable { return $this->user; }
+            public function updateRememberToken(Authenticatable $u, ?string $token): void { $u->setRememberToken($token); }
         };
     }
 

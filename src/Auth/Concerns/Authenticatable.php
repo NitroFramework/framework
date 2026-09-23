@@ -45,4 +45,33 @@ trait Authenticatable
     {
         return 'password';
     }
+
+    /** The token a remember-me cookie is checked against. */
+    public function getRememberToken(): ?string
+    {
+        $name = $this->getRememberTokenName();
+
+        if ($name === '') {
+            return null;
+        }
+
+        $token = $this->getAttribute($name);
+
+        return $token === null ? null : (string) $token;
+    }
+
+    public function setRememberToken(?string $token): void
+    {
+        $name = $this->getRememberTokenName();
+
+        if ($name !== '') {
+            $this->setAttribute($name, $token);
+        }
+    }
+
+    /** Return an empty string to keep no token, which disables remember-me. */
+    public function getRememberTokenName(): string
+    {
+        return 'remember_token';
+    }
 }

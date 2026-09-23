@@ -43,6 +43,8 @@ class AuthSessionPersistenceTest extends TestCase
     private function user(int $id, string $plain = 'secret'): Authenticatable
     {
         return new class($id, password_hash($plain, PASSWORD_DEFAULT)) implements Authenticatable {
+            use \Nitro\Auth\Concerns\RemembersUser;
+
             public function __construct(private int|string $id, private string $hash) {}
             public function getAuthIdentifierName(): string { return 'id'; }
             public function getAuthIdentifier(): mixed { return $this->id; }
@@ -65,6 +67,18 @@ class AuthSessionPersistenceTest extends TestCase
             public function validateCredentials(Authenticatable $u, array $c): bool
             {
                 return password_verify((string) ($c['password'] ?? ''), $u->getAuthPassword());
+            }
+
+            public function retrieveByToken(mixed $identifier, string $token): ?Authenticatable
+            {
+                $user = $this->retrieveById($identifier);
+        
+                return $user !== null && $user->getRememberToken() === $token ? $user : null;
+            }
+        
+            public function updateRememberToken(Authenticatable $user, ?string $token): void
+            {
+                $user->setRememberToken($token);
             }
         };
     }

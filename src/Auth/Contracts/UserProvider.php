@@ -29,4 +29,16 @@ interface UserProvider
      * Validate a user's password against the given credentials.
      */
     public function validateCredentials(Authenticatable $user, array $credentials): bool;
+
+    /**
+     * Find a user by identifier and remember-me token.
+     *
+     * Both have to match: the identifier alone is guessable, and the
+     * token alone would let a cookie for one account be replayed
+     * against another.
+     */
+    public function retrieveByToken(mixed $identifier, string $token): ?Authenticatable;
+
+    /** Record a newly issued remember-me token. */
+    public function updateRememberToken(Authenticatable $user, ?string $token): void;
 }

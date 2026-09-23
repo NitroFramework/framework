@@ -24,6 +24,8 @@ class EloquentUserProviderTest extends TestCase
     private function user(string $hash): Authenticatable
     {
         return new class($hash) implements Authenticatable {
+            use \Nitro\Auth\Concerns\RemembersUser;
+
             public function __construct(private string $hash) {}
             public function getAuthIdentifierName(): string { return 'id'; }
             public function getAuthIdentifier(): mixed { return 1; }
@@ -62,6 +64,8 @@ class EloquentUserProviderTest extends TestCase
     public function test_rehash_when_forced_rewrites_the_password(): void
     {
         $user = new class(password_hash('secret', PASSWORD_DEFAULT)) implements Authenticatable {
+            use \Nitro\Auth\Concerns\RemembersUser;
+
             public array $updated = [];
             public function __construct(private string $hash) {}
             public function getAuthIdentifierName(): string { return 'id'; }

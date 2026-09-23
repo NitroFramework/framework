@@ -2,7 +2,7 @@
 
 namespace Nitro\Auth\Middleware;
 
-use Nitro\Auth\Contracts\Guard;
+use Nitro\Auth\Contracts\StatefulGuard as Guard;
 use Nitro\Auth\Exceptions\AuthenticationException;
 use Nitro\Foundation\Contracts\ConfigRepository;
 use Nitro\Http\Request;

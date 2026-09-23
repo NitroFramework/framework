@@ -87,6 +87,47 @@ class EloquentUserProvider implements UserProvider
      * changed, so credentials transparently upgrade on the next successful
      * login. No-op unless the model exposes update().
      */
+    /**
+     * Find a user by identifier and remember-me token.
+     *
+     * Compared in constant time, because a token matched character by
+     * character leaks how much of a guess was right.
+     */
+    public function retrieveByToken(mixed $identifier, string $token): ?Authenticatable
+    {
+        $user = $this->retrieveById($identifier);
+
+        if ($user === null || $token === '') {
+            return null;
+        }
+
+        $stored = $user->getRememberToken();
+
+        return $stored !== null && $stored !== '' && hash_equals($stored, $token) ? $user : null;
+    }
+
+    public function updateRememberToken(Authenticatable $user, ?string $token): void
+    {
+        $user->setRememberToken($token);
+
+        if (! method_exists($user, 'save')) {
+            return;
+        }
+
+        // Saved without touching updated_at: reissuing a cookie is not a
+        // change to the record, and a nightly sweep of stale accounts
+        // should not see every remembered login as activity.
+        $timestamps = method_exists($user, 'usesTimestamps') ? $user->usesTimestamps() : false;
+
+        if ($timestamps && method_exists($user, 'withoutTimestamps')) {
+            $user->withoutTimestamps(static fn () => $user->save());
+
+            return;
+        }
+
+        $user->save();
+    }
+
     public function rehashPasswordIfRequired(Authenticatable $user, array $credentials, bool $force = false): void
     {
         $hash = $user->getAuthPassword();

@@ -14,6 +14,8 @@ use PHPUnit\Framework\TestCase;
  */
 class FakeUser implements Authenticatable
 {
+    use \Nitro\Auth\Concerns\RemembersUser;
+
     public function __construct(
         private int|string $id,
         private string $hash = '',
@@ -47,6 +49,18 @@ class FakeProvider implements UserProvider
     public function validateCredentials(Authenticatable $user, array $credentials): bool
     {
         return password_verify((string) ($credentials['password'] ?? ''), $user->getAuthPassword());
+    }
+
+    public function retrieveByToken(mixed $identifier, string $token): ?Authenticatable
+    {
+        $user = $this->retrieveById($identifier);
+
+        return $user !== null && $user->getRememberToken() === $token ? $user : null;
+    }
+
+    public function updateRememberToken(Authenticatable $user, ?string $token): void
+    {
+        $user->setRememberToken($token);
     }
 }
 
