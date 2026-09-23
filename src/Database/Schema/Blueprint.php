@@ -3,9 +3,18 @@
 namespace Nitro\Database\Schema;
 
 use Nitro\Database\Query\RawExpression;
+use Nitro\Database\Schema\Grammar\Grammar;
+use Nitro\Database\Schema\Grammar\MySqlGrammar;
+use Nitro\Database\Schema\Grammar\PostgresGrammar;
+use Nitro\Database\Schema\Grammar\SqliteGrammar;
 
 /**
  * Table definition DSL — describes columns, indexes and keys for schema create/alter.
+ *
+ * A Blueprint records what the table should look like without committing to an
+ * engine's spelling of it: string(255) rather than VARCHAR(255). The
+ * {@see Grammar} for the connection's driver states it in SQL, which is what
+ * lets one migration run against MySQL, SQLite and Postgres alike.
  */
 class Blueprint
 {
@@ -24,13 +33,31 @@ class Blueprint
      */
     private ?string $lastForeignIdColumn = null;
 
-    /** The connection driver ('mysql' | 'sqlite') the DDL is compiled for. */
+    /** The connection driver the DDL is compiled for. */
     protected string $driver;
+
+    protected Grammar $grammar;
 
     public function __construct(string $table, string $driver = 'mysql')
     {
         $this->table = $table;
         $this->driver = $driver;
+        $this->grammar = static::grammarFor($driver);
+    }
+
+    /** The grammar that speaks a driver's DDL. */
+    protected static function grammarFor(string $driver): Grammar
+    {
+        return match ($driver) {
+            'sqlite' => new SqliteGrammar(),
+            'pgsql', 'postgres', 'postgresql' => new PostgresGrammar(),
+            default => new MySqlGrammar(),
+        };
+    }
+
+    public function getGrammar(): Grammar
+    {
+        return $this->grammar;
     }
 
     protected function isSqlite(): bool
@@ -42,113 +69,160 @@ class Blueprint
 
     public function id(string $column = 'id'): static
     {
-        // SQLite's auto-increment PK is `INTEGER PRIMARY KEY AUTOINCREMENT`
-        // (an alias for rowid); MySQL uses BIGINT UNSIGNED AUTO_INCREMENT.
-        $type = $this->isSqlite()
-            ? 'INTEGER PRIMARY KEY AUTOINCREMENT'
-            : 'BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY';
-
-        return $this->addColumn($column, $type);
+        return $this->addColumn($column, 'id');
     }
 
     public function string(string $column, int $length = 255): static
     {
-        return $this->addColumn($column, "VARCHAR({$length})");
-    }
-
-    public function text(string $column): static
-    {
-        return $this->addColumn($column, 'TEXT');
-    }
-
-    public function longText(string $column): static
-    {
-        return $this->addColumn($column, 'LONGTEXT');
-    }
-
-    public function integer(string $column): static
-    {
-        return $this->addColumn($column, 'INT');
-    }
-
-    public function mediumText(string $column): static
-    {
-        return $this->addColumn($column, 'MEDIUMTEXT');
-    }
-
-    public function mediumInteger(string $column): static
-    {
-        return $this->addColumn($column, 'MEDIUMINT');
+        return $this->addColumn($column, 'string', ['length' => $length]);
     }
 
     public function char(string $column, int $length = 255): static
     {
-        return $this->addColumn($column, "CHAR({$length})");
+        return $this->addColumn($column, 'char', ['length' => $length]);
     }
 
-    public function binary(string $column): static
+    public function text(string $column): static
     {
-        return $this->addColumn($column, 'BLOB');
+        return $this->addColumn($column, 'text');
     }
 
-    public function year(string $column): static
+    public function tinyText(string $column): static
     {
-        return $this->addColumn($column, 'YEAR');
+        return $this->addColumn($column, 'tinyText');
     }
 
-    public function time(string $column): static
+    public function mediumText(string $column): static
     {
-        return $this->addColumn($column, 'TIME');
+        return $this->addColumn($column, 'mediumText');
+    }
+
+    public function longText(string $column): static
+    {
+        return $this->addColumn($column, 'longText');
+    }
+
+    public function integer(string $column): static
+    {
+        return $this->addColumn($column, 'integer');
     }
 
     public function tinyInteger(string $column): static
     {
-        return $this->addColumn($column, 'TINYINT');
+        return $this->addColumn($column, 'tinyInteger');
     }
 
     public function smallInteger(string $column): static
     {
-        return $this->addColumn($column, 'SMALLINT');
+        return $this->addColumn($column, 'smallInteger');
+    }
+
+    public function mediumInteger(string $column): static
+    {
+        return $this->addColumn($column, 'mediumInteger');
     }
 
     public function bigInteger(string $column): static
     {
-        return $this->addColumn($column, 'BIGINT');
+        return $this->addColumn($column, 'bigInteger');
     }
 
     public function unsignedBigInteger(string $column): static
     {
-        return $this->addColumn($column, 'BIGINT UNSIGNED');
+        return $this->addColumn($column, 'unsignedBigInteger');
     }
 
     public function float(string $column, int $precision = 8, int $scale = 2): static
     {
-        return $this->addColumn($column, "FLOAT({$precision},{$scale})");
+        return $this->addColumn($column, 'float', ['precision' => $precision, 'scale' => $scale]);
+    }
+
+    public function double(string $column): static
+    {
+        return $this->addColumn($column, 'double');
     }
 
     public function decimal(string $column, int $precision = 8, int $scale = 2): static
     {
-        return $this->addColumn($column, "DECIMAL({$precision},{$scale})");
+        return $this->addColumn($column, 'decimal', ['precision' => $precision, 'scale' => $scale]);
     }
 
     public function boolean(string $column): static
     {
-        return $this->addColumn($column, 'TINYINT(1)');
+        return $this->addColumn($column, 'boolean');
     }
 
     public function date(string $column): static
     {
-        return $this->addColumn($column, 'DATE');
+        return $this->addColumn($column, 'date');
     }
 
+    /** Also reached as dateTime(), the way Laravel spells it — PHP ignores the case. */
     public function datetime(string $column): static
     {
-        return $this->addColumn($column, 'DATETIME');
+        return $this->addColumn($column, 'datetime');
+    }
+
+    public function time(string $column): static
+    {
+        return $this->addColumn($column, 'time');
     }
 
     public function timestamp(string $column): static
     {
-        return $this->addColumn($column, 'TIMESTAMP');
+        return $this->addColumn($column, 'timestamp');
+    }
+
+    public function year(string $column): static
+    {
+        return $this->addColumn($column, 'year');
+    }
+
+    public function binary(string $column): static
+    {
+        return $this->addColumn($column, 'binary');
+    }
+
+    public function json(string $column): static
+    {
+        return $this->addColumn($column, 'json');
+    }
+
+    public function jsonb(string $column): static
+    {
+        return $this->addColumn($column, 'jsonb');
+    }
+
+    public function uuid(string $column = 'uuid'): static
+    {
+        return $this->addColumn($column, 'uuid');
+    }
+
+    public function ulid(string $column = 'ulid'): static
+    {
+        return $this->addColumn($column, 'ulid');
+    }
+
+    public function ipAddress(string $column = 'ip_address'): static
+    {
+        return $this->addColumn($column, 'ipAddress');
+    }
+
+    public function macAddress(string $column = 'mac_address'): static
+    {
+        return $this->addColumn($column, 'macAddress');
+    }
+
+    /** A column whose type this DSL has no name for, stated in the engine's own terms. */
+    public function rawColumn(string $column, string $type): static
+    {
+        return $this->addColumn($column, 'raw', ['sql' => $type]);
+    }
+
+    /** @param array<int, mixed> $values */
+    public function enum(string $column, array $values): static
+    {
+        return $this->addColumn($column, 'enum', ['allowed' => array_values($values)]);
     }
 
     public function timestamps(): static
@@ -163,19 +237,30 @@ class Blueprint
         return $this->timestamp($column)->nullable();
     }
 
-    public function json(string $column): static
+    public function rememberToken(): static
     {
-        return $this->addColumn($column, 'JSON');
+        return $this->string('remember_token', 100)->nullable();
     }
 
-    public function enum(string $column, array $values): static
+    /**
+     * The pair of columns a polymorphic relation needs.
+     *
+     * Indexed together, because the two are always read together.
+     */
+    public function morphs(string $name): static
     {
-        // Quote each enum value safely — single-quote escape per MySQL.
-        $quoted = implode(', ', array_map(
-            static fn($enumValue) => "'" . str_replace("'", "''", (string) $enumValue) . "'",
-            $values
-        ));
-        return $this->addColumn($column, "ENUM({$quoted})");
+        $this->unsignedBigInteger("{$name}_id");
+        $this->string("{$name}_type");
+
+        return $this->index(["{$name}_id", "{$name}_type"]);
+    }
+
+    public function nullableMorphs(string $name): static
+    {
+        $this->unsignedBigInteger("{$name}_id")->nullable();
+        $this->string("{$name}_type")->nullable();
+
+        return $this->index(["{$name}_id", "{$name}_type"]);
     }
 
     // ─── Column Modifiers ─────────────────────────────────
@@ -306,8 +391,7 @@ class Blueprint
     public function primary(string|array $columns): static
     {
         $columns = is_array($columns) ? $columns : [$columns];
-        $quoted = array_map([$this, 'quote'], $columns);
-        $this->commands[] = 'PRIMARY KEY (' . implode(', ', $quoted) . ')';
+        $this->commands[] = 'PRIMARY KEY (' . $this->grammar->columnize($columns) . ')';
         return $this;
     }
 
@@ -330,7 +414,7 @@ class Blueprint
      */
     public function foreignId(string $column): static
     {
-        $this->addColumn($column, 'BIGINT UNSIGNED');
+        $this->addColumn($column, 'unsignedBigInteger');
         $this->lastForeignIdColumn = $column;
         return $this;
     }
@@ -402,36 +486,87 @@ class Blueprint
     {
         $columns = is_array($columns) ? $columns : [$columns];
         foreach ($columns as $col) {
-            $this->commands[] = "DROP COLUMN " . $this->quote($col);
+            $this->commands[] = 'DROP COLUMN ' . $this->quote($col);
         }
         return $this;
     }
 
     public function renameColumn(string $from, string $to): static
     {
-        $this->commands[] = "RENAME COLUMN " . $this->quote($from) . " TO " . $this->quote($to);
+        $this->commands[] = 'RENAME COLUMN ' . $this->quote($from) . ' TO ' . $this->quote($to);
         return $this;
     }
 
-    public function dropForeign(string $index): static
+    /**
+     * Drop a foreign key, by name or by the columns it covers.
+     *
+     *   $table->dropForeign('fk_posts_category_id');
+     *   $table->dropForeign(['category_id']);
+     *
+     * The array form is how Laravel spells it, and resolves to the name the
+     * constraint was created under — see {@see ForeignKeyBuilder}.
+     */
+    public function dropForeign(string|array $index): static
     {
-        $this->commands[] = "DROP FOREIGN KEY " . $this->quote($index);
+        $this->commands[] = $this->grammar->compileDropForeign(
+            is_array($index) ? $this->defaultIndexName('fk', $index) : $index
+        );
+
         return $this;
     }
 
-    public function dropIndex(string $index): static
+    /** Drop an index, by name or by the columns it covers. */
+    public function dropIndex(string|array $index): static
     {
-        $this->commands[] = "DROP INDEX " . $this->quote($index);
+        $name = is_array($index) ? $this->defaultIndexName('idx', $index) : $index;
+
+        $this->commands[] = 'DROP INDEX ' . $this->quote($name);
         return $this;
+    }
+
+    /** Drop a unique index, by name or by the columns it covers. */
+    public function dropUnique(string|array $index): static
+    {
+        $name = is_array($index) ? $this->defaultIndexName('uniq', $index) : $index;
+
+        $this->commands[] = 'DROP INDEX ' . $this->quote($name);
+        return $this;
+    }
+
+    public function dropPrimary(): static
+    {
+        $this->commands[] = 'DROP PRIMARY KEY';
+        return $this;
+    }
+
+    public function dropTimestamps(): static
+    {
+        return $this->dropColumn(['created_at', 'updated_at']);
+    }
+
+    public function dropSoftDeletes(string $column = 'deleted_at'): static
+    {
+        return $this->dropColumn($column);
+    }
+
+    public function dropMorphs(string $name): static
+    {
+        return $this->dropColumn(["{$name}_id", "{$name}_type"]);
     }
 
     // ─── Internal ─────────────────────────────────────────
 
-    protected function addColumn(string $name, string $type): static
+    /**
+     * Record a column in the abstract.
+     *
+     * @param array<string, mixed> $parameters Length, precision, allowed values.
+     */
+    protected function addColumn(string $name, string $type, array $parameters = []): static
     {
         $this->currentColumn = [
             'name' => $name,
             'type' => $type,
+            'parameters' => $parameters,
             'nullable' => false,
             'default' => null,
             'has_default' => false,
@@ -468,114 +603,12 @@ class Blueprint
     }
 
     /**
-     * Quote an identifier in backticks after validating its shape. Used
-     * for every column/table/index reference Blueprint emits — keeps the
-     * generated DDL safe against reserved-word collisions ('order', 'key')
-     * and rejects names that don't look like identifiers.
-     */
-    public function quote(string $identifier): string
-    {
-        $identifier = trim($identifier);
-        if (!preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $identifier)) {
-            throw new \InvalidArgumentException("Invalid identifier: {$identifier}");
-        }
-        return '`' . $identifier . '`';
-    }
-
-    // ─── Compile to SQL ───────────────────────────────────
-
-    public function toCreateSql(): string
-    {
-        $parts = [];
-
-        foreach ($this->columns as $col) {
-            $parts[] = $this->compileColumn($col);
-        }
-
-        foreach ($this->commands as $cmd) {
-            $parts[] = $cmd;
-        }
-
-        // MySQL inlines named indexes inside CREATE TABLE. SQLite can't, so its
-        // indexes become separate CREATE INDEX statements (postCreateStatements).
-        if (!$this->isSqlite()) {
-            foreach ($this->normalizedIndexes() as $idx) {
-                $kind = $idx['unique'] ? 'UNIQUE INDEX' : 'INDEX';
-                $cols = implode(', ', array_map([$this, 'quote'], $idx['cols']));
-                $parts[] = "{$kind} {$this->quote($idx['name'])} ({$cols})";
-            }
-        }
-
-        $columnsSql = implode(",\n    ", $parts);
-        $table = $this->quote($this->table);
-        $suffix = $this->isSqlite() ? '' : ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci';
-
-        return "CREATE TABLE {$table} (\n    {$columnsSql}\n){$suffix}";
-    }
-
-    /**
-     * Statements to run immediately after toCreateSql(). On SQLite these are the
-     * CREATE INDEX statements (which can't live inside CREATE TABLE); on MySQL
-     * this is empty because the indexes are inlined into the CREATE.
-     *
-     * @return array<int, string>
-     */
-    public function postCreateStatements(): array
-    {
-        if (!$this->isSqlite()) {
-            return [];
-        }
-
-        $table = $this->quote($this->table);
-        $out = [];
-        foreach ($this->normalizedIndexes() as $idx) {
-            $kind = $idx['unique'] ? 'CREATE UNIQUE INDEX' : 'CREATE INDEX';
-            $cols = implode(', ', array_map([$this, 'quote'], $idx['cols']));
-            $out[] = "{$kind} {$this->quote($idx['name'])} ON {$table} ({$cols})";
-        }
-
-        return $out;
-    }
-
-    public function toAlterSql(): array
-    {
-        $statements = [];
-        $table = $this->quote($this->table);
-
-        foreach ($this->columns as $col) {
-            $colSql = $this->compileColumn($col);
-            // SQLite's ALTER TABLE ADD COLUMN doesn't support positional AFTER.
-            $after = (!$this->isSqlite() && $col['after']) ? " AFTER " . $this->quote($col['after']) : '';
-            $statements[] = "ALTER TABLE {$table} ADD COLUMN {$colSql}{$after}";
-        }
-
-        foreach ($this->commands as $cmd) {
-            $verb = $this->commandNeedsAddPrefix($cmd) ? 'ADD ' : '';
-            $statements[] = "ALTER TABLE {$table} {$verb}{$cmd}";
-        }
-
-        foreach ($this->normalizedIndexes() as $idx) {
-            $cols = implode(', ', array_map([$this, 'quote'], $idx['cols']));
-            if ($this->isSqlite()) {
-                // SQLite adds indexes via CREATE INDEX, not ALTER TABLE ADD INDEX.
-                $kind = $idx['unique'] ? 'CREATE UNIQUE INDEX' : 'CREATE INDEX';
-                $statements[] = "{$kind} {$this->quote($idx['name'])} ON {$table} ({$cols})";
-            } else {
-                $kind = $idx['unique'] ? 'UNIQUE INDEX' : 'INDEX';
-                $statements[] = "ALTER TABLE {$table} ADD {$kind} {$this->quote($idx['name'])} ({$cols})";
-            }
-        }
-
-        return $statements;
-    }
-
-    /**
      * Normalize the indexes list, expanding the legacy string shorthand into
      * the ['cols','name','unique'] shape used by the compilers.
      *
      * @return array<int, array{cols: array, name: string, unique: bool}>
      */
-    private function normalizedIndexes(): array
+    public function normalizedIndexes(): array
     {
         $out = [];
         foreach ($this->indexes as $idx) {
@@ -588,73 +621,33 @@ class Blueprint
         return $out;
     }
 
-    /**
-     * True when an ALTER command needs an "ADD " prefix. Drop/rename
-     * commands already include their verb; constraint clauses (CONSTRAINT…,
-     * INDEX…, UNIQUE INDEX…, PRIMARY KEY…) do not.
-     */
-    private function commandNeedsAddPrefix(string $cmd): bool
+    /** Enclose an identifier the way this connection's engine does. */
+    public function quote(string $identifier): string
     {
-        $upper = ltrim(strtoupper($cmd));
-        foreach (['DROP ', 'RENAME ', 'MODIFY ', 'CHANGE '] as $prefix) {
-            if (str_starts_with($upper, $prefix)) return false;
-        }
-        return true;
+        return $this->grammar->quote($identifier);
+    }
+
+    // ─── Compile to SQL ───────────────────────────────────
+
+    public function toCreateSql(): string
+    {
+        return $this->grammar->compileCreate($this);
     }
 
     /**
-     * Render a single column definition. Identifier is backtick-quoted.
-     * Special cases:
-     *   - id() inlines 'AUTO_INCREMENT PRIMARY KEY' which is already a
-     *     NOT NULL by definition — no redundant 'NOT NULL' appended.
-     *   - default() accepts RawExpression for SQL-function defaults
-     *     (CURRENT_TIMESTAMP), bool/int as numeric, string as quoted.
+     * Statements to run immediately after toCreateSql() — the CREATE INDEX
+     * statements, for an engine that will not hold them inside the CREATE.
+     *
+     * @return array<int, string>
      */
-    protected function compileColumn(array $col): string
+    public function postCreateStatements(): array
     {
-        $sql = $this->quote($col['name']) . " {$col['type']}";
-
-        // 'id()' contains 'PRIMARY KEY' so we don't append NOT NULL after,
-        // and 'AUTO_INCREMENT' implies NOT NULL anyway.
-        $isPrimaryKey = str_contains($col['type'], 'PRIMARY KEY');
-
-        // SQLite has no UNSIGNED keyword (it uses type affinity); MySQL does.
-        if (!$this->isSqlite() && $col['unsigned'] && !str_contains($col['type'], 'UNSIGNED')) {
-            $sql .= ' UNSIGNED';
-        }
-
-        if (!$isPrimaryKey) {
-            $sql .= $col['nullable'] ? ' NULL' : ' NOT NULL';
-        }
-
-        if (!empty($col['has_default'])) {
-            $sql .= ' DEFAULT ' . $this->compileDefault($col['default']);
-        }
-
-        if ($col['unique'] && !$isPrimaryKey) $sql .= ' UNIQUE';
-
-        // Inline COMMENT is MySQL-only; SQLite rejects it.
-        if ($col['comment'] && !$this->isSqlite()) {
-            $escaped = str_replace("'", "''", $col['comment']);
-            $sql .= " COMMENT '{$escaped}'";
-        }
-
-        return $sql;
+        return $this->grammar->compilePostCreate($this);
     }
 
-    /**
-     * Render a DEFAULT literal. Booleans → 1/0 (MySQL TINYINT-friendly),
-     * null → NULL, RawExpression → inlined verbatim (so users can pass
-     * CURRENT_TIMESTAMP / NOW() via DB::raw or useCurrent()), strings →
-     * single-quoted with safe escaping.
-     */
-    protected function compileDefault(mixed $value): string
+    /** @return array<int, string> */
+    public function toAlterSql(): array
     {
-        if ($value === null) return 'NULL';
-        if ($value instanceof RawExpression) return (string) $value;
-        if (is_bool($value)) return $value ? '1' : '0';
-        if (is_int($value) || is_float($value)) return (string) $value;
-        $escaped = str_replace("'", "''", (string) $value);
-        return "'{$escaped}'";
+        return $this->grammar->compileAlter($this);
     }
 }
