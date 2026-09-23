@@ -10,6 +10,7 @@ use Nitro\Events\CoreEvents;
 use Nitro\Exceptions\ExceptionHandler;
 use Nitro\Exceptions\HttpException;
 use Nitro\Foundation\Application;
+use Nitro\Debug\Timeline;
 use Nitro\Foundation\BootProfile;
 use Nitro\Foundation\Contracts\PathRegistry;
 use Nitro\Http\Contracts\Responsable;
@@ -151,7 +152,8 @@ class Kernel implements ReceivesDispatcher
         $this->container->instance('request', $request);
         $this->container->instance(Request::class, $request);
 
-        BootProfile::mark('capture');
+        Timeline::printAtShutdown();
+        BootProfile::mark('capture', $request->method() . ' ' . $request->path());
 
         $response = $this->handle($request);
 
@@ -176,9 +178,11 @@ class Kernel implements ReceivesDispatcher
             ),
         );
 
-        BootProfile::mark('responseReady');
+        BootProfile::mark('responseReady', (string) $response->getStatusCode());
 
         $response->send();
+
+        Timeline::mark('response sent', strlen((string) $response->getContent()) . ' bytes');
 
         /**
          * Emit point — response.sent
@@ -358,7 +362,7 @@ class Kernel implements ReceivesDispatcher
 
                 $resolvedRoute = $this->router->findMatchingRoute($request);
 
-                BootProfile::mark('match');
+                BootProfile::mark('match', $resolvedRoute?->getName() ?? $request->path());
 
                 if (! $resolvedRoute) {
                     return $this->createUnmatchedResponse($request);
@@ -411,8 +415,15 @@ class Kernel implements ReceivesDispatcher
                 $this->terminableMiddleware[] = $middleware;
             }
 
-            $stages[] = static fn (Request $request, callable $next): Response
-                => $middleware->handle($request, $next, ...$parameters);
+            // Wrapped only when the timeline is recording, so an ordinary
+            // request carries the middleware and nothing around it.
+            $stages[] = Timeline::enabled()
+                ? static fn (Request $request, callable $next): Response => Timeline::measure(
+                    (new \ReflectionClass($middleware))->getShortName(),
+                    static fn (): Response => $middleware->handle($request, $next, ...$parameters),
+                )
+                : static fn (Request $request, callable $next): Response
+                    => $middleware->handle($request, $next, ...$parameters);
         }
 
         return Pipeline::make($this->container->resolve(ClassResolver::class))
@@ -954,9 +965,13 @@ class Kernel implements ReceivesDispatcher
      */
     public function terminate(Request $request, Response $response): void
     {
+        Timeline::mark('terminate');
+
         foreach ($this->terminableMiddleware as $middleware) {
             $this->safely(fn () => $middleware->terminate($request, $response));
         }
+
+        Timeline::mark('terminable middleware done');
 
         $this->terminableMiddleware = [];
 
@@ -965,6 +980,8 @@ class Kernel implements ReceivesDispatcher
         }
 
         $this->safely(fn () => $this->app->terminate());
+
+        Timeline::mark('terminate done');
     }
 
     /**

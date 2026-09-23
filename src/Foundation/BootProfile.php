@@ -53,8 +53,19 @@ final class BootProfile
     }
 
     /** Record the moment a named stage finished. */
-    public static function mark(string $name): void
+    /**
+     * @param ?string $detail The particulars, for a timeline that shows them.
+     */
+    public static function mark(string $name, ?string $detail = null): void
     {
+        /*
+         * Offered to the timeline before this profile's own gate, and under
+         * its own: the two are asked for separately, and boot is the part a
+         * request timeline cannot reach on its own — it happens before the
+         * kernel exists to record anything.
+         */
+        \Nitro\Debug\Timeline::mark($name, $detail);
+
         if (! self::enabled()) {
             return;
         }

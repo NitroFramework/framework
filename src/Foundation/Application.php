@@ -881,6 +881,13 @@ class Application implements ApplicationInterface
              */
             $this->raise(CoreEvents::PROVIDER_BOOTING, new ProviderEvent($name));
 
+            // Marked per provider, because bootProviders is one number and
+            // usually the largest one — without this it says where the time
+            // went but not which provider spent it.
+            \Nitro\Debug\Timeline::mark(
+                'boot ' . (strrchr($name, '\\') === false ? $name : substr(strrchr($name, '\\'), 1))
+            );
+
             $this->container->call([$provider, 'boot']);
 
             /**
