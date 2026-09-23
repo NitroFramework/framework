@@ -5,13 +5,14 @@ namespace Nitro\Thrust;
 use Nitro\Foundation\Application;
 use Nitro\Http\Kernel;
 use Nitro\Http\Request;
-use Nitro\Thrust\Adapters\FrankenPhpAdapter;
+use Nitro\Http\Response;
+use Nitro\Thrust\Contracts\WorkerAdapter;
 use Nitro\Events\Concerns\DispatchesEvents;
 use Nitro\Support\Logger;
 use Throwable;
 
 /**
- * Drives the FrankenPHP worker request loop.
+ * Drives a worker request loop, whichever runtime owns it.
  *
  * Bootstrap runs ONCE; each iteration of handleRequest reuses the warm
  * Application + container + router + view compiler + opcache-loaded
@@ -34,17 +35,14 @@ class Runner
 
     public function __construct(
         private Application $app,
-        private FrankenPhpAdapter $adapter,
+        private WorkerAdapter $adapter,
         private WorkerMode $config,
     ) {}
 
     public function run(): void
     {
         if (!$this->adapter->isAvailable()) {
-            throw new \RuntimeException(
-                'FrankenPHP worker mode is not available. '
-                . 'Run via FrankenPHP (`frankenphp run --config Caddyfile`) instead of php-cli.'
-            );
+            throw new \RuntimeException($this->adapter->unavailableReason());
         }
 
         $this->installSignalHandlers();
@@ -84,17 +82,16 @@ class Runner
         }
         $this->event(ThrustEvents::WORKER_STARTING, ['pid' => getmypid()]);
 
-        // ── Per-request loop ──
-        while ($this->adapter->handleRequest(function () use ($kernel) {
-            $this->handleRequest($kernel);
-        })) {
-            $this->requestCount++;
-            $this->resetBetweenRequests();
+        // ── Per-request loop, owned by the runtime ──
+        $this->adapter->serve(
+            fn (Request $request): ?Response => $this->handleRequest($kernel, $request),
+            function (): bool {
+                $this->requestCount++;
+                $this->resetBetweenRequests();
 
-            if ($this->shouldStop || $this->shouldRestart()) {
-                break;
-            }
-        }
+                return ! ($this->shouldStop || $this->shouldRestart());
+            },
+        );
 
         $this->event(ThrustEvents::WORKER_STOPPING, ['requests' => $this->requestCount]);
     }
@@ -102,11 +99,14 @@ class Runner
     /**
      * Handle a single request. Any exception is swallowed and converted to a
      * 500 response so a single bad request can't take down the worker.
+     *
+     * The response is returned rather than sent: a runtime that owns its own
+     * response object has to write to that, and echoing would put the body in
+     * the server's output instead of this request's.
      */
-    private function handleRequest(Kernel $kernel): void
+    private function handleRequest(Kernel $kernel, Request $request): ?Response
     {
         try {
-            $request = Request::capture();
             $container = $this->app->getContainer();
             $container->instance('request', $request);
             $container->instance(Request::class, $request);
@@ -115,12 +115,15 @@ class Runner
 
             $response = $kernel->handle($request);
 
-            $response->send();
             $kernel->terminate($request, $response);
 
             $this->event(ThrustEvents::REQUEST_HANDLED, ['request' => $request, 'response' => $response]);
+
+            return $response;
         } catch (Throwable $exception) {
             $this->emitFatalResponse($exception);
+
+            return null;
         }
     }
 
