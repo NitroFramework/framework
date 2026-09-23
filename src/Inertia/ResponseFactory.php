@@ -6,6 +6,7 @@ use BackedEnum;
 use Closure;
 use InvalidArgumentException;
 use Nitro\Exceptions\ExceptionHandler;
+use Nitro\Foundation\Contracts\ResetsBetweenRequests;
 use Nitro\Http\RedirectResponse;
 use Nitro\Http\Request;
 use Nitro\Http\Response as HttpResponse;
@@ -32,7 +33,7 @@ use Nitro\Support\Arr;
  * name and its own props. Everything a controller says is a page-level
  * statement; everything set here is an application-level one.
  */
-class ResponseFactory
+class ResponseFactory implements ResetsBetweenRequests
 {
     /**
      * The status that tells the client library to leave the application.
@@ -102,6 +103,25 @@ class ResponseFactory
     public function flushShared(): void
     {
         $this->sharedProps = [];
+    }
+
+    /**
+     * Drop what belonged to the request that just ended.
+     *
+     * The factory is a singleton, so under a worker it is the same object for
+     * every request. Shared props carry the current user and the flash bag —
+     * share() merges rather than replaces, so a key the next request's
+     * middleware does not set again would still be the last visitor's.
+     *
+     * The root view, the asset version and the resolvers are configuration and
+     * stay: they are set where the application is put together, not per visit.
+     */
+    public function resetBetweenRequests(): void
+    {
+        $this->flushShared();
+
+        $this->clearHistory = false;
+        $this->encryptHistory = false;
     }
 
     /**
