@@ -56,13 +56,20 @@ class ViewServiceProvider extends ServiceProvider
         $this->container->singleton(ComposerResolver::class);
         /*
          * A closure rather than a plain singleton so the engine can be handed
-         * the event bus it raises view.rendering/rendered on. build() autowires
-         * without consulting this binding, so the engine is still constructed
-         * exactly once and only when something actually renders — resolving it
-         * in boot() instead would load the compiler on every request.
+         * the event bus it raises view.rendering/rendered on. Constructed by
+         * hand rather than autowired, because the compiler is passed as a
+         * factory and no type hint can express that — see CompilerEngine.
          */
         $this->container->singleton(CompilerEngine::class, function ($container) {
-            $engine = $container->build(CompilerEngine::class);
+            $engine = new CompilerEngine(
+                $container->resolve(TemplateCache::class),
+                $container->resolve(ComponentEngine::class),
+                static fn (): BladeCompiler => $container->resolve(BladeCompiler::class),
+                $container->resolve(TagCompiler::class),
+                $container->resolve(PathRegistry::class),
+                $container->resolve(ConfigRepository::class),
+                $container->resolve(ViewFinder::class),
+            );
 
             if ($engine instanceof ReceivesDispatcher) {
                 $engine->setDispatcher($container->resolve(EventDispatcher::class));
@@ -114,19 +121,28 @@ class ViewServiceProvider extends ServiceProvider
      */
     protected function registerTemplateCache(): void
     {
+        /*
+         * Each compiler is registered as a closure rather than an instance.
+         * Knowing that `md` has a compiler is not a reason to build one, and
+         * BladeCompiler flattens sixteen Compiles* traits — so constructing it
+         * to hand over costs seventeen files on every request that renders a
+         * view, including the ordinary case where the compiled PHP is already
+         * on disk and nothing is compiled at all.
+         */
         $this->container->singleton(TemplateCompilers::class, function ($container) {
-            $blade    = $container->resolve(BladeCompiler::class);
+            $blade = static fn (): BladeCompiler => $container->resolve(BladeCompiler::class);
+
             $registry = new TemplateCompilers($blade);
 
-            $registry->register('md', new MarkdownCompiler($blade));
-            $registry->register('markdown', new MarkdownCompiler($blade));
+            $registry->register('md', static fn (): MarkdownCompiler => new MarkdownCompiler($blade()));
+            $registry->register('markdown', static fn (): MarkdownCompiler => new MarkdownCompiler($blade()));
 
             return $registry;
         });
 
         $this->container->singleton(CompiledTemplateCache::class, function ($container) {
             return new CompiledTemplateCache(
-                $container->resolve(BladeCompiler::class),
+                static fn (): BladeCompiler => $container->resolve(BladeCompiler::class),
                 $container->resolve(PathRegistry::class),
                 $container->resolve(ConfigRepository::class),
                 $container->resolve(TemplateCompilers::class),

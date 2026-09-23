@@ -2,6 +2,7 @@
 
 namespace Nitro\View\Compiler;
 
+use Closure;
 use Nitro\Foundation\Contracts\ConfigRepository;
 use Nitro\Foundation\Contracts\ResetsBetweenRequests;
 use Nitro\Foundation\Contracts\PathRegistry;
@@ -66,7 +67,7 @@ class CompiledTemplateCache implements TemplateCache, ResetsBetweenRequests
      * true or false still wins.
      */
     public function __construct(
-        private TemplateCompiler $compiler,
+        private Closure|TemplateCompiler $compiler,
         PathRegistry $paths,
         ConfigRepository $config,
         private ?TemplateCompilers $compilers = null,
@@ -257,9 +258,26 @@ class CompiledTemplateCache implements TemplateCache, ResetsBetweenRequests
             throw new RuntimeException("Failed to read template file: {$templateFile}");
         }
 
-        $compiler = $this->compilers?->for($templateFile) ?? $this->compiler;
+        $compiler = $this->compilers?->for($templateFile) ?? $this->defaultCompiler();
 
         return $compiler->compile($source);
+    }
+
+    /**
+     * The compiler for a template no registered extension claims.
+     *
+     * Given as a closure so that resolving this cache does not build it. A
+     * render served from the compiled cache never reaches here, and the Blade
+     * compiler flattens sixteen traits — seventeen files to answer a question
+     * about a file's modification time.
+     */
+    private function defaultCompiler(): TemplateCompiler
+    {
+        if ($this->compiler instanceof Closure) {
+            $this->compiler = ($this->compiler)();
+        }
+
+        return $this->compiler;
     }
 
     // ─── Persistence ──────────────────────────────────────

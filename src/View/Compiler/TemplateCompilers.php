@@ -2,6 +2,7 @@
 
 namespace Nitro\View\Compiler;
 
+use Closure;
 use Nitro\View\Contracts\TemplateCompiler;
 
 /**
@@ -11,23 +12,27 @@ use Nitro\View\Contracts\TemplateCompiler;
  * could only ever be Blade. Registering `md` here is what gives a second
  * template language its own compiler without the cache or the engine
  * learning that it exists.
+ *
+ * A compiler may be given as a closure, and should be: knowing which
+ * extensions exist is not a reason to build the things that compile them, and
+ * a render served from the compiled cache never compiles anything at all.
  */
 final class TemplateCompilers
 {
-    /** @var array<string, TemplateCompiler> Keyed by extension, without the dot. */
+    /** @var array<string, Closure|TemplateCompiler> Keyed by extension, without the dot. */
     private array $compilers = [];
 
     /**
-     * @param TemplateCompiler $default What an unregistered extension compiles through.
+     * @param Closure|TemplateCompiler $default What an unregistered extension compiles through.
      */
-    public function __construct(private readonly TemplateCompiler $default)
+    public function __construct(private Closure|TemplateCompiler $default)
     {
     }
 
     /**
      * Register the compiler for one extension, replacing any already there.
      */
-    public function register(string $extension, TemplateCompiler $compiler): void
+    public function register(string $extension, Closure|TemplateCompiler $compiler): void
     {
         $this->compilers[strtolower(ltrim($extension, '.'))] = $compiler;
     }
@@ -53,7 +58,17 @@ final class TemplateCompilers
             }
         }
 
-        return $matched === null ? $this->default : $this->compilers[$matched];
+        if ($matched === null) {
+            return $this->default = $this->build($this->default);
+        }
+
+        return $this->compilers[$matched] = $this->build($this->compilers[$matched]);
+    }
+
+    /** Build a compiler given as a closure, once. */
+    private function build(Closure|TemplateCompiler $compiler): TemplateCompiler
+    {
+        return $compiler instanceof Closure ? $compiler() : $compiler;
     }
 
     /**

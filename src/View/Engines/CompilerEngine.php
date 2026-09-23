@@ -85,7 +85,12 @@ class CompilerEngine implements EngineContract, ResetsBetweenRequests, ReceivesD
     public function __construct(
         protected readonly TemplateCache $templateCache,
         protected readonly ComponentEngine $components,
-        protected readonly TemplateCompiler $compiler,
+        /**
+         * Only {@see renderString()} compiles, and only a template with no file
+         * behind it reaches it. Given as a closure so an ordinary render — which
+         * includes PHP the cache compiled earlier — never builds the compiler.
+         */
+        protected \Closure|TemplateCompiler $compiler,
         protected readonly TagCompiler $tagCompiler,
         PathRegistry $paths,
         ConfigRepository $config,
@@ -688,6 +693,10 @@ class CompilerEngine implements EngineContract, ResetsBetweenRequests, ReceivesD
      */
     public function renderString(string $blade, array $data = []): string
     {
+        if ($this->compiler instanceof \Closure) {
+            $this->compiler = ($this->compiler)();
+        }
+
         $compiled = $this->tagCompiler->compile($blade);
         $compiled = $this->compiler->compile($compiled);
 
