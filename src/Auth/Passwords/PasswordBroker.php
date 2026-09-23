@@ -2,6 +2,7 @@
 
 namespace Nitro\Auth\Passwords;
 
+use Nitro\Auth\Contracts\Authenticatable;
 use Nitro\Auth\Contracts\UserProvider;
 
 /**
@@ -68,5 +69,58 @@ class PasswordBroker
         $this->tokens->delete($email);
 
         return self::PASSWORD_RESET;
+    }
+
+    /**
+     * The user a set of credentials names.
+     *
+     * @throws \UnexpectedValueException When the user cannot reset a password.
+     */
+    public function getUser(array $credentials): ?Authenticatable
+    {
+        unset($credentials['token']);
+
+        $user = $this->users->retrieveByCredentials($credentials);
+
+        if ($user !== null && ! $user instanceof CanResetPassword) {
+            throw new \UnexpectedValueException(
+                'A user of type [' . $user::class . '] must implement CanResetPassword to reset one.'
+            );
+        }
+
+        return $user;
+    }
+
+    /** Issue a reset token without sending anything. */
+    public function createToken(Authenticatable $user): string
+    {
+        return $this->tokens->create($this->emailFor($user));
+    }
+
+    /** Drop whatever token a user has. */
+    public function deleteToken(Authenticatable $user): void
+    {
+        $this->tokens->delete($this->emailFor($user));
+    }
+
+    /** Whether a token is the one this user was issued, and still current. */
+    public function tokenExists(Authenticatable $user, string $token): bool
+    {
+        return $this->tokens->exists($this->emailFor($user), $token);
+    }
+
+    public function getRepository(): TokenRepository
+    {
+        return $this->tokens;
+    }
+
+    /** Where a reset link is sent, which is what a token is keyed by. */
+    protected function emailFor(Authenticatable $user): string
+    {
+        if ($user instanceof CanResetPassword) {
+            return $user->getEmailForPasswordReset();
+        }
+
+        return (string) ($user->email ?? '');
     }
 }

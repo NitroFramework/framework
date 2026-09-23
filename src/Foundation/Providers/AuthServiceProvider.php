@@ -5,11 +5,15 @@ namespace Nitro\Foundation\Providers;
 use Nitro\Http\Kernel;
 use Nitro\Http\Middleware\ThrottleRequests;
 use Nitro\Http\Middleware\VerifyCsrfToken;
+use Nitro\Auth\AuthManager;
 use Nitro\Auth\Contracts\Guard;
+use Nitro\Auth\Contracts\StatefulGuard;
 use Nitro\Auth\Contracts\UserProvider;
 use Nitro\Auth\EloquentUserProvider;
 use Nitro\Auth\SessionGuard;
 use Nitro\Auth\Middleware\Authenticate;
+use Nitro\Auth\Middleware\AuthenticateWithBasicAuth;
+use Nitro\Auth\Middleware\Authorize;
 use Nitro\Auth\Middleware\EnsureEmailIsVerified;
 use Nitro\Auth\Middleware\RedirectIfAuthenticated;
 use Nitro\Auth\Middleware\RequirePassword;
@@ -50,15 +54,26 @@ class AuthServiceProvider extends ServiceProvider
      */
     protected function registerGuard(): void
     {
+        /*
+         * The manager, not a guard: an application with one guard reaches
+         * it through the same calls either way, because anything not named
+         * on the manager goes to the default guard.
+         */
         $this->container->scoped('auth', function ($container) {
-            return new SessionGuard(
-                $container->resolve(UserProvider::class),
-                $container->resolve('session'),
+            return new AuthManager(
+                config: $container->resolve(ConfigRepository::class),
+                resolver: $container->resolve(ClassResolver::class),
+                sessionResolver: static fn () => $container->resolve('session'),
+                events: $container->has('events') ? $container->resolve('events') : null,
             );
         });
 
-        $this->container->alias('auth', SessionGuard::class);
-        $this->container->alias('auth', Guard::class);
+        $this->container->alias('auth', AuthManager::class);
+
+        // The guard itself, for anything asking by contract rather than name.
+        $this->container->scoped(SessionGuard::class, static fn ($container) => $container->resolve('auth')->guard());
+        $this->container->alias(SessionGuard::class, Guard::class);
+        $this->container->alias(SessionGuard::class, StatefulGuard::class);
     }
 
     /**
@@ -117,6 +132,8 @@ class AuthServiceProvider extends ServiceProvider
     public function boot(Router $router, Kernel $kernel): void
     {
         $router->aliasMiddleware('auth', Authenticate::class);
+        $router->aliasMiddleware('auth.basic', AuthenticateWithBasicAuth::class);
+        $router->aliasMiddleware('can', Authorize::class);
         $router->aliasMiddleware('guest', RedirectIfAuthenticated::class);
         $router->aliasMiddleware('verified', EnsureEmailIsVerified::class);
         $router->aliasMiddleware('password.confirm', RequirePassword::class);

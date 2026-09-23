@@ -35,6 +35,8 @@ abstract class WiringTestCase extends TestCase
         'auth'                            => 'guard for the current request; needs a session',
         'Nitro\Auth\SessionGuard'         => 'as above',
         'Nitro\Auth\Contracts\Guard'      => 'as above',
+        'Nitro\Auth\Contracts\StatefulGuard' => 'as above',
+        'Nitro\Auth\AuthManager'          => 'as above',
         'cookie'                          => 'jar for the current request',
         'Nitro\Cookie\CookieJar'          => 'as above',
     ];

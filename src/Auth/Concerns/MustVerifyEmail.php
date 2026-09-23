@@ -20,6 +20,19 @@ trait MustVerifyEmail
         return $this->update(['email_verified_at' => date('Y-m-d H:i:s')]);
     }
 
+    /**
+     * Send the verification link.
+     *
+     * Overridable, so an application that verifies by SMS or through an
+     * identity provider sends whatever that takes instead.
+     */
+    public function sendEmailVerificationNotification(): void
+    {
+        if (method_exists($this, 'notify')) {
+            $this->notify(new \Nitro\Auth\Notifications\VerifyEmail());
+        }
+    }
+
     public function getEmailForVerification(): string
     {
         return (string) $this->getAttribute('email');

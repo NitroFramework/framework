@@ -27,9 +27,30 @@ class AuthorizationException extends RuntimeException
         parent::__construct($message, 0, $previous);
     }
 
+    /** The decision this was raised from, when there was one. */
+    protected ?\Nitro\Auth\Access\Response $response = null;
+
     public function status(): int
     {
-        return $this->status;
+        return $this->response?->status() ?? $this->status;
+    }
+
+    public function setResponse(?\Nitro\Auth\Access\Response $response): static
+    {
+        $this->response = $response;
+
+        return $this;
+    }
+
+    public function response(): ?\Nitro\Auth\Access\Response
+    {
+        return $this->response;
+    }
+
+    /** Whether the message came from a policy rather than the default. */
+    public function hasMessage(): bool
+    {
+        return $this->response?->message() !== null;
     }
 
     /**

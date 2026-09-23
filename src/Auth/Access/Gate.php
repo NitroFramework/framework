@@ -6,30 +6,40 @@ use Nitro\Auth\Exceptions\AuthorizationException;
 use Nitro\Container\Contracts\ClassResolver;
 
 /**
- * Decides whether the current user may perform an action.
+ * Decides whether a user may do a thing.
  *
- *     Gate::define('update-post', fn ($user, $post) => $user->id === $post->user_id);
- *     Gate::policy(Post::class, PostPolicy::class);
- *
- *     Gate::allows('update-post', $post);
- *     Gate::authorize('update-post', $post);
+ * An ability is either a closure registered with define(), or a method
+ * on a policy registered for the class being acted on. Either may
+ * answer with a bare true or false, or with a {@see Response} carrying
+ * the reason — which is what a user sees when the answer is no.
  */
 class Gate
 {
-    /** @var array<string, callable|string> Abilities, keyed by name. */
+    /** @var array<string, callable|string> */
     protected array $abilities = [];
 
-    /** @var array<class-string, class-string> Policies, keyed by the class they cover. */
+    /** @var array<class-string, class-string> */
     protected array $policies = [];
 
-    /** @var array<int, callable> Run before every check; a non-null result decides it. */
+    /** @var array<int, callable> Run before every check. */
     protected array $beforeCallbacks = [];
 
-    /** @var array<int, callable> Run after every check; may replace the result. */
+    /** @var array<int, callable> Run after every check. */
     protected array $afterCallbacks = [];
 
-    /** Resolves the user a check is made against. */
     protected mixed $userResolver = null;
+
+    /** How a class name is turned into a policy name when none is registered. */
+    protected mixed $policyGuesser = null;
+
+    /** The abilities a resource policy covers, and their methods. */
+    protected const RESOURCE_ABILITIES = [
+        'viewAny' => 'viewAny',
+        'view' => 'view',
+        'create' => 'create',
+        'update' => 'update',
+        'delete' => 'delete',
+    ];
 
     public function __construct(
         protected ClassResolver $resolver,
@@ -38,7 +48,6 @@ class Gate
         $this->userResolver = $userResolver;
     }
 
-    /** Set how the gate finds the current user. */
     public function resolveUsersUsing(callable $resolver): static
     {
         $this->userResolver = $resolver;
@@ -46,7 +55,8 @@ class Gate
         return $this;
     }
 
-    /** Define an ability by name. */
+    // ── Registering ───────────────────────────────────────────────────
+
     public function define(string $ability, callable|string $callback): static
     {
         $this->abilities[$ability] = $callback;
@@ -54,12 +64,7 @@ class Gate
         return $this;
     }
 
-    /**
-     * Register a policy class covering a model.
-     *
-     * @param class-string $class
-     * @param class-string $policy
-     */
+    /** Name the policy that answers for a class. */
     public function policy(string $class, string $policy): static
     {
         $this->policies[$class] = $policy;
@@ -67,21 +72,20 @@ class Gate
         return $this;
     }
 
-    /** The policy covering a class, or null. */
-    public function getPolicyFor(object|string $class): ?object
+    /**
+     * Define the usual five abilities for a resource at once.
+     *
+     * @param array<string, string> $abilities Override the default set.
+     */
+    public function resource(string $name, string $class, ?array $abilities = null): static
     {
-        $class = is_object($class) ? $class::class : $class;
-
-        foreach ($this->policies as $covered => $policy) {
-            if ($class === $covered || is_subclass_of($class, $covered)) {
-                return $this->resolver->resolve($policy);
-            }
+        foreach ($abilities ?? static::RESOURCE_ABILITIES as $ability => $method) {
+            $this->define($name . '.' . $ability, $class . '@' . $method);
         }
 
-        return null;
+        return $this;
     }
 
-    /** Run before every check; returning non-null decides it outright. */
     public function before(callable $callback): static
     {
         $this->beforeCallbacks[] = $callback;
@@ -89,7 +93,6 @@ class Gate
         return $this;
     }
 
-    /** Run after every check; returning non-null replaces the result. */
     public function after(callable $callback): static
     {
         $this->afterCallbacks[] = $callback;
@@ -97,64 +100,106 @@ class Gate
         return $this;
     }
 
-    public function has(string $ability): bool
+    /** Name how an unregistered class is matched to a policy. */
+    public function guessPolicyNamesUsing(callable $callback): static
     {
-        return isset($this->abilities[$ability]);
+        $this->policyGuesser = $callback;
+
+        return $this;
     }
 
-    /** @param mixed|array<int, mixed> $arguments */
+    // ── Reading the map ───────────────────────────────────────────────
+
+    public function has(string|array $ability): bool
+    {
+        foreach ((array) $ability as $name) {
+            if (! isset($this->abilities[$name])) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /** @return array<string, callable|string> */
+    public function abilities(): array
+    {
+        return $this->abilities;
+    }
+
+    /** @return array<class-string, class-string> */
+    public function policies(): array
+    {
+        return $this->policies;
+    }
+
+    /**
+     * The policy answering for a class, resolved from the container.
+     *
+     * A registered policy wins; failing that the guesser is asked, so
+     * an application following a naming convention need register none.
+     */
+    public function getPolicyFor(object|string $class): ?object
+    {
+        $class = is_object($class) ? $class::class : $class;
+
+        foreach ($this->policies as $covered => $policy) {
+            if ($class === $covered || is_subclass_of($class, $covered)) {
+                return $this->resolvePolicy($policy);
+            }
+        }
+
+        if ($this->policyGuesser !== null) {
+            $guessed = ($this->policyGuesser)($class);
+
+            foreach ((array) $guessed as $policy) {
+                if (is_string($policy) && class_exists($policy)) {
+                    return $this->resolvePolicy($policy);
+                }
+            }
+        }
+
+        return null;
+    }
+
+    public function resolvePolicy(string $policy): object
+    {
+        return $this->resolver->resolve($policy);
+    }
+
+    // ── Asking ────────────────────────────────────────────────────────
+
     public function allows(string $ability, mixed $arguments = []): bool
     {
         return $this->check($ability, $arguments);
     }
 
-    /** @param mixed|array<int, mixed> $arguments */
     public function denies(string $ability, mixed $arguments = []): bool
     {
         return ! $this->check($ability, $arguments);
     }
 
     /**
-     * Whether the current user may do this.
-     *
-     * @param mixed|array<int, mixed> $arguments
-     */
-    public function check(string $ability, mixed $arguments = []): bool
-    {
-        $arguments = is_array($arguments) ? array_values($arguments) : [$arguments];
-        $user = $this->user();
-
-        foreach ($this->beforeCallbacks as $callback) {
-            $result = $callback($user, $ability, $arguments);
-
-            if ($result !== null) {
-                return (bool) $result;
-            }
-        }
-
-        $result = $this->callAuthorizer($user, $ability, $arguments);
-
-        foreach ($this->afterCallbacks as $callback) {
-            $replacement = $callback($user, $ability, $result, $arguments);
-
-            if ($replacement !== null) {
-                $result = (bool) $replacement;
-            }
-        }
-
-        return (bool) $result;
-    }
-
-    /**
-     * Check every ability given, requiring all of them.
+     * Whether every named ability is allowed.
      *
      * @param array<int, string>|string $abilities
-     * @param mixed|array<int, mixed>   $arguments
      */
+    public function check(array|string $abilities, mixed $arguments = []): bool
+    {
+        foreach ((array) $abilities as $ability) {
+            if (! $this->inspect($ability, $arguments)->allowed()) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /** Whether any one of them is. */
     public function any(array|string $abilities, mixed $arguments = []): bool
     {
         foreach ((array) $abilities as $ability) {
-            if ($this->check($ability, $arguments)) {
+            if ($this->inspect($ability, $arguments)->allowed()) {
                 return true;
             }
         }
@@ -162,29 +207,109 @@ class Gate
         return false;
     }
 
-    /**
-     * @param array<int, string>|string $abilities
-     * @param mixed|array<int, mixed>   $arguments
-     */
     public function none(array|string $abilities, mixed $arguments = []): bool
     {
         return ! $this->any($abilities, $arguments);
     }
 
     /**
-     * Raise unless the current user may do this.
+     * The decision, with its reason.
      *
-     * @param  mixed|array<int, mixed> $arguments
-     * @throws AuthorizationException
+     * check() answers yes or no; this is what to call when the reason
+     * matters — to show it to the user, or to act on its status.
      */
-    public function authorize(string $ability, mixed $arguments = []): void
+    public function inspect(string $ability, mixed $arguments = []): Response
     {
-        if (! $this->check($ability, $arguments)) {
-            throw new AuthorizationException("This action is unauthorized: {$ability}.");
+        $result = $this->raw($ability, $arguments);
+
+        if ($result instanceof Response) {
+            return $result;
         }
+
+        return $result ? Response::allow() : $this->defaultDenialResponse($ability);
     }
 
-    /** A gate that answers for the given user instead of the current one. */
+    /**
+     * Whatever the ability actually returned, uncoerced.
+     */
+    public function raw(string $ability, mixed $arguments = []): mixed
+    {
+        $arguments = is_array($arguments) ? array_values($arguments) : [$arguments];
+        $user = $this->user();
+
+        $result = $this->callBeforeCallbacks($user, $ability, $arguments);
+
+        if ($result === null) {
+            $result = $this->callAuthorizer($user, $ability, $arguments);
+        }
+
+        return $this->callAfterCallbacks($user, $ability, $arguments, $result);
+    }
+
+    /**
+     * Throw unless the ability is allowed.
+     *
+     * @throws AuthorizationException
+     */
+    public function authorize(string $ability, mixed $arguments = []): Response
+    {
+        return $this->inspect($ability, $arguments)->authorize();
+    }
+
+    /**
+     * Throw unless the condition holds.
+     *
+     * For a check that is not worth a named ability — a flag on a
+     * record, a step already completed.
+     *
+     * @throws AuthorizationException
+     */
+    public function allowIf(mixed $condition, ?string $message = null, mixed $code = null): Response
+    {
+        return $this->authorizeOnCondition($condition, $message, $code, true);
+    }
+
+    /**
+     * Throw when the condition holds.
+     *
+     * @throws AuthorizationException
+     */
+    public function denyIf(mixed $condition, ?string $message = null, mixed $code = null): Response
+    {
+        return $this->authorizeOnCondition($condition, $message, $code, false);
+    }
+
+    private function authorizeOnCondition(mixed $condition, ?string $message, mixed $code, bool $allowWhen): Response
+    {
+        if ($condition instanceof Response) {
+            return $condition->authorize();
+        }
+
+        if (is_callable($condition)) {
+            $condition = $condition();
+        }
+
+        $allowed = $allowWhen ? (bool) $condition : ! $condition;
+
+        return ($allowed ? Response::allow($message, $code) : Response::deny($message, $code))->authorize();
+    }
+
+    /**
+     * What a denial means when the ability itself said nothing.
+     *
+     * Named, because "this action is unauthorized" on its own leaves
+     * whoever is reading the log to work out which action.
+     */
+    public function defaultDenialResponse(?string $ability = null): Response
+    {
+        return Response::deny(
+            $ability === null
+                ? 'This action is unauthorized.'
+                : "This action is unauthorized: {$ability}.",
+        );
+    }
+
+    /** A gate answering for somebody other than the current user. */
     public function forUser(mixed $user): static
     {
         $clone = clone $this;
@@ -193,19 +318,63 @@ class Gate
         return $clone;
     }
 
+    // ── Running an ability ────────────────────────────────────────────
+
     /**
-     * Find who answers the ability and call it.
+     * Give the before callbacks, and the policy's own, a chance to answer.
      *
-     * @param array<int, mixed> $arguments
+     * A policy's before() is what grants an administrator everything
+     * without every method repeating the check.
      */
-    protected function callAuthorizer(mixed $user, string $ability, array $arguments): bool
+    protected function callBeforeCallbacks(mixed $user, string $ability, array $arguments): mixed
     {
-        $policy = $arguments !== [] && is_object($arguments[0])
-            ? $this->getPolicyFor($arguments[0])
-            : null;
+        foreach ($this->beforeCallbacks as $callback) {
+            $result = $callback($user, $ability, $arguments);
+
+            if ($result !== null) {
+                return $result;
+            }
+        }
+
+        $policy = $this->policyForArguments($arguments);
+
+        if ($policy !== null && method_exists($policy, 'before')) {
+            $result = $policy->before($user, $ability, ...$arguments);
+
+            if ($result !== null) {
+                return $result;
+            }
+        }
+
+        return null;
+    }
+
+    /** Let the after callbacks replace the answer. */
+    protected function callAfterCallbacks(mixed $user, string $ability, array $arguments, mixed $result): mixed
+    {
+        foreach ($this->afterCallbacks as $callback) {
+            $replacement = $callback($user, $ability, $result, $arguments);
+
+            if ($replacement !== null) {
+                $result = $replacement;
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * Run the policy method or the defined callback.
+     *
+     * The result is returned as it came back, so a Response keeps its
+     * message all the way to the caller.
+     */
+    protected function callAuthorizer(mixed $user, string $ability, array $arguments): mixed
+    {
+        $policy = $this->policyForArguments($arguments);
 
         if ($policy !== null && method_exists($policy, $ability)) {
-            return (bool) $policy->{$ability}($user, ...$arguments);
+            return $policy->{$ability}($user, ...$arguments);
         }
 
         if (! isset($this->abilities[$ability])) {
@@ -219,25 +388,30 @@ class Gate
                 ? explode('@', $callback, 2)
                 : [$callback, $ability];
 
-            return (bool) $this->resolver->resolve($class)->{$method}($user, ...$arguments);
+            return $this->resolver->resolve($class)->{$method}($user, ...$arguments);
         }
 
-        return (bool) $callback($user, ...$arguments);
+        return $callback($user, ...$arguments);
     }
 
-    /**
-     * The user a check is made against, or null when nobody is signed in.
-     *
-     * Only the resolver it was given — a gate built without one answers every
-     * check as nobody. Reaching for the guard here instead duplicated what the
-     * resolver already does, on a branch no caller in the framework takes.
-     */
-    protected function user(): mixed
+    /** The policy for the first argument, when it is an object or a class name. */
+    protected function policyForArguments(array $arguments): ?object
     {
-        if ($this->userResolver === null) {
+        if ($arguments === []) {
             return null;
         }
 
-        return ($this->userResolver)();
+        $subject = $arguments[0];
+
+        if (is_object($subject)) {
+            return $this->getPolicyFor($subject);
+        }
+
+        return is_string($subject) && class_exists($subject) ? $this->getPolicyFor($subject) : null;
+    }
+
+    protected function user(): mixed
+    {
+        return $this->userResolver === null ? null : ($this->userResolver)();
     }
 }
