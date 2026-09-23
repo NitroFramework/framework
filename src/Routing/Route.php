@@ -98,9 +98,32 @@ class Route
     }
 
     /**
-     * Get route parameters (from URL)
+     * The parameters this route took from the URL, by name.
+     *
+     * Only the named ones, which is what a placeholder means and what Laravel
+     * answers with. The positional duplicates {@see getBindingParameters()}
+     * carries are a detail of how a handler's arguments are filled, and code
+     * that iterates a route's parameters — to log them, to rebuild a URL, to
+     * check one — should not have to step over them.
      */
     public function getParameters(): array
+    {
+        return array_filter(
+            $this->parameters,
+            static fn (string|int $key): bool => is_string($key),
+            ARRAY_FILTER_USE_KEY,
+        );
+    }
+
+    /**
+     * The same parameters, plus the positional ones, for filling arguments.
+     *
+     * A handler whose argument names match the placeholders binds by name. One
+     * whose names differ — a closure written `fn ($a, $b)` against
+     * `/users/{id}/posts/{post}` — falls back to position rather than failing,
+     * and that fallback needs the numeric keys the match produced.
+     */
+    public function getBindingParameters(): array
     {
         return $this->parameters;
     }

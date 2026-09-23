@@ -3,6 +3,8 @@
 namespace Nitro\Routing\Concerns;
 
 use InvalidArgumentException;
+use Nitro\Routing\Exceptions\RouteNotFoundException;
+use Nitro\Routing\Exceptions\UrlGenerationException;
 use RuntimeException;
 
 /**
@@ -22,6 +24,16 @@ trait GeneratesUrls
     protected ?array $lastRoute = null;
 
     /**
+     * Every route the last registration call produced, for chaining onto.
+     *
+     * One entry for a single verb, one per verb for match() and any(), so what
+     * follows the call reaches all of them.
+     *
+     * @var array<int, array{method: string, path: string}>
+     */
+    protected array $lastRoutes = [];
+
+    /**
      * Assign a name to the most recently registered route (prefixed by the
      * current group name) and record it in the named-route registry.
      *
@@ -33,8 +45,12 @@ trait GeneratesUrls
             throw new RuntimeException('No route to name. Call name() immediately after defining a route.');
         }
 
-        $method = $this->lastRoute['method'];
-        $path = $this->lastRoute['path'];
+        // The first of them, so a name registered for several verbs at once
+        // reports the verb it was written with rather than the last one stored.
+        $first = $this->lastRoutes[0] ?? $this->lastRoute;
+
+        $method = $first['method'];
+        $path = $first['path'];
 
         // Build full name with current group prefix
         $fullName = $this->currentName . $name;
@@ -64,15 +80,19 @@ trait GeneratesUrls
      * Generate a URL for a named route by substituting the given parameters
      * into its path.
      *
-     * @throws InvalidArgumentException When the route is unknown or required
-     *         parameters are missing.
+     * A placeholder still standing at the end was never given a value, and is
+     * named in the exception: "missing parameters" on a route with four of them
+     * says nothing about which one to pass.
+     *
+     * @throws RouteNotFoundException  When no route carries that name.
+     * @throws UrlGenerationException  When the route needs a parameter nothing gave it.
      */
     public function route(string $name, array $parameters = []): string
     {
         $route = $this->getRouteByName($name);
 
         if (!$route) {
-            throw new InvalidArgumentException("Route [{$name}] not found");
+            throw RouteNotFoundException::forName($name);
         }
 
         $path = $route['path'];
@@ -136,9 +156,11 @@ trait GeneratesUrls
             $path = '/';
         }
 
-        // Check for unreplaced parameters
-        if (preg_match('/\{[^}]+\}/', $path)) {
-            throw new InvalidArgumentException("Missing parameters for route [{$name}]");
+        if (preg_match_all('/\{([^}]+)\}/', $path, $unfilled) === 1 || $unfilled[1] !== []) {
+            throw UrlGenerationException::forMissingParameters(
+                $name,
+                array_map(static fn (string $p): string => rtrim($p, '?'), $unfilled[1]),
+            );
         }
 
         return $query === [] ? $path : $path . '?' . http_build_query($query);

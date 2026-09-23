@@ -218,9 +218,15 @@ class Router implements RouterInterface, ExtendableRouter, ReportsAllowedMethods
      */
     public function methods(array $methods, string $path, $handler): static
     {
+        $registered = [];
+
         foreach ($methods as $method) {
             $this->addRoute(strtoupper($method), $path, $handler);
+            $registered[] = $this->lastRoute;
         }
+
+        $this->lastRoutes = $registered;
+
         return $this;
     }
 
@@ -251,13 +257,26 @@ class Router implements RouterInterface, ExtendableRouter, ReportsAllowedMethods
      *
      * Pass ['only' => [...]] or ['except' => [...]] to limit the verbs.
      */
-    public function resource(string $name, string $controller, array $options = []): static
+    public function resource(string $name, string $controller, array $options = []): PendingResourceRegistration
+    {
+        return new PendingResourceRegistration($this, $name, $controller, $options);
+    }
+
+    /**
+     * Register a resource's routes for real.
+     *
+     * Called by {@see PendingResourceRegistration} once the chain that started
+     * with resource() has finished deciding which actions it wants.
+     *
+     * @param array<string, mixed> $options
+     */
+    public function registerResource(string $name, string $controller, array $options = []): static
     {
         $name  = trim($name, '/');
         $base  = '/' . $name;
         $param = $options['parameter'] ?? $this->singularize($name);
         $wild  = $base . '/{' . $param . '}';
-        $named = str_replace('/', '.', $name);
+        $named = $options['names'] ?? str_replace('/', '.', $name);
 
         /*
          * update takes PUT and PATCH both: a full replacement and a partial
@@ -292,6 +311,10 @@ class Router implements RouterInterface, ExtendableRouter, ReportsAllowedMethods
                  */
                 if ($index === 0) {
                     $route->name("{$named}.{$action}");
+                }
+
+                if (! empty($options['middleware'])) {
+                    $route->middleware((array) $options['middleware']);
                 }
             }
         }
@@ -342,9 +365,22 @@ class Router implements RouterInterface, ExtendableRouter, ReportsAllowedMethods
      *
      * The current group state is pushed before the callback runs and restored
      * afterwards, so nested groups compose correctly.
+     *
+     * Given only a callback, the group carries whatever the fluent builders
+     * already set — prefix('shop')->group(fn ($router) => …) — and exists to
+     * scope it rather than to add to it.
      */
-    public function group(array $attributes, Closure $callback): static
+    public function group(array|Closure $attributes, ?Closure $callback = null): static
     {
+        if ($attributes instanceof Closure) {
+            $callback = $attributes;
+            $attributes = [];
+        }
+
+        if ($callback === null) {
+            throw new \InvalidArgumentException('A route group needs a callback to define its routes.');
+        }
+
         // Push current state to stack
         $this->groupStack[] = [
             'prefix' => $this->currentPrefix,
@@ -431,8 +467,34 @@ class Router implements RouterInterface, ExtendableRouter, ReportsAllowedMethods
      * the flat dynamic list, and the prefix buckets that matching actually
      * reads — each a by-value copy. Miss one and the matched route loses the
      * change in whichever code path reads that copy.
+     *
+     * A single registration leaves one route behind; match() and any() leave
+     * one per verb. What follows them — a name, middleware, a constraint —
+     * belongs to all of them, or a POST route goes unnamed because a GET was
+     * written for the same path in the same call.
      */
     protected function setOnLastRoute(string $key, mixed $value): void
+    {
+        $registered = $this->lastRoutes === [] ? [$this->lastRoute] : $this->lastRoutes;
+
+        if (count($registered) > 1) {
+            $current = $this->lastRoute;
+
+            foreach ($registered as $route) {
+                $this->lastRoute = $route;
+                $this->setOnOneRoute($key, $value);
+            }
+
+            $this->lastRoute = $current;
+
+            return;
+        }
+
+        $this->setOnOneRoute($key, $value);
+    }
+
+    /** Write one key onto the route currently in {@see $lastRoute}. */
+    private function setOnOneRoute(string $key, mixed $value): void
     {
         $method = $this->lastRoute['method'];
         $path = $this->lastRoute['path'];
@@ -1039,7 +1101,7 @@ class Router implements RouterInterface, ExtendableRouter, ReportsAllowedMethods
     // ─── Resource variants ────────────────────────────────────────────────
 
     /** A resource without the create/edit form routes. */
-    public function apiResource(string $name, string $controller, array $options = []): static
+    public function apiResource(string $name, string $controller, array $options = []): PendingResourceRegistration
     {
         $options['except'] = array_merge($options['except'] ?? [], ['create', 'edit']);
 
@@ -1368,6 +1430,7 @@ class Router implements RouterInterface, ExtendableRouter, ReportsAllowedMethods
 
         // Store reference for potential chaining
         $this->lastRoute = ['method' => $method, 'path' => $fullPath];
+        $this->lastRoutes = [$this->lastRoute];
 
         // Detect if route has parameters
         if ($this->hasParameters($fullPath)) {
@@ -1479,6 +1542,11 @@ class Router implements RouterInterface, ExtendableRouter, ReportsAllowedMethods
      * A prefix is a URI and a name is a name; neither is derived from the
      * other. A group that wants both says both, so moving a group's URI never
      * silently renames the routes inside it.
+     *
+     * The name prefix answers to both 'as' and 'name'. 'as' is what Laravel
+     * calls it, and an unrecognised key fails silently — the routes register,
+     * their names simply lose the prefix, and nothing says so until a link
+     * points somewhere else.
      */
     protected function updateGroupAttributes(array $attributes): void
     {
@@ -1505,8 +1573,10 @@ class Router implements RouterInterface, ExtendableRouter, ReportsAllowedMethods
             $this->currentScopeBindings = (bool) $attributes['scopeBindings'];
         }
 
-        if (isset($attributes['name'])) {
-            $this->currentName = $this->currentName . $attributes['name'];
+        $groupName = $attributes['as'] ?? $attributes['name'] ?? null;
+
+        if ($groupName !== null) {
+            $this->currentName = $this->currentName . $groupName;
         }
     }
 

@@ -93,7 +93,7 @@ class RouteDispatcher
     {
         $controllerClass = $route->getControllerClass();
         $method          = $route->getControllerMethod();
-        $parameters      = $route->getParameters();
+        $parameters      = $route->getBindingParameters();
 
         if (!$controllerClass || !$method) {
             throw new RuntimeException("Invalid controller route configuration");
@@ -135,7 +135,7 @@ class RouteDispatcher
     protected function executeClosure(Route $route): mixed
     {
         $closure = $route->getHandler();
-        $parameters = $route->getParameters();
+        $parameters = $route->getBindingParameters();
 
         if (!$closure instanceof Closure) {
             throw new RuntimeException("Invalid closure handler");
@@ -153,7 +153,7 @@ class RouteDispatcher
     protected function executeCallable(Route $route): mixed
     {
         $callable = $route->getHandler();
-        $parameters = $route->getParameters();
+        $parameters = $route->getBindingParameters();
 
         if (!is_callable($callable)) {
             throw new RuntimeException("Handler is not callable");
