@@ -2,96 +2,149 @@
 
 namespace Nitro\Notifications;
 
+use Nitro\Events\Contracts\Dispatcher;
 use Nitro\Notifications\Events\NotificationFailed;
 use Nitro\Notifications\Events\NotificationSending;
 use Nitro\Notifications\Events\NotificationSent;
+use Nitro\Notifications\Events\NotificationSkipped;
 use Nitro\Queue\Contracts\ShouldQueue;
 use Throwable;
 
-/** Routes a notification to each of its channels for one or many notifiables. */
+/**
+ * Delivers a notification to each of its notifiables, on each channel.
+ */
 class NotificationSender
 {
-    public function __construct(protected ChannelManager $channels) {}
+    public function __construct(
+        protected ChannelManager $channels,
+        protected ?Dispatcher $events = null,
+    ) {}
 
     /**
      * Send a notification, queueing it when it asks to be queued.
      *
-     * Queued per notifiable rather than per call: sending to two hundred people
-     * should be two hundred jobs, so one bad address fails one delivery instead
-     * of abandoning the other hundred and ninety-nine mid-run.
+     * @param array<int, string>|null $channels Override what via() names.
      */
-    public function send(object|iterable $notifiables, Notification $notification): void
+    public function send(object|iterable $notifiables, Notification $notification, ?array $channels = null): void
+    {
+        if ($notification instanceof ShouldQueue) {
+            $this->queue($notifiables, $notification, $channels);
+
+            return;
+        }
+
+        $this->sendNow($notifiables, $notification, $channels);
+    }
+
+    /**
+     * Send it in this process, whatever it asked for.
+     *
+     * @param array<int, string>|null $channels Override what via() names.
+     */
+    public function sendNow(object|iterable $notifiables, Notification $notification, ?array $channels = null): void
     {
         foreach ($this->normalize($notifiables) as $notifiable) {
-            if ($notification instanceof ShouldQueue) {
-                SendQueuedNotification::dispatch($notifiable, $notification);
+            $via = $channels ?: $notification->via($notifiable);
 
+            if ($via === []) {
                 continue;
             }
 
-            $this->deliver($notifiable, $notification);
+            // One identifier per notifiable, shared by every channel it goes
+            // out on, so the copy in a database and the one in an inbox are
+            // recognisably the same notification.
+            $id = bin2hex(random_bytes(16));
+
+            foreach ($via as $channel) {
+                // An anonymous notifiable is an address, not a record, so
+                // there is nothing for a database row to belong to.
+                if ($notifiable instanceof AnonymousNotifiable && $channel === 'database') {
+                    continue;
+                }
+
+                $this->sendToNotifiable($notifiable, $id, clone $notification, $channel);
+            }
         }
     }
 
     /**
-     * Send immediately, whatever the notification asks for.
+     * Put it on the queue rather than sending it now.
      *
-     * This is what the queued job calls when it runs, and what a caller uses to
-     * bypass the queue deliberately. Going back through send() from the job
-     * would see ShouldQueue again and re-queue it for ever.
+     * @param array<int, string>|null $channels
      */
-    public function sendNow(object|iterable $notifiables, Notification $notification): void
+    public function queue(object|iterable $notifiables, Notification $notification, ?array $channels = null): void
     {
         foreach ($this->normalize($notifiables) as $notifiable) {
-            $this->deliver($notifiable, $notification);
+            $queued = new SendQueuedNotification($notifiable, clone $notification, $channels);
+
+            (new \Nitro\Queue\PendingDispatch($queued))
+                ->onConnection($notification->connection)
+                ->onQueue($notification->queue)
+                ->delay($notification->delay);
         }
     }
 
-    /**
-     * Begin notifying somebody by address rather than by model.
-     *
-     *   Notification::route('mail', 'ops@example.com')->notify(new Alert());
-     */
+    /** Begin a notification to an address rather than a record. */
     public function route(string $channel, mixed $route): AnonymousNotifiable
     {
         return (new AnonymousNotifiable())->route($channel, $route);
     }
 
     /**
-     * Deliver on every channel the notification asks for.
+     * Deliver one notification on one channel.
      *
-     * Each channel is independent: one failing is reported and the rest still
-     * go out, so a bad email address does not also cost the database record.
-     * The exception is not re-thrown, because a notification is a side effect
-     * of whatever the caller was actually doing.
+     * @throws Throwable Whatever the channel threw, after it is reported.
      */
-    protected function deliver(object $notifiable, Notification $notification): void
+    protected function sendToNotifiable(object $notifiable, string $id, Notification $notification, string $channel): void
     {
-        foreach ($notification->via($notifiable) as $channel) {
-            $this->dispatch(new NotificationSending($notifiable, $notification, $channel));
+        $notification->id ??= $id;
 
-            try {
-                $this->channels->channel($channel)->send($notifiable, $notification);
-            } catch (Throwable $exception) {
-                $this->dispatch(new NotificationFailed($notifiable, $notification, $channel, $exception));
+        if (! $this->shouldSend($notifiable, $notification, $channel)) {
+            $this->dispatch(new NotificationSkipped($notifiable, $notification, $channel));
 
-                continue;
-            }
-
-            $this->dispatch(new NotificationSent($notifiable, $notification, $channel));
+            return;
         }
+
+        try {
+            $response = $this->channels->channel($channel)->send($notifiable, $notification);
+        } catch (Throwable $exception) {
+            $this->dispatch(new NotificationFailed($notifiable, $notification, $channel, $exception));
+
+            throw $exception;
+        }
+
+        if (method_exists($notification, 'afterSending')) {
+            $notification->afterSending($notifiable, $channel, $response);
+        }
+
+        $this->dispatch(new NotificationSent($notifiable, $notification, $channel, $response));
     }
 
     /**
-     * Fire an event, when there is a dispatcher to fire it on.
+     * Whether this notification should go out on this channel.
+     *
+     * The notification decides first through shouldSend(); after that a
+     * listener returning false from NotificationSending cancels it,
+     * which is how sending is suppressed outside working hours or on a
+     * staging environment without editing each notification.
      */
+    protected function shouldSend(object $notifiable, Notification $notification, string $channel): bool
+    {
+        if (method_exists($notification, 'shouldSend')
+            && $notification->shouldSend($notifiable, $channel) === false) {
+            return false;
+        }
+
+        if ($this->events === null) {
+            return true;
+        }
+
+        return $this->events->until(new NotificationSending($notifiable, $notification, $channel)) !== false;
+    }
+
     protected function dispatch(object $event): void
     {
-        $container = app();
-
-        if ($container->has('events')) {
-            $container->resolve('events')->dispatch($event);
-        }
+        $this->events?->dispatch($event);
     }
 
     /** @return iterable<int, object> */

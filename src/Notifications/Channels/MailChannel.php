@@ -2,7 +2,10 @@
 
 namespace Nitro\Notifications\Channels;
 
+use Nitro\Mail\Attachment as MailAttachment;
 use Nitro\Mail\Contracts\Mailer;
+use Nitro\Mail\Mailable;
+use Nitro\Mail\Markdown;
 use Nitro\Mail\Message;
 use Nitro\Notifications\Contracts\Channel;
 use Nitro\Notifications\Messages\MailMessage;
@@ -44,10 +47,16 @@ class MailChannel implements Channel
     /**
      * Get a mailer message, rendering a described one if that is what we have.
      */
-    protected function toMailerMessage(MailMessage|Message $message, Notification $notification): Message
+    protected function toMailerMessage(MailMessage|Mailable|Message $message, Notification $notification): Message
     {
         if ($message instanceof Message) {
             return $message;
+        }
+
+        // A notification whose mail is elaborate enough to be its own
+        // class says so by returning one.
+        if ($message instanceof Mailable) {
+            return $message->buildMessage();
         }
 
         return $this->render($message, $notification);
@@ -62,6 +71,12 @@ class MailChannel implements Channel
 
         $mail->subject($message->subject ?? $this->subjectFor($notification));
         $mail->html($this->renderBody($message));
+
+        $text = $this->renderText($message);
+
+        if ($text !== null) {
+            $mail->text($text);
+        }
 
         foreach ($message->to as $address) {
             $mail->to($address);
@@ -94,8 +109,27 @@ class MailChannel implements Channel
                 $attachment['options']['mime'] ?? null,
             );
         }
+        foreach ($message->storageAttachments as $attachment) {
+            MailAttachment::fromStorageDisk($attachment['disk'], $attachment['path'])
+                ->as($attachment['name'])
+                ->withMime($attachment['options']['mime'] ?? null)
+                ->attachTo($mail);
+        }
+
         foreach ($message->headers as $name => $value) {
             $mail->header($name, $value);
+        }
+
+        foreach ($message->metadata as $key => $value) {
+            $mail->header('X-Metadata-' . $key, (string) $value);
+        }
+
+        if ($message->tags !== []) {
+            $mail->header('X-Tags', implode(',', $message->tags));
+        }
+
+        if ($message->priority !== null) {
+            $mail->header('X-Priority', (string) $message->priority);
         }
 
         return $mail;
@@ -106,7 +140,37 @@ class MailChannel implements Channel
      */
     protected function renderBody(MailMessage $message): string
     {
+        if ($message->markdown !== null) {
+            return $this->markdown($message)->render($message->markdown, $message->data());
+        }
+
         return view($message->view ?? self::LAYOUT, $message->data())->render();
+    }
+
+    /**
+     * The plain-text part, when the message names one.
+     *
+     * A markdown view is already the plain-text form of what it
+     * describes, so it supplies both parts on its own.
+     */
+    protected function renderText(MailMessage $message): ?string
+    {
+        if ($message->textView !== null) {
+            return view($message->textView, $message->data())->render();
+        }
+
+        if ($message->markdown !== null) {
+            return $this->markdown($message)->renderText($message->markdown, $message->data());
+        }
+
+        return null;
+    }
+
+    protected function markdown(MailMessage $message): Markdown
+    {
+        $markdown = \app(Markdown::class);
+
+        return $message->theme === null ? $markdown : $markdown->theme($message->theme);
     }
 
     /**

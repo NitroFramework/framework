@@ -21,7 +21,9 @@ class DatabaseChannel implements Channel
         $now = date('Y-m-d H:i:s');
 
         DB::table($this->table)->insert([
-            'id' => bin2hex(random_bytes(16)),
+            // The sender's identifier, so the row and the copy that went
+            // out by mail are recognisably the same notification.
+            'id' => $notification->id ?? bin2hex(random_bytes(16)),
             'type' => get_class($notification),
             'notifiable_type' => get_class($notifiable),
             'notifiable_id' => (string) (method_exists($notifiable, 'getKey') ? $notifiable->getKey() : ($notifiable->id ?? '')),

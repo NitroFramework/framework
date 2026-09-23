@@ -41,6 +41,27 @@ class MailMessage extends SimpleMessage
     /** @var array<string, string> */
     public array $headers = [];
 
+    /** A markdown view, rendered to both an HTML and a text part. */
+    public ?string $markdown = null;
+
+    /** A plain-text view, sent alongside the HTML one. */
+    public ?string $textView = null;
+
+    /** The theme the markdown styles come from. */
+    public ?string $theme = null;
+
+    /** @var array<int, array{disk: ?string, path: string, name: ?string, options: array<string, mixed>}> */
+    public array $storageAttachments = [];
+
+    /** @var array<int, string> */
+    public array $tags = [];
+
+    /** @var array<string, string|int> */
+    public array $metadata = [];
+
+    /** 1 is highest, 5 lowest; null leaves the header off. */
+    public ?int $priority = null;
+
     /**
      * Set the sender.
      */
@@ -154,5 +175,85 @@ class MailMessage extends SimpleMessage
     public function data(): array
     {
         return array_merge($this->toArray(), $this->viewData);
+    }
+
+    /** Render a markdown view rather than the built-in layout. */
+    public function markdown(string $view, array $data = []): static
+    {
+        $this->markdown = $view;
+        $this->viewData = array_merge($this->viewData, $data);
+
+        return $this;
+    }
+
+    /** A plain-text view, sent alongside the HTML one. */
+    public function text(string $view, array $data = []): static
+    {
+        $this->textView = $view;
+        $this->viewData = array_merge($this->viewData, $data);
+
+        return $this;
+    }
+
+    /** Use a named theme for the markdown styles. */
+    public function theme(string $theme): static
+    {
+        $this->theme = $theme;
+
+        return $this;
+    }
+
+    /** Attach a file from the default storage disk. */
+    public function attachFromStorage(string $path, ?string $name = null, array $options = []): static
+    {
+        $this->storageAttachments[] = ['disk' => null, 'path' => $path, 'name' => $name, 'options' => $options];
+
+        return $this;
+    }
+
+    /** Attach a file from a named storage disk. */
+    public function attachFromStorageDisk(string $disk, string $path, ?string $name = null, array $options = []): static
+    {
+        $this->storageAttachments[] = ['disk' => $disk, 'path' => $path, 'name' => $name, 'options' => $options];
+
+        return $this;
+    }
+
+    /**
+     * Attach several files at once.
+     *
+     * @param array<int|string, mixed> $files
+     */
+    public function attachMany(array $files): static
+    {
+        foreach ($files as $path => $options) {
+            is_int($path) ? $this->attach($options) : $this->attach($path, (array) $options);
+        }
+
+        return $this;
+    }
+
+    /** Tag the message, for a provider that groups by one. */
+    public function tag(string $tag): static
+    {
+        $this->tags[] = $tag;
+
+        return $this;
+    }
+
+    /** Attach a value a provider echoes back on a webhook. */
+    public function metadata(string $key, string|int $value): static
+    {
+        $this->metadata[$key] = $value;
+
+        return $this;
+    }
+
+    /** Set the X-Priority header; 1 is highest, 5 lowest. */
+    public function priority(int $level): static
+    {
+        $this->priority = max(1, min(5, $level));
+
+        return $this;
     }
 }

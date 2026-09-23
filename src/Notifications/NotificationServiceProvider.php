@@ -32,13 +32,16 @@ class NotificationServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->container->singleton(ChannelManager::class, function ($container) {
+            // The dispatcher goes in, so a notification can be logged,
+            // cancelled or redirected without wrapping the sender.
             return new ChannelManager(
                 static fn (): Mailer => $container->resolve(Mailer::class),
+                $container->has('events') ? $container->resolve('events') : null,
             );
         });
 
         $this->container->singleton('notification', function ($container) {
-            return new NotificationSender($container->resolve(ChannelManager::class));
+            return $container->resolve(ChannelManager::class)->sender();
         });
 
         $this->container->alias('notification', NotificationSender::class);

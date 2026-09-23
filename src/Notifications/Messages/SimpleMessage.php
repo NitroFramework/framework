@@ -34,6 +34,9 @@ class SimpleMessage
     /** The call to action, when there is one. */
     public ?Action $action = null;
 
+    /** The mailer this goes through, or null for the default. */
+    public ?string $mailer = null;
+
     /**
      * Mark the message as reporting success.
      */
@@ -114,6 +117,31 @@ class SimpleMessage
         foreach ($lines as $line) {
             $this->line($line);
         }
+
+        return $this;
+    }
+
+    /**
+     * Add a line only when the condition holds.
+     *
+     * A notification whose wording depends on the record it is about
+     * would otherwise be an if around every other line.
+     */
+    public function lineIf(bool $condition, string $line): static
+    {
+        return $condition ? $this->line($line) : $this;
+    }
+
+    /** The same, for several lines. */
+    public function linesIf(bool $condition, iterable $lines): static
+    {
+        return $condition ? $this->lines($lines) : $this;
+    }
+
+    /** Send through a named mailer rather than the default. */
+    public function mailer(string $mailer): static
+    {
+        $this->mailer = $mailer;
 
         return $this;
     }
