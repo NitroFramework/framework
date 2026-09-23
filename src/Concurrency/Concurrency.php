@@ -3,6 +3,7 @@
 namespace Nitro\Concurrency;
 
 use Nitro\Concurrency\Contracts\Driver;
+use Nitro\Concurrency\Drivers\CoroutineDriver;
 use Nitro\Concurrency\Drivers\ForkDriver;
 use Nitro\Concurrency\Drivers\ProcessDriver;
 use Nitro\Concurrency\Drivers\SyncDriver;
@@ -11,16 +12,25 @@ use Nitro\Concurrency\Drivers\SyncDriver;
  * Per-request task fan-out — run a handful of INDEPENDENT operations at once so a
  * request that does several slow things waits max(them) instead of sum(them).
  *
- * THIS IS NOT COROUTINES. It does not let the server handle more concurrent
- * REQUESTS; it parallelises a few tasks WITHIN one request. Coroutine-style
- * request concurrency (Swoole/Fiber-based) is a separate, heavier model we intend
- * to build as its own layer later — deliberately kept out of here.
+ * This parallelises tasks WITHIN one request. It does not make the server handle
+ * more requests at once: that asks every request to share a process, and asks
+ * every service holding request state to be keyed per coroutine rather than reset
+ * between requests — a different model, and not this one.
  *
  * Two entry points:
  *   - http()  — parallel HTTP via curl_multi, IN-PROCESS, no subprocess/boot. The
  *               common case ("call N APIs at once") and the one to reach for first.
- *   - run()   — parallel closures/tasks via a driver (process = real OS parallelism
- *               with a per-task framework boot; sync = sequential fallback/tests).
+ *   - run()   — parallel tasks through a driver.
+ *
+ * The drivers, cheapest first:
+ *   - coroutine  a stack and a context each, inside this process. Needs ext-swoole.
+ *   - fork       a copy of this process each. Needs ext-pcntl and ext-sockets.
+ *   - process    a second framework boot each. Works everywhere.
+ *   - sync       one after another. The fallback, and what a suite wants.
+ *
+ * 'auto' takes the cheapest the platform can actually run, for an application
+ * that wants its tasks parallel and does not want a config naming an extension
+ * the machine might not have.
  */
 class Concurrency
 {
@@ -49,11 +59,49 @@ class Concurrency
         $name ??= $this->defaultDriver;
 
         return $this->drivers[$name] ??= match ($name) {
-            'process' => new ProcessDriver(),
-            'fork'    => $this->forkDriver(),
-            'sync'    => new SyncDriver(),
-            default   => throw new \InvalidArgumentException("Unknown concurrency driver [{$name}]."),
+            'process'   => new ProcessDriver(),
+            'fork'      => $this->forkDriver(),
+            'coroutine' => $this->coroutineDriver(),
+            'sync'      => new SyncDriver(),
+            'auto'      => $this->bestAvailableDriver(),
+            default     => throw new \InvalidArgumentException("Unknown concurrency driver [{$name}]."),
         };
+    }
+
+    /**
+     * The cheapest driver this platform can actually run.
+     *
+     * For an application that wants tasks run in parallel without caring how,
+     * and does not want its config to be wrong on a machine that lacks an
+     * extension. Ordered by what a task costs: a coroutine is a stack, a fork
+     * is a copy of the process, a process is a second framework boot.
+     */
+    private function bestAvailableDriver(): Driver
+    {
+        return match (true) {
+            CoroutineDriver::supported() => new CoroutineDriver(),
+            ForkDriver::supported()      => new ForkDriver(),
+            default                      => new ProcessDriver(),
+        };
+    }
+
+    /**
+     * The coroutine driver, or a refusal naming what is missing.
+     *
+     * Checked here for the same reason as the fork driver: an application that
+     * never asks for it runs unchanged where ext-swoole does not exist, which
+     * is every Windows machine.
+     */
+    private function coroutineDriver(): Driver
+    {
+        if (! CoroutineDriver::supported()) {
+            throw new \RuntimeException(
+                'The coroutine driver needs ext-swoole, which this platform does not have. '
+                . "Use 'auto' to take the best this platform has, or the process driver."
+            );
+        }
+
+        return new CoroutineDriver();
     }
 
     /**
