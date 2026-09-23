@@ -115,9 +115,26 @@ class Connection implements ReceivesDispatcher
             return $database === ':memory:' ? 'sqlite::memory:' : "sqlite:{$database}";
         }
 
+        $database = $config['database'] ?? '';
+
+        // Postgres takes neither charset nor collation in the DSN; the client
+        // encoding is set once the connection is open, and sslmode belongs here
+        // because libpq reads it while connecting.
+        if ($driver === 'pgsql') {
+            $host = $config['host'] ?? '127.0.0.1';
+            $port = $config['port'] ?? 5432;
+
+            $dsn = "pgsql:host={$host};port={$port};dbname={$database}";
+
+            if (isset($config['sslmode'])) {
+                $dsn .= ";sslmode={$config['sslmode']}";
+            }
+
+            return $dsn;
+        }
+
         $host     = $config['host'] ?? '127.0.0.1';
         $port     = $config['port'] ?? 3306;
-        $database = $config['database'] ?? '';
         $charset  = $config['charset'] ?? 'utf8mb4';
 
         return "{$driver}:host={$host};port={$port};dbname={$database};charset={$charset}";
@@ -133,12 +150,55 @@ class Connection implements ReceivesDispatcher
             return;
         }
 
+        // Postgres spells these differently and has no COLLATE on the session:
+        // a collation belongs to a column or a comparison, not a connection.
+        if ($driver === 'pgsql') {
+            $charset = $this->config['charset'] ?? 'utf8';
+
+            $this->assertSafeCharsetAndCollation($charset, 'utf8');
+
+            $pdo->exec("SET NAMES '{$charset}'");
+
+            if (isset($this->config['schema'])) {
+                $pdo->exec('SET search_path TO ' . $this->quoteSearchPath($this->config['schema']));
+            }
+
+            if (isset($this->config['timezone'])) {
+                $pdo->exec("SET time zone '" . str_replace("'", "''", $this->config['timezone']) . "'");
+            }
+
+            return;
+        }
+
         $charset   = $this->config['charset'] ?? 'utf8mb4';
         $collation = $this->config['collation'] ?? 'utf8mb4_unicode_ci';
 
         $this->assertSafeCharsetAndCollation($charset, $collation);
 
         $pdo->exec("SET NAMES '{$charset}' COLLATE '{$collation}'");
+    }
+
+    /**
+     * Quote a search path, which may name more than one schema.
+     *
+     * The value reaches SET as an identifier rather than a bound parameter,
+     * so each name is checked against the identifier shape before it is used.
+     *
+     * @param string|array<int, string> $schema
+     */
+    protected function quoteSearchPath(string|array $schema): string
+    {
+        $names = is_array($schema) ? $schema : explode(',', $schema);
+
+        return implode(', ', array_map(static function (string $name): string {
+            $name = trim($name);
+
+            if (!preg_match('/^[A-Za-z_][A-Za-z0-9_$]*$/', $name)) {
+                throw new \InvalidArgumentException("Invalid schema name in search path: {$name}");
+            }
+
+            return '"' . $name . '"';
+        }, $names));
     }
 
     /**
