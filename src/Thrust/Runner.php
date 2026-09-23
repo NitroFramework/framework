@@ -33,10 +33,16 @@ class Runner
     /** Set by signal handlers to break the run loop on the next iteration. */
     private bool $shouldStop = false;
 
+    /**
+     * FrankenPHP by default, so a worker entrypoint that resolves this from the
+     * container still builds: an interface is not instantiable, and every
+     * application already has a public/worker.php doing exactly that. Another
+     * runtime is passed in — see the Swoole worker stub.
+     */
     public function __construct(
         private Application $app,
-        private WorkerAdapter $adapter,
-        private WorkerMode $config,
+        private WorkerAdapter $adapter = new Adapters\FrankenPhpAdapter(),
+        private WorkerMode $config = new WorkerMode(),
     ) {}
 
     public function run(): void
