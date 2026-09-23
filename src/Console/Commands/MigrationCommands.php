@@ -174,49 +174,98 @@ class MigrationCommands implements CommandInterface
             return ExitCode::FAILURE;
         }
 
-        // Guess the table from the migration name so the create-stub is useful
-        // out of the box ("create_orders_table" → "orders"). When the name
-        // doesn't imply a table, emit a blank migration rather than scaffolding
-        // a bogus create('TODO_table_name').
-        $tableGuess = $this->guessTableName($snake);
+        // Guess the table from the migration name so the stub is useful out of
+        // the box ("create_orders_table" → "orders"). The name also says which
+        // stub: creating a table and adding a column to one are not the same
+        // migration. When it implies neither, emit a blank one rather than
+        // scaffolding a create() the developer has to notice and delete.
+        $guess = $this->guessTable($snake);
 
-        file_put_contents($path, $tableGuess !== null
-            ? $this->migrationStub($tableGuess)
-            : $this->blankMigrationStub());
+        file_put_contents($path, match (true) {
+            $guess === null => $this->blankMigrationStub(),
+            $guess['create'] => $this->createMigrationStub($guess['table']),
+            default => $this->updateMigrationStub($guess['table']),
+        });
         $this->output->success("Created: database/migrations/{$filename}");
 
         return ExitCode::SUCCESS;
     }
 
-    /** The table a create-migration targets, or null when the name doesn't imply one. */
-    private function guessTableName(string $snake): ?string
+    /**
+     * The table a migration targets and whether it creates it.
+     *
+     * 'create_orders_table' makes a table; 'add_status_to_orders_table'
+     * changes one. A name that says neither returns null.
+     *
+     * @return array{table: string, create: bool}|null
+     */
+    private function guessTable(string $snake): ?array
     {
-        if (preg_match('/^create_(.+?)_table$/', $snake, $matches)) return $matches[1];
-        if (preg_match('/^add_.+_to_(.+?)_table$/', $snake, $matches)) return $matches[1];
-        if (preg_match('/^drop_(.+?)_table$/', $snake, $matches)) return $matches[1];
+        foreach (['/^create_(\w+)_table$/', '/^create_(\w+)$/'] as $pattern) {
+            if (preg_match($pattern, $snake, $matches)) {
+                return ['table' => $matches[1], 'create' => true];
+            }
+        }
+
+        foreach (['/.+_(?:to|from|in)_(\w+)_table$/', '/.+_(?:to|from|in)_(\w+)$/'] as $pattern) {
+            if (preg_match($pattern, $snake, $matches)) {
+                return ['table' => $matches[1], 'create' => false];
+            }
+        }
+
         return null;
     }
 
-    private function migrationStub(string $table): string
+    /** A migration that makes a table. */
+    private function createMigrationStub(string $table): string
     {
         return <<<PHP
         <?php
 
-        use Nitro\\Database\\Schema\\SchemaBuilder;
+        use Nitro\\Database\\Schema\\Blueprint;
+        use Nitro\\Facades\\Schema;
 
         return new class {
-            public function up(SchemaBuilder \$schema): void
+            public function up(): void
             {
-                \$schema->create('{$table}', function (\$table) {
+                Schema::create('{$table}', function (Blueprint \$table) {
                     \$table->id();
                     // \$table->string('name');
                     \$table->timestamps();
                 });
             }
 
-            public function down(SchemaBuilder \$schema): void
+            public function down(): void
             {
-                \$schema->dropIfExists('{$table}');
+                Schema::dropIfExists('{$table}');
+            }
+        };
+
+        PHP;
+    }
+
+    /** A migration that changes a table that already exists. */
+    private function updateMigrationStub(string $table): string
+    {
+        return <<<PHP
+        <?php
+
+        use Nitro\\Database\\Schema\\Blueprint;
+        use Nitro\\Facades\\Schema;
+
+        return new class {
+            public function up(): void
+            {
+                Schema::table('{$table}', function (Blueprint \$table) {
+                    //
+                });
+            }
+
+            public function down(): void
+            {
+                Schema::table('{$table}', function (Blueprint \$table) {
+                    //
+                });
             }
         };
 
@@ -224,24 +273,26 @@ class MigrationCommands implements CommandInterface
     }
 
     /**
-     * A blank migration — empty up()/down() with the SchemaBuilder in hand.
-     * Used when the name doesn't map to a create_/add_to_/drop_ table, so the
-     * developer fills in the intent instead of deleting a wrong-guessed table.
+     * A blank migration — empty up()/down().
+     *
+     * Used when the name implies no table, so the developer states the intent
+     * instead of noticing and deleting a wrong-guessed one.
      */
     private function blankMigrationStub(): string
     {
         return <<<PHP
         <?php
 
-        use Nitro\\Database\\Schema\\SchemaBuilder;
+        use Nitro\\Database\\Schema\\Blueprint;
+        use Nitro\\Facades\\Schema;
 
         return new class {
-            public function up(SchemaBuilder \$schema): void
+            public function up(): void
             {
                 //
             }
 
-            public function down(SchemaBuilder \$schema): void
+            public function down(): void
             {
                 //
             }
@@ -365,25 +416,28 @@ class MigrationCommands implements CommandInterface
     {
         if (!$this->confirmDestructive('rollback', $arguments)) return ExitCode::SUCCESS;
 
-        $steps   = (int) ($this->flagValue($arguments, '--step') ?? 1);
+        $step    = $this->flagValue($arguments, '--step');
         $pretend = $this->flag($arguments, '--pretend');
-        if ($steps < 1) $steps = 1;
 
         $this->output->info($pretend
             ? "Rolling back (--pretend)...\n"
             : "Rolling back migrations...\n");
 
-        $batches = $this->getBatchesDescending();
-        if (empty($batches)) {
+        // Without --step the last batch comes off, which is what one migrate
+        // put on. With it, that many migrations come off regardless of the
+        // batches they went on in — counting batches here would undo far more
+        // than the number asked for.
+        $toRollBack = $step === null
+            ? $this->getLastBatchDescending()
+            : $this->getLastMigrations(max(1, (int) $step));
+
+        if ($toRollBack === []) {
             $this->output->success("Nothing to rollback!");
             return ExitCode::SUCCESS;
         }
 
-        $toRollBack = array_slice($batches, 0, $steps);
-        foreach ($toRollBack as $batch) {
-            foreach (array_reverse($this->getMigrationsFromBatch($batch)) as $migration) {
-                $this->rollbackMigration($migration, $pretend);
-            }
+        foreach ($toRollBack as $migration) {
+            $this->rollbackMigration($migration, $pretend);
         }
 
         $this->output->success($pretend
@@ -684,6 +738,34 @@ class MigrationCommands implements CommandInterface
     }
 
     /** Batches in descending order — for rollback / reset. */
+    /**
+     * The last batch, newest migration first — one migrate's worth of work.
+     *
+     * @return array<int, string>
+     */
+    private function getLastBatchDescending(): array
+    {
+        $batches = $this->getBatchesDescending();
+
+        return $batches === []
+            ? []
+            : array_reverse($this->getMigrationsFromBatch($batches[0]));
+    }
+
+    /**
+     * The last $count migrations, newest first, whichever batches they are on.
+     *
+     * @return array<int, string>
+     */
+    private function getLastMigrations(int $count): array
+    {
+        return DB::table($this->migrationsTable)
+            ->orderBy('batch', 'desc')
+            ->orderBy('migration', 'desc')
+            ->limit($count)
+            ->pluck('migration');
+    }
+
     private function getBatchesDescending(): array
     {
         $rows = DB::table($this->migrationsTable)

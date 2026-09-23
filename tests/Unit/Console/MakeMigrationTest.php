@@ -95,8 +95,22 @@ class MakeMigrationTest extends TestCase
         ob_end_clean();
 
         $contents = file_get_contents(glob($this->tmpDir . '/*.php')[0]);
-        $this->assertStringContainsString("\$schema->create('orders'", $contents);
-        $this->assertStringContainsString("\$schema->dropIfExists('orders')", $contents);
+        $this->assertStringContainsString("Schema::create('orders'", $contents);
+        $this->assertStringContainsString("Schema::dropIfExists('orders')", $contents);
+        $this->assertStringContainsString('function (Blueprint $table)', $contents);
+    }
+
+    /** A migration that adds a column must not scaffold a CREATE TABLE. */
+    public function test_stub_for_add_X_to_Y_changes_the_table_rather_than_creating_it(): void
+    {
+        ob_start();
+        $this->cmd->handle('make:migration', ['add_status_to_orders_table']);
+        ob_end_clean();
+
+        $contents = file_get_contents(glob($this->tmpDir . '/*.php')[0]);
+        $this->assertStringContainsString("Schema::table('orders'", $contents);
+        $this->assertStringNotContainsString('Schema::create', $contents);
+        $this->assertStringNotContainsString('dropIfExists', $contents);
     }
 
     public function test_stub_guesses_table_from_add_X_to_Y_table_name(): void
