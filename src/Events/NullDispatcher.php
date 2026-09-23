@@ -7,11 +7,8 @@ use Nitro\Events\Contracts\Dispatcher as DispatcherContract;
 /**
  * A dispatcher that registers listeners and then never calls them.
  *
- * For running something with its side effects switched off — importing
- * a thousand records without sending a thousand notifications. Wrapping
- * rather than disabling in place means the real dispatcher is untouched
- * and whatever else holds it is unaffected.
- *
+ * For running something with its side effects off — importing a
+ * thousand records without sending a thousand notifications.
  * Registration is forwarded, so a listener registered while muted is
  * there when the real dispatcher is back in use.
  */

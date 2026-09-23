@@ -47,12 +47,6 @@ use Throwable;
  * Restart-on-deploy: queue:restart bumps a cache key. The worker reads
  * the key after each job and exits when it changes. Pairs with a
  * supervisor that auto-restarts — old code drains, new code starts.
- *
- * A frozen job is a different problem from a failing one: it never
- * throws, so nothing above catches it. SIGALRM is armed to the job's
- * timeout before each run and the process is killed outright when it
- * fires — the supervisor starts a fresh worker, and the job is either
- * failed or left for another attempt depending on failOnTimeout.
  */
 class Worker
 {
@@ -90,9 +84,6 @@ class Worker
     /**
      * Run the worker loop.
      *
-     * The array form is what the console command parses into; a caller
-     * holding a WorkerOptions may pass it straight through.
-     *
      * @param  array{
      *   connection?: ?string,
      *   queue?: string,
@@ -120,8 +111,7 @@ class Worker
 
         $this->onJob = $options['onJob'] ?? null;
 
-        // --once is "one job, then stop", which is stopWhenEmpty plus a
-        // job cap of one rather than a mode of its own.
+        // --once is stopWhenEmpty plus a job cap of one.
         $once = (bool) ($options['once'] ?? false);
 
         return $this->daemon(
@@ -168,9 +158,8 @@ class Worker
         $this->event(new Events\WorkerStarting($connectionName, $queue, $options));
 
         while (true) {
-            // A listener may hold the worker back for one turn of the loop,
-            // which is how work is kept off a queue during a migration
-            // without stopping the process and losing the reservation.
+            // Held back for a turn rather than stopped, so the reservation
+            // is not lost.
             if (! $this->daemonShouldRun($options, $connectionName, $queue)) {
                 [$status, $reason] = $this->pauseWorker($options, $startTime);
 
@@ -246,9 +235,6 @@ class Worker
 
     /**
      * Ask the loop to finish the job in hand and then exit.
-     *
-     * The job keeps its reservation until it is done, so nothing is
-     * abandoned half-run; the worker exits before reserving another.
      */
     public function stop(): void
     {
@@ -256,10 +242,7 @@ class Worker
     }
 
     /**
-     * Announce that the worker is exiting, and with what exit code.
-     *
-     * Separate from stop() because a worker can be told to stop long
-     * before it does: this is the moment it actually leaves the loop.
+     * Announce that the worker is leaving the loop, and with what code.
      */
     private function stopping(
         int $status,
@@ -304,8 +287,8 @@ class Worker
     /**
      * Whether this turn of the loop should look for work at all.
      *
-     * A listener returning false from Looping holds the worker back;
-     * so does maintenance mode, unless --force was given.
+     * A listener returning false from Looping holds the worker back, as
+     * does maintenance mode unless --force was given.
      */
     private function daemonShouldRun(WorkerOptions $options, ?string $connectionName, string $queue): bool
     {
@@ -333,9 +316,8 @@ class Worker
     /**
      * The reason to exit, if there is one.
      *
-     * Ordered so the involuntary reasons win: a worker that has lost its
-     * connection or been signalled stops for that, not for whichever
-     * limit it happened to cross on the same turn.
+     * Ordered so an involuntary reason wins over a limit crossed on the
+     * same turn.
      *
      * @return array{0: ?int, 1: ?WorkerStopReason}
      */
@@ -363,16 +345,9 @@ class Worker
     /**
      * Reserve the next job, trying each named queue in turn.
      *
-     * Several queues given as one comma-separated string are a priority
-     * order, not a set: the second is only asked once the first has
-     * nothing left, which is what makes a 'high,default' worker drain
-     * urgent work first.
-     *
-     * A driver that throws here — a database that went away, a redis
-     * that refused the connection — must not take the worker down with
-     * it. The failure is reported and the loop pauses a second, on the
-     * reading that the backend will come back and the supervisor should
-     * not be restarting the process every few milliseconds meanwhile.
+     * Comma-separated names are a priority order: the second is asked
+     * only once the first has nothing left. A driver that throws is
+     * reported rather than fatal, since the backend may come back.
      */
     private function getNextJob(Queue $connection, string $queue): ?QueuedJob
     {
@@ -408,9 +383,7 @@ class Worker
     /**
      * Run a job, keeping whatever it throws from reaching the loop.
      *
-     * handleJobException re-throws after releasing or failing, so the
-     * job's own outcome is already settled by the time this catches;
-     * what is left is to report it and carry on.
+     * The job's outcome is already settled by the time this catches.
      */
     private function runJob(
         Queue $queue,
@@ -447,21 +420,17 @@ class Worker
         try {
             ['instance' => $job] = $envelope->decode();
 
-            // Expose the reserved attempt count so handle()/backoff() can be
-            // attempt-aware (the docblock's `2 ** $this->currentAttempts`).
+            // Exposed so handle() and backoff() can be attempt-aware.
             $job->setCurrentAttempts($envelope->attempts);
 
-            // A job that interacts with the queue needs its envelope before
-            // handle() can release, delete or fail it.
+            // Needed before handle() can release, delete or fail itself.
             if (method_exists($job, 'setJob')) {
                 $job->setJob($envelope, $queue);
             }
 
             $this->event(new Events\JobProcessing($envelope, $connectionName));
 
-            // Poison-pill guard: a job that comes off the queue with its
-            // budget already spent means a prior worker crashed mid-handle
-            // and the reservation expired. handle() is not run again.
+            // A budget already spent means a prior worker crashed mid-handle.
             $this->failIfAlreadyExceededAttempts($envelope, $job, $options);
 
             if ($this->isDeleted($job)) {
@@ -476,9 +445,7 @@ class Worker
 
             $this->invoke($job);
 
-            // A job that released or failed itself inside handle() has
-            // already said where it should go; deleting it here as well
-            // would undo that and drop the retry on the floor.
+            // A job that settled its own fate is not settled again here.
             if (! $this->isReleased($job) && ! $this->hasFailed($job)) {
                 $queue->delete($envelope);
             }
@@ -508,9 +475,8 @@ class Worker
     /**
      * Decide what a thrown job deserves, then re-throw.
      *
-     * Failing is checked before releasing so a job that has run out of
-     * attempts is not put back for one more that would only fail the
-     * same way.
+     * Failing is checked before releasing, so a job out of attempts is
+     * not put back for one it cannot have.
      *
      * @throws Throwable Always — the caller reports it.
      */
@@ -522,18 +488,13 @@ class Worker
         WorkerOptions $options,
         Throwable $exception,
     ): void {
-        // Whether the worker itself failed the job, which is not the same
-        // question as whether the job failed itself: a plain job has no
-        // hasFailed() to ask, and releasing one the worker just recorded
-        // as failed would queue a retry that can never run.
+        // Whether the worker failed it, which a plain job has no
+        // hasFailed() to answer.
         $failed = $this->hasFailed($job);
 
         try {
             if (! $failed) {
-                // A payload that would not decode can never succeed on a
-                // retry — there is no class to run — so it fails outright
-                // rather than being released to loop until its budget runs
-                // out one useless attempt at a time.
+                // A payload that will not decode has no class to retry.
                 if ($job === null || $exception instanceof MaxAttemptsExceededException) {
                     $this->failJob($queue, $connectionName, $envelope, $job, $exception);
                     $failed = true;
@@ -574,8 +535,7 @@ class Worker
         $maxTries = $this->maxTriesFor($job, $options);
         $retryUntil = $job->retryUntil();
 
-        // A time budget replaces the count entirely: a job worth retrying
-        // for an hour should not stop after three quick failures.
+        // A time budget replaces the attempt count entirely.
         if ($retryUntil !== null && time() <= $retryUntil) {
             return;
         }
@@ -625,10 +585,8 @@ class Worker
     /**
      * Fail a job that has thrown more often than it is allowed to.
      *
-     * Counted separately from attempts because a job that releases
-     * itself can attempt many times without ever throwing; the count
-     * is held in the cache against the job's own identifier, which
-     * survives the row being rewritten on each release.
+     * Counted separately from attempts, against the job's own
+     * identifier, which survives each release.
      *
      * @return bool Whether the job was failed.
      */
@@ -666,10 +624,8 @@ class Worker
     /**
      * Fail a job whose exception the handler has ruled out retrying.
      *
-     * Some failures are not worth a second attempt whatever the budget
-     * says — a validation error, a record that no longer exists — and
-     * the application decides which through the handler's dontRetry
-     * rules rather than each job repeating the same check.
+     * Decided once through the handler's dontRetry rules rather than
+     * by every job repeating the same check.
      *
      * @return bool Whether the job was failed.
      */
@@ -692,9 +648,8 @@ class Worker
     /**
      * Record a job as permanently failed and take it off the queue.
      *
-     * The failed() hook is called inside its own try: a notification
-     * that throws must not stop the job being recorded, and by this
-     * point there is nothing further the worker can do about it anyway.
+     * The failed() hook runs in its own try, so one that throws does
+     * not stop the job being recorded.
      */
     private function failJob(
         Queue $queue,
@@ -731,9 +686,8 @@ class Worker
     /**
      * Seconds to wait before the next attempt.
      *
-     * A job may give one value per attempt, so a schedule that starts
-     * fast and backs off — [1, 10, 60] — needs no arithmetic at the
-     * call site. Past the end of the list the last value repeats.
+     * A job may give one value per attempt; past the end of the list
+     * its last value repeats.
      */
     private function calculateBackoff(?Job $job, QueuedJob $envelope, WorkerOptions $options): int
     {
@@ -761,9 +715,8 @@ class Worker
     /**
      * The attempt cap for this job.
      *
-     * A --tries on the command line was asked for explicitly and wins,
-     * including --tries=0 for no cap at all; without one each job's own
-     * $tries decides, which is where it belongs.
+     * An explicit --tries wins, including --tries=0 for no cap;
+     * without one the job's own $tries decides.
      */
     private function maxTriesFor(Job $job, WorkerOptions $options): int
     {
@@ -829,9 +782,10 @@ class Worker
     // ── What a job said about itself ──────────────────────────────────
 
     /**
-     * These three ask a job what it did to its own place in the queue,
-     * which only a job using InteractsWithQueue can answer. A plain job
-     * has taken no such action, so the answer is no.
+     * Whether the job settled its own place in the queue.
+     *
+     * Only a job using InteractsWithQueue can answer; for any other
+     * the answer is no.
      */
     private function isDeleted(?Job $job): bool
     {
@@ -873,9 +827,8 @@ class Worker
             return;
         }
 
-        // Cancelling when failures are not allowed happens inside the batch,
-        // so the jobs still queued behind this one can see there is nothing
-        // left to do.
+        // Cancelling happens inside the batch, so the jobs queued behind
+        // this one can see there is nothing left to do.
         $batch->recordFailedJob((string) $envelope->id, $exception);
 
         $settled = $batch->fresh() ?? $batch;
@@ -925,9 +878,8 @@ class Worker
     {
         pcntl_async_signals(true);
 
-        // Named rather than referenced: a build without pcntl has no
-        // SIGTERM constant either, and naming an undefined constant is
-        // a fatal error rather than something to guard around.
+        // Named, not referenced: a build without pcntl has no SIGTERM
+        // constant, and naming an undefined one is fatal.
         foreach (['SIGTERM', 'SIGINT', 'SIGQUIT'] as $signal) {
             if (! defined($signal)) {
                 continue;
@@ -942,11 +894,8 @@ class Worker
     /**
      * Arm the alarm that kills a job which has stopped making progress.
      *
-     * A frozen job never throws, so nothing in the normal path catches
-     * it: the process has to be killed from outside the call. Whether
-     * the job is failed first is the job's own choice — a timeout is
-     * usually a slow dependency rather than a broken job, so the
-     * default leaves it for another attempt.
+     * A frozen job never throws, so it has to be killed from outside
+     * the call; failOnTimeout decides whether it is also failed.
      */
     private function registerTimeoutHandler(
         ?string $connectionName,
@@ -995,9 +944,8 @@ class Worker
     /**
      * Decode a job without letting a bad payload reach the alarm.
      *
-     * The handler only needs the job's knobs, and a payload that will
-     * not decode is about to fail on its own in process() — throwing
-     * here instead would replace that with a less useful error.
+     * The handler needs only the job's terms; a payload that will not
+     * decode fails on its own in process().
      */
     private function decodeQuietly(QueuedJob $envelope): ?Job
     {
@@ -1026,9 +974,8 @@ class Worker
     /**
      * Sleep, in whole seconds or a fraction of one.
      *
-     * Broken into one-second chunks so an incoming signal can end the
-     * wait early — without it a SIGTERM during a long --sleep waits out
-     * its full duration before the worker notices.
+     * Taken in one-second chunks so an incoming signal can end the wait
+     * early rather than after its full duration.
      */
     public function sleep(int|float $seconds): void
     {
@@ -1052,11 +999,10 @@ class Worker
     }
 
     /**
-     * Reads the deploy-restart signal from cache. queue:restart bumps
-     * the value; on each tick the worker compares the current value to
-     * what it saw at boot and exits if they differ. Pairs with a
-     * supervisor that auto-respawns the worker — old code drains
-     * before new code starts.
+     * Read the deploy-restart signal from the cache.
+     *
+     * queue:restart bumps it; the worker exits when it differs from
+     * what it saw at boot, and a supervisor starts the new code.
      */
     private function readRestartSignal(): ?int
     {
@@ -1097,8 +1043,7 @@ class Worker
     /**
      * Dispatch an event a listener may answer.
      *
-     * Returns the first non-null answer, so a Looping listener can hold
-     * the worker back by returning false.
+     * @return mixed The first non-null answer, or null.
      */
     private function until(object $event): mixed
     {
@@ -1114,10 +1059,8 @@ class Worker
     /**
      * Record something that went wrong outside a job's own handling.
      *
-     * A connection failure or a re-thrown job exception is not itself a
-     * failed job, and losing it silently is how a worker ends up
-     * looking idle while nothing is being processed. Without a handler
-     * to take it there is still stderr, which a supervisor captures.
+     * Falls back to stderr, which a supervisor captures, when no
+     * handler is available to take it.
      */
     private function report(Throwable $exception): void
     {

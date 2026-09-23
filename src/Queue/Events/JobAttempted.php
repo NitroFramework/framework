@@ -7,10 +7,6 @@ use Throwable;
 
 /**
  * An attempt at a job finished, successfully or not.
- *
- * JobProcessed and JobFailed each cover one outcome; this fires for
- * both, which is what a listener that has to clean up after every
- * attempt — resetting a connection, flushing a buffer — needs.
  */
 class JobAttempted
 {

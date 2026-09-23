@@ -8,14 +8,7 @@ use Nitro\Session\SessionManager;
 use PHPUnit\Framework\TestCase;
 use SessionHandlerInterface;
 
-/**
- * The two things the session layer could not do.
- *
- * A session row recorded only its payload, so an application had no way to
- * answer "where am I signed in?" — the question every security page asks. And
- * the driver list was a closed match, so storing sessions anywhere the
- * framework did not already know about meant editing the framework.
- */
+/** The two things the session layer could not do. */
 class SessionParityTest extends TestCase
 {
     /** A driver an application registered is built for it. */
@@ -58,13 +51,7 @@ class SessionParityTest extends TestCase
 
     // --- what a session row records -----------------------------------------
 
-    /**
-     * Who and where are written alongside the payload.
-     *
-     * Read back through the protected builder rather than by writing to a
-     * database, because what is being asserted is the shape of the row, and a
-     * connection would only stand between the test and that.
-     */
+    /** Who and where are written alongside the payload. */
     public function test_a_session_row_records_who_and_where(): void
     {
         $handler = new class('sessions', 120,
@@ -87,12 +74,7 @@ class SessionParityTest extends TestCase
         $this->assertIsInt($row['last_activity']);
     }
 
-    /**
-     * A guest's session records no user, but still records where it came from.
-     *
-     * That is the case a security page needs most: a session with no user is
-     * how a visit looks before somebody signs in.
-     */
+    /** A guest's session records no user, but still records where it came from. */
     public function test_a_guest_session_still_records_its_origin(): void
     {
         $handler = new class('sessions', 120,
@@ -112,13 +94,7 @@ class SessionParityTest extends TestCase
         $this->assertSame('198.51.100.4', $row['ip_address']);
     }
 
-    /**
-     * Without the layers that supply them, those columns are simply not written.
-     *
-     * A console command has no request and may have no auth; the session still
-     * has to work there, and writing nulls into columns an application may not
-     * have added would fail the insert instead.
-     */
+    /** Without the layers that supply them, those columns are simply not written. */
     public function test_the_columns_are_omitted_when_nothing_supplies_them(): void
     {
         $handler = new class('sessions', 120) extends DatabaseSessionHandler {

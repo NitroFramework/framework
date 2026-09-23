@@ -8,14 +8,7 @@ use Nitro\Events\Dispatcher;
 use Nitro\Events\NullDispatcher;
 use PHPUnit\Framework\TestCase;
 
-/**
- * How a listener is found and what it is handed.
- *
- * The cases here are the ones the layer described and did not do: a
- * wildcard listener that could not tell which event it got, an
- * interface nothing ever matched, a flush() that meant the opposite of
- * what it says everywhere else.
- */
+/** How a listener is found and what it is handed. */
 class DispatcherParityTest extends TestCase
 {
     private Dispatcher $events;
@@ -28,15 +21,7 @@ class DispatcherParityTest extends TestCase
 
     // ── Wildcards ─────────────────────────────────────────────────────
 
-    /**
-     * A wildcard listener is told which event it got.
-     *
-     * It asked for a family of events, so without the name it cannot
-     * tell them apart — which is the only reason to register a pattern
-     * rather than a name. The listener received the payload alone, so
-     * one written the documented way took the payload as its event and
-     * nothing as its payload.
-     */
+    /** A wildcard listener is told which event it got. */
     public function test_a_wildcard_listener_receives_the_event_name_first(): void
     {
         $seen = null;
@@ -91,14 +76,7 @@ class DispatcherParityTest extends TestCase
 
     // ── Interfaces ────────────────────────────────────────────────────
 
-    /**
-     * A listener registered against an interface hears every implementor.
-     *
-     * One listener covering a family of events is the point — auditing
-     * everything Auditable — and without naming each one there is
-     * nothing to forget to add when a new event appears. Nothing
-     * matched an interface before, so the listener never ran at all.
-     */
+    /** A listener registered against an interface hears every implementor. */
     public function test_an_interface_listener_hears_every_implementor(): void
     {
         $this->events->listen(Notable::class, function (object $event): void {
@@ -123,12 +101,7 @@ class DispatcherParityTest extends TestCase
 
     // ── Closure type hints ────────────────────────────────────────────
 
-    /**
-     * A closure on its own names its event by type hint.
-     *
-     * Writing the class name twice — once as the event, once as the
-     * hint — is how the two drift apart.
-     */
+    /** A closure on its own names its event by type hint. */
     public function test_a_closure_names_its_event_by_type_hint(): void
     {
         $this->events->listen(function (Sale $event): void {
@@ -154,14 +127,7 @@ class DispatcherParityTest extends TestCase
 
     // ── Pushed events ─────────────────────────────────────────────────
 
-    /**
-     * A pushed event does not fire until it is flushed.
-     *
-     * flush() previously meant "drop every listener" — the opposite of
-     * what it means anywhere else and of what its only pair, push(),
-     * implies. Neither push() nor forgetPushed() existed, so there was
-     * nothing to flush in the first place.
-     */
+    /** A pushed event does not fire until it is flushed. */
     public function test_a_pushed_event_waits_for_the_flush(): void
     {
         $this->events->listen('mail.send', function (string $to): void {
@@ -201,13 +167,7 @@ class DispatcherParityTest extends TestCase
 
     // ── Deferring ─────────────────────────────────────────────────────
 
-    /**
-     * Events raised inside defer() are held until it returns.
-     *
-     * A run of writes that each raise an event leaves listeners seeing
-     * the work half-done; holding them means every listener runs
-     * against the finished state.
-     */
+    /** Events raised inside defer() are held until it returns. */
     public function test_deferred_events_fire_after_the_block(): void
     {
         $this->events->listen('step', function (int $n): void {
@@ -257,13 +217,7 @@ class DispatcherParityTest extends TestCase
 
     // ── After commit ──────────────────────────────────────────────────
 
-    /**
-     * An event that belongs to a transaction waits for the commit.
-     *
-     * A receipt for an order that then rolled back has told a customer
-     * something untrue, and the listener cannot see the transaction —
-     * so the event has to say.
-     */
+    /** An event that belongs to a transaction waits for the commit. */
     public function test_an_after_commit_event_waits_for_the_commit(): void
     {
         $transactions = new FakeTransactions(level: 1);
@@ -332,12 +286,7 @@ class DispatcherParityTest extends TestCase
 
     // ── Subscribers ───────────────────────────────────────────────────
 
-    /**
-     * A subscriber may list its listeners instead of registering them.
-     *
-     * A subscribe() that only wants to name event and method should not
-     * have to call back into the dispatcher to do it.
-     */
+    /** A subscriber may list its listeners instead of registering them. */
     public function test_a_subscriber_can_return_its_listener_map(): void
     {
         $this->events->subscribe(new MappingSubscriber());
@@ -358,13 +307,7 @@ class DispatcherParityTest extends TestCase
 
     // ── The null dispatcher ───────────────────────────────────────────
 
-    /**
-     * A muted dispatcher still takes registrations.
-     *
-     * Importing a thousand records without sending a thousand
-     * notifications; the listeners registered meanwhile are there when
-     * the real dispatcher is back in use.
-     */
+    /** A muted dispatcher still takes registrations. */
     public function test_a_null_dispatcher_registers_but_does_not_dispatch(): void
     {
         $muted = new NullDispatcher($this->events);

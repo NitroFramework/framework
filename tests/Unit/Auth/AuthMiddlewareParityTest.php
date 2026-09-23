@@ -17,15 +17,7 @@ use Nitro\Session\ArraySessionHandler;
 use Nitro\Session\Store;
 use PHPUnit\Framework\TestCase;
 
-/**
- * What the auth middleware answer a client that cannot follow a redirect.
- *
- * Each of these used to send an HTML page to something asking for JSON. A
- * fetch() that follows a 302 to a login form parses the form as its response
- * and reports nothing an application can act on, so the status is the whole
- * message: 401 for unauthenticated, 403 for unverified, 423 for a stale
- * password confirmation.
- */
+/** What the auth middleware answer a client that cannot follow a redirect. */
 class AuthMiddlewareParityTest extends TestCase
 {
     protected function tearDown(): void
@@ -111,13 +103,7 @@ class AuthMiddlewareParityTest extends TestCase
         $this->assertStringContainsString('not verified', $response->getContent());
     }
 
-    /**
-     * A guest fails this middleware too.
-     *
-     * In a stack that runs `auth` first there is no such request, but without
-     * the check a route protected by this one alone admits everybody who is
-     * not signed in.
-     */
+    /** A guest fails this middleware too. */
     public function test_a_guest_does_not_pass_the_verified_check(): void
     {
         $middleware = new EnsureEmailIsVerified($this->guard(null), $this->config());
@@ -169,12 +155,7 @@ class AuthMiddlewareParityTest extends TestCase
         $this->assertSame('passed', $middleware->handle($this->json(), $this->next())->getContent());
     }
 
-    /**
-     * The window can be set per route.
-     *
-     * An administrative action may want a shorter one than the application
-     * default, without a second middleware to express it.
-     */
+    /** The window can be set per route. */
     public function test_the_timeout_can_be_given_per_route(): void
     {
         $session = $this->session();

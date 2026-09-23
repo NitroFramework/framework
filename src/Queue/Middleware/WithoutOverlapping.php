@@ -65,13 +65,10 @@ class WithoutOverlapping
         return $this;
     }
 
-    /** The cache key this middleware locks on. */
     /**
      * Let jobs of different classes contend for the same lock.
      *
-     * The default keys by class, so two jobs that touch the same
-     * account do not exclude each other; this is for the case where
-     * the key names the resource and the class is beside the point.
+     * The default keys by class as well as by the given key.
      */
     public function shared(): static
     {

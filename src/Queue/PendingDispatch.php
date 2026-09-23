@@ -35,9 +35,7 @@ final class PendingDispatch
     /**
      * A delay the job asks for by attribute.
      *
-     * Dispatch-time ->delay() still wins; this is for a job that is
-     * always deferred by the same amount, where repeating it at every
-     * call site is how one of them ends up forgetting.
+     * Dispatch-time ->delay() still wins.
      */
     private function declaredDelay(Job $job): int
     {

@@ -7,14 +7,7 @@ use Nitro\Cache\Drivers\ArrayStore;
 use Nitro\Cache\Repository;
 use PHPUnit\Framework\TestCase;
 
-/**
- * Reads that state what they expect, and the interop names.
- *
- * A cache round-trip loses type — a driver may hand back '5' where an int was
- * stored — and a caller that assumes otherwise fails somewhere further on with
- * nothing pointing back at the cache. The typed reads fail at the read
- * instead, naming the key.
- */
+/** Reads that state what they expect, and the interop names. */
 class RepositoryParityTest extends TestCase
 {
     private function cache(): Repository

@@ -5,11 +5,7 @@ namespace Nitro\Queue\Exceptions;
 use Nitro\Queue\QueuedJob;
 
 /**
- * A job ran past its timeout and the worker was killed out from under it.
- *
- * Raised from the SIGALRM handler, so it does not travel back through
- * handle() — it exists so the failed-job record says the job froze
- * rather than leaving an empty exception behind.
+ * Thrown when a job ran past the time it was allowed.
  */
 class TimeoutExceededException extends MaxAttemptsExceededException
 {

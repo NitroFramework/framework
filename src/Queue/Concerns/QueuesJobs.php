@@ -6,11 +6,6 @@ use Nitro\Queue\QueuedJob;
 
 /**
  * The parts of a queue driver that do not depend on its storage.
- *
- * Picking a queue by name and remembering which connection you are is
- * the same work whatever is underneath, and bulk() is only an
- * optimisation — a driver that can insert many rows at once overrides
- * it, and one that cannot still behaves correctly by pushing in turn.
  */
 trait QueuesJobs
 {

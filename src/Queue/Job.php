@@ -47,44 +47,32 @@ abstract class Job
     /**
      * Seconds between attempts when handle() throws.
      *
-     * A per-attempt schedule goes through backoff() rather than here: a
-     * subclass may not widen this type, so making the property itself
-     * accept an array would break every job that declares `protected
-     * int $backoff`.
+     * A per-attempt schedule goes through backoff() instead.
      */
     protected int $backoff = 5;
 
     /**
      * Seconds one attempt may run before the worker kills the process.
      *
-     * Null defers to the worker's --timeout. The guard needs pcntl, so
-     * on a build without it this is not enforced.
+     * Null takes the worker's --timeout. Needs pcntl to be enforced.
      */
     protected ?int $timeout = null;
 
     /**
-     * Whether a job that hits its timeout is failed outright.
-     *
-     * The default is to let it be retried, on the reading that a
-     * timeout is usually a slow dependency rather than a broken job.
+     * Whether a job that hits its timeout is failed rather than retried.
      */
     protected bool $failOnTimeout = false;
 
     /**
-     * Exceptions to tolerate before failing, independent of attempts.
+     * Throws to tolerate before failing, independent of attempts.
      *
-     * A job that releases itself repeatedly can attempt many times
-     * without ever throwing; this caps the throws rather than the
-     * attempts. Null leaves it to $tries alone.
+     * Null leaves the decision to $tries alone.
      */
     protected ?int $maxExceptions = null;
 
     /**
      * When to stop retrying, as a timestamp or a date.
      *
-     * A time budget rather than a count: a job worth retrying for an
-     * hour should not stop after three quick failures, and one that has
-     * been failing for an hour is not going to succeed on attempt four.
      * Set, this replaces $tries entirely.
      */
     protected \DateTimeInterface|int|null $retryUntil = null;
@@ -140,8 +128,8 @@ abstract class Job
      *       return min(60, 2 ** $this->currentAttempts);
      *   }
      *
-     * Return an array to give each attempt its own wait; the last entry
-     * covers every attempt past the end of it.
+     * An array gives each attempt its own wait; its last entry covers
+     * every attempt past the end of it.
      *
      * @return int|array<int, int>
      */

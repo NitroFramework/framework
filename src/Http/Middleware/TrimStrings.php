@@ -11,18 +11,16 @@ use Nitro\Support\Str;
 /**
  * Strips surrounding whitespace from every string in a request.
  *
- * A trailing space in an email field is invisible to whoever typed it and
- * fatal to a uniqueness check, so this runs before anything reads the input
- * rather than being remembered at each use.
+ * A trailing space is invisible to whoever typed it and fatal to a
+ * uniqueness check, so it goes before anything reads the input.
  */
 class TrimStrings extends TransformsRequest
 {
     /**
      * Fields left alone.
      *
-     * A password may legitimately begin or end with a space, and trimming one
-     * would silently change a credential — the user would be locked out of an
-     * account they typed correctly.
+     * A password may legitimately begin or end with a space, and
+     * trimming one would silently change a credential.
      *
      * @var array<int, string>
      */

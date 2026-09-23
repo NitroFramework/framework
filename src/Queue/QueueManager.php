@@ -141,9 +141,8 @@ class QueueManager
     /**
      * Wrap a job in an envelope and hand it to a connection.
      *
-     * Every dispatch path runs through here, so the queueing events fire
-     * once wherever a job entered from — a listener does not have to
-     * know whether the call site used the manager or a PendingDispatch.
+     * Every dispatch path runs through here, so the queueing events
+     * fire once wherever a job entered from.
      */
     public function dispatch(Job $job, ?string $queue, ?string $connection, int $delay): int|string
     {

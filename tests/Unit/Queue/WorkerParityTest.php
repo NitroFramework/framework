@@ -19,15 +19,7 @@ use Nitro\Queue\WorkerStopReason;
 use PHPUnit\Framework\TestCase;
 use Throwable;
 
-/**
- * What the worker does around a job, rather than with it.
- *
- * The cases here are the ones that only show up in a running worker:
- * a job that put itself back on the queue, a retry budget measured in
- * time rather than attempts, a queue named second in a priority list.
- * Each was reachable in the layer's design and none was exercised —
- * several were wrong because of it.
- */
+/** What the worker does around a job, rather than with it. */
 class WorkerParityTest extends TestCase
 {
     private Container $container;
@@ -114,14 +106,7 @@ class WorkerParityTest extends TestCase
 
     // ── A job that acted on its own place in the queue ─────────────────
 
-    /**
-     * A job that released itself must not then be deleted.
-     *
-     * The worker deleted every job that returned without throwing, so
-     * release() inside handle() put the job back and the delete on the
-     * next line took it away again — the retry was written and dropped
-     * in the same breath, and the work was simply lost.
-     */
+    /** A job that released itself must not then be deleted. */
     public function test_a_job_that_releases_itself_stays_on_the_queue(): void
     {
         $this->push(new SelfReleasingJob());
@@ -155,13 +140,7 @@ class WorkerParityTest extends TestCase
 
     // ── Priority queues ───────────────────────────────────────────────
 
-    /**
-     * Several queues in one string are an order, not a set.
-     *
-     * The worker took the name as a single queue, so `--queue=high,low`
-     * asked for a queue called "high,low" and found nothing — a worker
-     * configured for priorities processed no jobs at all.
-     */
+    /** Several queues in one string are an order, not a set. */
     public function test_queues_are_drained_in_the_order_they_are_named(): void
     {
         $this->push(new ParityJob('low'), 'low');
@@ -184,12 +163,7 @@ class WorkerParityTest extends TestCase
 
     // ── Retry budgets ─────────────────────────────────────────────────
 
-    /**
-     * A time budget replaces the attempt count rather than capping it.
-     *
-     * A job worth retrying for an hour should not stop after three
-     * quick failures, which is the whole point of asking for one.
-     */
+    /** A time budget replaces the attempt count rather than capping it. */
     public function test_retry_until_keeps_a_job_alive_past_its_attempt_cap(): void
     {
         $this->push(new RetryUntilJob(), attempts: 10);
@@ -210,13 +184,7 @@ class WorkerParityTest extends TestCase
         $this->assertSame(0, $this->array->size());
     }
 
-    /**
-     * Exceptions are counted separately from attempts.
-     *
-     * A job that releases itself can attempt many times without ever
-     * throwing, so the attempt cap never catches it; this is the cap
-     * on the throws themselves.
-     */
+    /** Exceptions are counted separately from attempts. */
     public function test_max_exceptions_fails_a_job_before_its_attempts_run_out(): void
     {
         $cache = new CacheManager([
@@ -239,12 +207,7 @@ class WorkerParityTest extends TestCase
 
     // ── Backoff ───────────────────────────────────────────────────────
 
-    /**
-     * A backoff list is read by attempt.
-     *
-     * A schedule that starts fast and backs off is the common case,
-     * and writing it as a list means the job needs no arithmetic.
-     */
+    /** A backoff list is read by attempt. */
     public function test_a_backoff_list_gives_each_attempt_its_own_wait(): void
     {
         $this->push(new BackoffListJob());
@@ -304,13 +267,7 @@ class WorkerParityTest extends TestCase
         );
     }
 
-    /**
-     * Running out of memory is not a success.
-     *
-     * A supervisor reads the exit code: restarting on 0 is routine, and
-     * a worker recycling on memory every few seconds should be visible
-     * as something other than a clean exit.
-     */
+    /** Running out of memory is not a success. */
     public function test_exceeding_memory_exits_with_its_own_code(): void
     {
         $status = $this->worker()->daemon('array', 'default', new WorkerOptions(
@@ -327,12 +284,7 @@ class WorkerParityTest extends TestCase
 
     // ── Events ────────────────────────────────────────────────────────
 
-    /**
-     * The lifecycle events are dispatched, not merely declared.
-     *
-     * Sixteen event classes shipped and five were ever fired; the rest
-     * were classes a listener could subscribe to and never hear from.
-     */
+    /** The lifecycle events are dispatched, not merely declared. */
     public function test_the_worker_fires_its_lifecycle_events(): void
     {
         $this->push(new ParityJob('x'));
@@ -392,13 +344,7 @@ class WorkerParityTest extends TestCase
         $this->assertSame('array', $queued->connectionName);
     }
 
-    /**
-     * A listener can hold the worker back for a turn.
-     *
-     * Returning false from Looping is how work is kept off a queue
-     * during a migration without stopping the process and losing
-     * whatever it had reserved.
-     */
+    /** A listener can hold the worker back for a turn. */
     public function test_a_looping_listener_can_hold_the_worker_back(): void
     {
         $this->push(new ParityJob('held'));
@@ -612,12 +558,7 @@ class ParityFailedStore implements \Nitro\Queue\Contracts\FailedJobStore
     }
 }
 
-/**
- * Keeps every event, and can answer one.
- *
- * Both halves matter: the worker is expected to announce what it is
- * doing, and to let a listener answer Looping with false.
- */
+/** Keeps every event, and can answer one. */
 class RecordingDispatcher implements EventDispatcher
 {
     /** @var array<int, object> */

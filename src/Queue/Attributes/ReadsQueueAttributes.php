@@ -6,30 +6,18 @@ use ReflectionClass;
 use Throwable;
 
 /**
- * Reads a job's terms from an attribute when no property sets them.
+ * Read a job's terms from an attribute when no property sets them.
  *
- * A property and an attribute say the same thing two ways, so one has
- * to win. In order:
- *
- *   1. A value assigned at run time — the property no longer holds the
- *      value it was declared with. That is a decision made about this
- *      job on this dispatch, and nothing at the class level undoes it.
- *   2. The attribute. It and a declared default are both the author
- *      writing the same class, and the attribute is the more
- *      deliberate — a default is often the one inherited from the base
- *      job and left alone.
- *   3. The property's declared default.
+ * A value assigned at run time wins, then the attribute, then the
+ * property's declared default.
  */
 trait ReadsQueueAttributes
 {
     /**
-     * What reflection found, per class and knob.
+     * What reflection found, per class and term.
      *
-     * Static rather than per-instance for two reasons: a job is
-     * serialized into its payload, and an instance property would ride
-     * along and arrive stale; and a class's attributes and declared
-     * defaults are the same for every instance, so looking them up
-     * once per dispatch would be reflection for no new answer.
+     * Static because an instance property would be serialized into the
+     * job's payload and arrive stale.
      *
      * @var array<string, array{default: mixed, attribute: mixed, exists: bool}>
      */
@@ -48,9 +36,8 @@ trait ReadsQueueAttributes
 
         $current = $resolved['exists'] ? $this->{$property} : null;
 
-        // A property that no longer holds the value it was declared with
-        // was set on purpose, and nothing written above the class should
-        // quietly override what a subclass went out of its way to say.
+        // A property no longer holding its declared value was set on
+        // purpose, so nothing above the class overrides it.
         if ($resolved['exists'] && $current !== $resolved['default']) {
             return $current;
         }
@@ -73,8 +60,7 @@ trait ReadsQueueAttributes
         if ($instance !== null) {
             $values = get_object_vars($instance);
 
-            // An attribute with no value at all — FailOnTimeout — says
-            // its one thing by being there.
+            // An attribute with no value says its one thing by being there.
             $value = $values === [] ? true : reset($values);
         }
 

@@ -58,11 +58,9 @@ class VerifyCsrfToken
     /**
      * Publish the token as a cookie a browser script can read.
      *
-     * A form gets its token from `@csrf`, but a client that builds its own
-     * requests has no markup to read it from. The convention every such
-     * client follows is to look for an XSRF-TOKEN cookie and echo it back in
-     * the X-XSRF-TOKEN header — which {@see tokenFrom()} already accepts, so
-     * without this the framework was reading a header nothing could send.
+     * A client that builds its own requests has no markup to read a token
+     * from, so it reads the XSRF-TOKEN cookie and echoes it back in the
+     * X-XSRF-TOKEN header.
      *
      * Deliberately not http-only: a cookie script cannot read is a cookie
      * that cannot be echoed back, which defeats the whole exchange. It is
@@ -71,9 +69,8 @@ class VerifyCsrfToken
      */
     private function addCookieToResponse(Request $request, Response $response): Response
     {
-        // csrf_token() starts the session and mints a token if there is none,
-        // and returns '' when there is no session to start — a console run or
-        // a route outside the web group, where a cookie would mean nothing.
+        // Returns '' when there is no session to start, where a cookie
+        // would mean nothing.
         $token = csrf_token();
 
         if ($token === '') {
@@ -99,10 +96,8 @@ class VerifyCsrfToken
     /**
      * The session cookie settings, or none when configuration is unavailable.
      *
-     * Guarded the same way {@see csrf_token()} guards the session: this runs
-     * as a response passes through, and a context without a config repository
-     * bound should get a cookie with sensible defaults rather than an error
-     * raised on the way out of a request that already succeeded.
+     * Guarded because this runs as a response passes through, where an
+     * error would break a request that already succeeded.
      *
      * @return array<string, mixed>
      */
@@ -121,14 +116,11 @@ class VerifyCsrfToken
         return in_array($request->method(), self::READ_METHODS, true);
     }
 
-    /** Whether the request URI matches a configured exemption. */
     /**
      * Whether this URI is exempt from verification.
      *
-     * Matched through the shared trait, so an exemption means the same thing
-     * here as it does for maintenance mode. That also gains full-URL matching
-     * and the wildcard handling in Request::is(), which the hand-rolled
-     * version here only approximated for a trailing '/*'.
+     * Matched through the shared trait, so an exemption means the same
+     * thing here as it does for maintenance mode.
      */
     private function isExcept(Request $request): bool
     {
@@ -165,13 +157,10 @@ class VerifyCsrfToken
     }
 
     /**
-     * An X-XSRF-TOKEN header holds whatever was in the XSRF-TOKEN cookie, and
-     * that cookie is encrypted on the way out.
+     * Decrypt an X-XSRF-TOKEN header.
      *
-     * EncryptCookies decrypts incoming *cookies*; this value arrives as a
-     * header, so nothing has touched it. Comparing the ciphertext against the
-     * session's plaintext token would fail every time — which is the whole
-     * reason the header path had never worked.
+     * It carries the XSRF-TOKEN cookie's value, which is encrypted; the
+     * header is not a cookie, so nothing else has decrypted it.
      */
     private function decryptXsrf(string $value): ?string
     {
@@ -179,10 +168,8 @@ class VerifyCsrfToken
             $encrypter = app(Encrypter::class);
 
             /*
-             * The same two steps EncryptCookies performs on an incoming
-             * cookie, because this value is one — decryptString, then strip
-             * the name-bound prefix it was encrypted with. Using the plain
-             * decrypt() would leave that prefix in place and never match.
+             * The two steps EncryptCookies performs on an incoming cookie:
+             * decryptString, then strip the name-bound prefix.
              */
             return CookieValuePrefix::validate(
                 'XSRF-TOKEN',

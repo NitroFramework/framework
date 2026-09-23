@@ -7,9 +7,7 @@ use Nitro\Queue\WorkerOptions;
 /**
  * A worker is about to look for the next job.
  *
- * A listener that returns false from this holds the worker back for one
- * turn of the loop, which is how work is kept off a queue during a
- * migration or a deploy without stopping the process.
+ * A listener returning false holds the worker back for one turn.
  */
 class Looping
 {

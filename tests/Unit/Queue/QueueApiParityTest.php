@@ -18,15 +18,7 @@ use Nitro\Queue\Job;
 use Nitro\Queue\QueuedJob;
 use PHPUnit\Framework\TestCase;
 
-/**
- * The job's own terms, and the queue contract around it.
- *
- * A job says how it wants to be run either in a property or in an
- * attribute above the class. Both have to mean the same thing, and
- * one of them has to win when they disagree — that is the substance
- * of these, along with the contract methods a batch and a worker
- * depend on.
- */
+/** The job's own terms, and the queue contract around it. */
 class QueueApiParityTest extends TestCase
 {
     protected function setUp(): void
@@ -64,24 +56,13 @@ class QueueApiParityTest extends TestCase
         $this->assertSame([1, 10, 60], (new AttributedJob())->backoff());
     }
 
-    /**
-     * An attribute wins over a property's declared default.
-     *
-     * Both are the author writing the same class, and the attribute is
-     * the more deliberate of the two — a default is often just the one
-     * inherited from the base job and left alone.
-     */
+    /** An attribute wins over a property's declared default. */
     public function test_an_attribute_wins_over_a_declared_default(): void
     {
         $this->assertSame(5, (new OverridingJob())->tries());
     }
 
-    /**
-     * A value assigned at run time wins over both.
-     *
-     * That is a decision made about this job, on this dispatch, and
-     * nothing written at the class level should quietly undo it.
-     */
+    /** A value assigned at run time wins over both. */
     public function test_a_value_set_at_run_time_wins_over_an_attribute(): void
     {
         $job = new OverridingJob();
@@ -102,13 +83,7 @@ class QueueApiParityTest extends TestCase
         $this->assertNull($job->connectionName());
     }
 
-    /**
-     * Resolved terms must not ride along in the payload.
-     *
-     * The job is serialized whole, so anything cached on the instance
-     * is written into every queued row and arrives at the worker as
-     * whatever it was at dispatch time.
-     */
+    /** Resolved terms must not ride along in the payload. */
     public function test_reading_a_jobs_terms_does_not_grow_its_payload(): void
     {
         $bare = strlen(QueuedJob::encode(new AttributedJob()));
@@ -123,14 +98,7 @@ class QueueApiParityTest extends TestCase
 
     // ── Envelope identity ─────────────────────────────────────────────
 
-    /**
-     * Each queued job carries an identifier of its own.
-     *
-     * The driver's id belongs to the row and changes when the job is
-     * released onto a new one, so anything that has to follow a job
-     * across its attempts — an exception count, a throttle — needs
-     * something that does not.
-     */
+    /** Each queued job carries an identifier of its own. */
     public function test_an_envelope_carries_a_stable_identifier(): void
     {
         $first = new QueuedJob(null, 'default', QueuedJob::encode(new PlainJob()), 0, time(), null, time());
@@ -187,13 +155,7 @@ class QueueApiParityTest extends TestCase
         $this->assertNull($queue->pop('mail'), 'not yet eligible');
     }
 
-    /**
-     * Many jobs go on in one call.
-     *
-     * A batch dispatches hundreds together; pushing them one at a time
-     * turns a single insert into hundreds of round trips, which is the
-     * whole cost of dispatching a large batch.
-     */
+    /** Many jobs go on in one call. */
     public function test_many_jobs_are_pushed_at_once(): void
     {
         $queue = new ArrayQueue();
@@ -212,12 +174,7 @@ class QueueApiParityTest extends TestCase
 
     // ── Queued closures ───────────────────────────────────────────────
 
-    /**
-     * Work with no arguments and one call site needs no class.
-     *
-     * A class for it says nothing the closure does not, and lives on
-     * afterwards as something to maintain.
-     */
+    /** Work with no arguments and one call site needs no class. */
     public function test_a_closure_can_be_queued_and_run(): void
     {
         $this->container()->instance(CallableInvoker::class, new DirectInvoker());

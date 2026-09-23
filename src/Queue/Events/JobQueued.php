@@ -7,9 +7,6 @@ use Nitro\Queue\QueuedJob;
 
 /**
  * A job has been pushed onto a queue.
- *
- * Fired after the driver assigned an identifier, so the envelope's id
- * is set here where it was still null in JobQueueing.
  */
 class JobQueued
 {

@@ -52,10 +52,6 @@ class Dispatcher implements DispatcherContract, TogglesEvents
     /**
      * Wildcard listeners already matched to an event name.
      *
-     * Matching every pattern against every event name is the one part of a
-     * dispatch that grows with the number of registered patterns, and an
-     * application fires the same handful of event names over and over.
-     *
      * @var array<string, list<Closure>>
      */
     private array $wildcardsCache = [];
@@ -90,9 +86,6 @@ class Dispatcher implements DispatcherContract, TogglesEvents
 
     /**
      * Name where queued listeners are pushed.
-     *
-     * A test swaps in an array queue here rather than standing up the whole
-     * queue layer to assert that a listener was queued at all.
      */
     public function setQueueResolver(callable $resolver): static
     {
@@ -104,8 +97,7 @@ class Dispatcher implements DispatcherContract, TogglesEvents
     /**
      * Name what knows whether a database transaction is open.
      *
-     * Without one, an after-commit event is dispatched immediately — there is
-     * nothing to wait for, which is the right answer outside a transaction.
+     * Without one an after-commit event dispatches immediately.
      */
     public function setTransactionManagerResolver(?callable $resolver): static
     {
@@ -122,8 +114,7 @@ class Dispatcher implements DispatcherContract, TogglesEvents
      * handle() method — 'App\Listeners\SendReceipt', or the same with an
      * explicit method as 'App\Listeners\SendReceipt@notify'.
      *
-     * A closure on its own names its events by type hint, so a listener for one
-     * event class does not have to write the name twice.
+     * A closure on its own names its events by type hint.
      *
      * @param string|string[]|Closure|QueuedClosure $events
      */
@@ -183,12 +174,8 @@ class Dispatcher implements DispatcherContract, TogglesEvents
     /**
      * Register a subscriber: one class that declares its own listeners.
      *
-     * The subscriber's subscribe() receives the dispatcher and registers what it
-     * wants. It keeps the listener map next to the code it belongs to, rather
-     * than in one provider that every feature has to edit.
-     *
-     * A subscribe() that returns a map of event to listener is registered here
-     * instead, so a subscriber that only lists things need not call back.
+     * Its subscribe() either registers directly or returns a map of
+     * event to listener, which is registered here instead.
      */
     public function subscribe(string|object $subscriber): void
     {
@@ -232,9 +219,7 @@ class Dispatcher implements DispatcherContract, TogglesEvents
             return null;
         }
 
-        // An event that says it belongs to a transaction waits for the commit.
-        // Sending a receipt for an order that then rolled back is the failure
-        // this exists to prevent, and it is not one the listener can see.
+        // An event that belongs to a transaction waits for the commit.
         if ($isObject
             && $payload[0] instanceof ShouldDispatchAfterCommit
             && ($transactions = $this->resolveTransactionManager()) !== null) {
@@ -251,9 +236,8 @@ class Dispatcher implements DispatcherContract, TogglesEvents
     /**
      * An object event is its own payload; anything else is wrapped.
      *
-     * Wrapping is what lets a listener be written with the arguments it
-     * actually wants: the payload is spread when the listener is called, so a
-     * lone object arrives as one argument and a list as several.
+     * The payload is spread when the listener is called, so a lone
+     * object arrives as one argument and a list as several.
      *
      * @return array{0: string, 1: array<int, mixed>}
      */
@@ -303,9 +287,7 @@ class Dispatcher implements DispatcherContract, TogglesEvents
     /**
      * Hold events raised inside the callback until it returns.
      *
-     * A run of writes that each raise an event leaves listeners seeing the
-     * work half-done; deferring them means every listener runs against the
-     * finished state. Nothing is held if the callback throws.
+     * Nothing is dispatched if the callback throws.
      *
      * @param array<int, string>|null $events Which events to hold; null is all.
      */
@@ -347,9 +329,7 @@ class Dispatcher implements DispatcherContract, TogglesEvents
     /**
      * Register an event to be dispatched later, by name.
      *
-     * Where defer() holds what a block raises, this queues one event up front
-     * for a flush() that may never come — a request that assembles several
-     * notifications and sends them only if it gets to the end.
+     * Nothing fires until flush() is called with the same name.
      */
     public function push(string $event, mixed $payload = []): void
     {
@@ -379,8 +359,8 @@ class Dispatcher implements DispatcherContract, TogglesEvents
     /**
      * Every listener for an event, ready to call.
      *
-     * Each is wrapped to take ($event, $payload) whatever it was registered
-     * as, so the caller does not have to know which kind it is.
+     * Each is wrapped to take ($event, $payload) whatever it was
+     * registered as.
      *
      * @return array<int, Closure>
      */
@@ -437,9 +417,7 @@ class Dispatcher implements DispatcherContract, TogglesEvents
     /**
      * Listeners registered against an interface the event implements.
      *
-     * Listening for a marker interface is how one listener covers a family of
-     * events — auditing everything that implements Auditable — without naming
-     * each one and having to remember the list when a new one is added.
+     * One listener covers a family of events without naming each one.
      *
      * @param array<int, Closure> $listeners
      * @return array<int, Closure>
@@ -458,9 +436,8 @@ class Dispatcher implements DispatcherContract, TogglesEvents
     /**
      * Wrap a listener so it can be called as ($event, $payload).
      *
-     * A wildcard listener is given the event name first, because it asked for
-     * a family of events and otherwise could not tell which one it got.
-     * Anything else takes the payload spread as its arguments.
+     * A wildcard listener is given the event name first; anything else
+     * takes the payload spread as its arguments.
      */
     public function makeListener(callable|string|array $listener, bool $wildcard = false): Closure
     {
@@ -490,8 +467,7 @@ class Dispatcher implements DispatcherContract, TogglesEvents
     /**
      * Resolve a class listener to something callable.
      *
-     * A listener that should be queued is never constructed here: the class
-     * name and the payload go to the queue and the worker builds it.
+     * A listener that should be queued is never constructed here.
      */
     private function createClassCallable(string|array $listener): callable
     {
@@ -505,8 +481,8 @@ class Dispatcher implements DispatcherContract, TogglesEvents
 
         $instance = $this->resolve($class);
 
-        // A "*ing" model event decides whether an operation happens at all, so
-        // it cannot wait for the transaction that operation is inside.
+        // A "*ing" model event decides whether the operation happens, so it
+        // cannot wait for the transaction it is inside.
         return $this->handlerShouldRunAfterCommit($instance)
             && ! in_array($method, ['creating', 'updating', 'saving', 'deleting', 'restoring'], true)
                 ? $this->afterCommitCallable($instance, $method)
@@ -540,9 +516,8 @@ class Dispatcher implements DispatcherContract, TogglesEvents
     /**
      * The callable that puts a queued listener's work on the queue.
      *
-     * The arguments are cloned, so a listener that runs later sees the event
-     * as it was when raised rather than whatever the rest of the request did
-     * to it afterwards.
+     * The arguments are cloned, so a listener running later sees the
+     * event as it was when raised.
      */
     private function createQueuedHandlerCallable(string $class, string $method): callable
     {
@@ -563,9 +538,8 @@ class Dispatcher implements DispatcherContract, TogglesEvents
     /**
      * Whether a queued listener wants this particular event queued.
      *
-     * shouldQueue() lets one listener decline the ones it has nothing to do
-     * with, rather than being queued and returning immediately — the queue
-     * round trip is the cost being avoided.
+     * shouldQueue() lets it decline one rather than spend a round trip
+     * finding out there was nothing to do.
      *
      * @param array<int, mixed> $arguments
      */
@@ -581,9 +555,8 @@ class Dispatcher implements DispatcherContract, TogglesEvents
     /**
      * Push a queued listener's work onto the queue.
      *
-     * Outside an application there is no queue to push to, so the listener runs
-     * inline. That keeps a unit test that dispatches an event from silently
-     * doing nothing, which is a worse outcome than running the work in-process.
+     * With no queue to push to the listener runs inline, rather than
+     * the dispatch silently doing nothing.
      *
      * @param array<int, mixed> $arguments
      */
@@ -607,9 +580,8 @@ class Dispatcher implements DispatcherContract, TogglesEvents
     /**
      * Put a job on the queue this dispatcher was told to use.
      *
-     * Every queued listener — a class or a closure — goes through here, so a
-     * test that swapped the queue out sees both. Reaching for the global
-     * application instead would have made the swap cover only one of them.
+     * Every queued listener goes through here, class or closure, so a
+     * swapped queue sees both.
      */
     public function pushJob(
         \Nitro\Queue\Job $job,

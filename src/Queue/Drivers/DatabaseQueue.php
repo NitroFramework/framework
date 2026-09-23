@@ -45,10 +45,8 @@ class DatabaseQueue implements Queue
     /**
      * Insert every job in one statement.
      *
-     * A batch dispatches its jobs together, and one round trip per job
-     * is what makes dispatching a thousand of them slow. The rows come
-     * back without ids — the driver assigns those — so the envelopes
-     * are left as they were rather than given a guessed one.
+     * The rows come back without ids, so the envelopes are left as
+     * they were rather than given a guessed one.
      *
      * @param array<int, QueuedJob> $jobs
      */

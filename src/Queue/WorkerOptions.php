@@ -4,10 +4,6 @@ namespace Nitro\Queue;
 
 /**
  * Everything `queue:work` was told on the command line.
- *
- * Kept as an object rather than an array so a listener handed one by
- * WorkerStarting or WorkerStopping can read the settings the worker is
- * actually running under, and so the defaults live in one place.
  */
 class WorkerOptions
 {

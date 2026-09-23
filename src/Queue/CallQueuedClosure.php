@@ -15,14 +15,8 @@ use Throwable;
  *         Report::rebuild();
  *     })->onQueue('reports');
  *
- * Worth having for work that needs no arguments and belongs to one
- * call site: a class for it says nothing the closure does not, and
- * lives on afterwards as something to maintain.
- *
- * What the closure captures is serialized with it, so the same rule
- * applies as to a job's constructor arguments — capture ids, not
- * models, and re-read inside. A closure that captures $this, a
- * resource or a database connection cannot be queued at all.
+ * What the closure captures is serialized with it, so the rule for a
+ * job's constructor arguments applies — capture ids, not models.
  */
 class CallQueuedClosure extends Job
 {
@@ -56,8 +50,8 @@ class CallQueuedClosure extends Job
     /**
      * Run the closure, resolving whatever it type-hints.
      *
-     * The job itself is offered as $job so the closure can release or
-     * delete its own place in the queue, the same as a job class can.
+     * The job is offered as $job, so the closure can release or delete
+     * its own place in the queue.
      */
     public function handle(): void
     {
@@ -104,10 +98,10 @@ class CallQueuedClosure extends Job
     }
 
     /**
-     * What this job is called.
+     * What this job is called, in a log or the failed store.
      *
-     * A closure has no class name to fall back on, so the file and
-     * line it was written at is what identifies it in a log.
+     * A closure has no class name, so it is named by where it was
+     * written.
      */
     public function displayName(): string
     {

@@ -10,10 +10,8 @@ use Nitro\Http\Response;
 /**
  * Logs a user out everywhere once their password changes.
  *
- * The password hash is recorded in the session at login and compared on every
- * request. Changing the password changes the hash, so every other session
- * stops matching and is invalidated — which is what makes "log out my other
- * devices" actually take effect.
+ * The password hash is recorded at login and compared on every request,
+ * so changing it invalidates every other session.
  */
 class AuthenticateSession
 {
@@ -91,10 +89,8 @@ class AuthenticateSession
         $request->session()->flush();
 
         /*
-         * Carries the redirect, so the same handler that turns an ordinary
-         * auth failure into a login page turns this one into it too. Without
-         * it a user whose password changed elsewhere gets a bare 401 in a
-         * browser rather than being asked to sign in again.
+         * Carries the redirect, so the handler that turns an ordinary auth
+         * failure into a login page turns this one into it too.
          */
         throw new AuthenticationException(
             'Unauthenticated.',

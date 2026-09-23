@@ -12,10 +12,7 @@ class NullStore implements StoreInterface
     /**
      * A lock that is always free.
      *
-     * This store keeps nothing, so it cannot hold a claim either. Work guarded
-     * by a lock still runs — which is what a deliberately disabled cache
-     * should do, rather than blocking the application because nothing can
-     * grant it permission.
+     * This store keeps nothing, so it cannot hold a claim either.
      */
     public function lock(string $name, int $seconds = 0, ?string $owner = null): \Nitro\Cache\Contracts\Lock
     {

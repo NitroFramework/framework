@@ -47,9 +47,7 @@ class EncryptCookies
     /**
      * Exempt a cookie on this instance.
      *
-     * The case for it is a cookie something outside the application reads —
-     * an analytics script, a load balancer — which cannot decrypt what it
-     * finds.
+     * For one something outside the application reads and cannot decrypt.
      *
      * @param array<int, string>|string $name
      */

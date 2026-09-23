@@ -11,13 +11,9 @@ use Nitro\Support\Str;
 /**
  * A lock held as a cache entry.
  *
- * Works on any store that can add a key only when it is absent, which is what
- * makes the claim atomic — two processes calling add() at the same moment,
- * one of them gets false.
- *
- * The entry's value is the owner token, not a flag. That is what lets
- * release() tell "my lock" from "a lock with the same name that somebody else
- * took after mine expired", which a delete-by-name cannot.
+ * Works on any store that can add a key only when it is absent, which
+ * is what makes the claim atomic. The entry's value is the owner token
+ * rather than a flag, so release() can tell whose lock it is.
  */
 class CacheLock implements LockContract
 {
@@ -38,9 +34,8 @@ class CacheLock implements LockContract
     public function acquire(): bool
     {
         /*
-         * add() is the whole mechanism: it writes only when the key is absent
-         * and reports whether it did. Doing this as get()-then-put() would
-         * leave a window in which two processes both see it free.
+         * add() writes only when the key is absent and reports whether it
+         * did; get()-then-put() would leave a window where both see it free.
          */
         if ($this->seconds > 0) {
             return $this->store->add($this->name, $this->owner, $this->seconds);
@@ -61,9 +56,8 @@ class CacheLock implements LockContract
             try {
                 return $callback();
             } finally {
-                // Released even when the callback throws: otherwise a failure
-                // holds the lock until it expires, and the work it guards
-                // stops running for that long.
+                // Released even when the callback throws, so a failure does
+                // not hold the lock until it expires.
                 $this->release();
             }
         }

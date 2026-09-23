@@ -7,10 +7,6 @@ use Throwable;
 
 /**
  * A job threw and was put back on the queue to be tried again.
- *
- * Distinct from JobReleased, which also covers a job that released
- * itself deliberately: this one always carries the exception that
- * caused it.
  */
 class JobReleasedAfterException
 {

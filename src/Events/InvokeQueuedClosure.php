@@ -9,8 +9,7 @@ use Throwable;
 /**
  * The job that runs a queued closure listener.
  *
- * Pushed by {@see QueuedClosure} when the event fires, carrying the
- * closure and the event that triggered it.
+ * Pushed by {@see QueuedClosure} when the event fires.
  */
 class InvokeQueuedClosure extends Job
 {

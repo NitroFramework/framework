@@ -15,11 +15,9 @@ use Throwable;
  * same state. The payload is base64-encoded on the way in because a serialized
  * session is binary and the column is text.
  *
- * Each row also records who the session belongs to and where it came from,
- * which is what lets an application show a signed-in user their active
- * sessions — this browser, that phone, an address they do not recognise — and
- * end one. Without those columns a session is an opaque blob and the only
- * available answer to "where am I signed in?" is "somewhere".
+ * Each row also records who the session belongs to and where it came
+ * from, so an application can show a user their active sessions and end
+ * one.
  *
  * Expected schema:
  *   id            string, primary key
@@ -39,10 +37,8 @@ class DatabaseSessionHandler implements SessionHandlerInterface, ExistenceAwareI
      * @param Closure(): array{ip_address?: ?string, user_agent?: ?string} $requestContext
      *   Where the request came from.
      *
-     * Closures rather than a container, for the same reason the manager takes
-     * them: the session layer must not require the auth or http layers to be
-     * registered when neither is in use. Absent, the two sets of columns are
-     * simply not written.
+     * Closures, so the session layer does not require the auth or http
+     * layers; absent, those columns are not written.
      */
     public function __construct(
         private string $table = 'sessions',
@@ -54,9 +50,7 @@ class DatabaseSessionHandler implements SessionHandlerInterface, ExistenceAwareI
     /**
      * The columns every write sets.
      *
-     * Built in one place so an insert and an update store the same thing —
-     * otherwise a session updated in place keeps the address it was first
-     * seen from, and the record stops meaning what it appears to mean.
+     * In one place so an insert and an update store the same thing.
      *
      * @return array<string, mixed>
      */
@@ -124,18 +118,10 @@ class DatabaseSessionHandler implements SessionHandlerInterface, ExistenceAwareI
     }
 
     /**
-     * Write the payload, inserting when the id is new.
-     *
-     * The update runs first and the insert only when it touched nothing, so the
-     * common path is a single statement. A concurrent insert of the same id
-     * loses the race on the primary key; that is caught and treated as written,
-     * since the winner stored an equivalent payload.
-     */
     /**
      * Record whether the session is already persisted.
      *
-     * Lets a write go straight to the statement it needs instead of trying an
-     * update and falling back.
+     * Lets a write go straight to the statement it needs.
      */
     public function setExists(bool $value): SessionHandlerInterface
     {
@@ -171,8 +157,8 @@ class DatabaseSessionHandler implements SessionHandlerInterface, ExistenceAwareI
     /**
      * Delete rows idle past the lifetime, up to $limit of them.
      *
-     * A bounded sweep collects the ids first and deletes by key, because a
-     * LIMIT on a DELETE is not portable across the supported grammars.
+     * Collects ids first and deletes by key, since LIMIT on a DELETE is
+     * not portable.
      *
      * @param int $limit Rows to remove at most; 0 for no limit.
      */

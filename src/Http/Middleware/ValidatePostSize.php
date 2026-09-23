@@ -9,11 +9,9 @@ use Nitro\Http\Response;
 /**
  * Rejects a request whose body PHP refused to read.
  *
- * When a body exceeds post_max_size PHP discards it and carries on, so the
- * application sees an empty form with a Content-Length that says otherwise.
- * Left alone, that surfaces as "these fields are required" for fields the
- * user did fill in. Comparing the declared length against the limit turns it
- * into the failure it actually is.
+ * PHP discards a body over post_max_size and carries on, so the
+ * application sees an empty form with a Content-Length that says
+ * otherwise, and reports required fields the user did fill in.
  */
 class ValidatePostSize
 {
@@ -34,8 +32,7 @@ class ValidatePostSize
     /**
      * post_max_size in bytes.
      *
-     * The ini value carries a unit suffix — 8M, 512K — unless it is already
-     * a plain number, and 0 means no limit.
+     * The ini value may carry a unit suffix; 0 means no limit.
      */
     protected function postMaxSize(): int
     {

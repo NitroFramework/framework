@@ -30,11 +30,8 @@ class Redirector
     /**
      * Redirect to the previous page.
      *
-     * Referer first, then the URL the session recorded, then the fallback.
-     * The session entry matters because a browser omits Referer on a
-     * cross-origin navigation and may be configured not to send it at all —
-     * without it, a validation failure that should return the user to the form
-     * they were filling in drops them at the fallback instead.
+     * Referer first, then the URL the session recorded, then the
+     * fallback — a browser may omit Referer or never send it.
      */
     public function back(string $fallback = '/', int $status = 302): RedirectResponse
     {
@@ -46,8 +43,7 @@ class Redirector
     /**
      * The URL StartSession recorded, or null.
      *
-     * Guarded because a stateless route has no session at all, and asking for
-     * one there would turn a redirect into an error.
+     * Guarded, since a stateless route has no session to ask.
      */
     private function previousUrlFromSession(): ?string
     {

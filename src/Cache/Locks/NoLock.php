@@ -9,13 +9,8 @@ use Nitro\Support\Str;
 /**
  * A lock that is always free.
  *
- * What the null store hands out. Code that guards work with a lock still runs
- * that work, which is the right behaviour when caching is deliberately turned
- * off — the alternative is an application that silently stops doing things
- * because nothing can grant it permission.
- *
- * It follows that this guarantees nothing about exclusivity. That is the
- * null store's contract, not a defect in the lock.
+ * What the null store hands out, so work guarded by one still runs. It
+ * guarantees nothing about exclusivity.
  */
 class NoLock implements Lock
 {

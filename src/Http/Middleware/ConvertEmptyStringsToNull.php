@@ -9,10 +9,9 @@ use Nitro\Http\Response;
 /**
  * Turns an empty submitted field into null.
  *
- * A browser sends an untouched text input as an empty string, not as nothing,
- * so without this a nullable column receives '' and a `nullable` rule passes
- * a value that was never entered. Converting once, here, means the rest of
- * the application only has to reason about null.
+ * A browser sends an untouched text input as an empty string, so
+ * converting once here means the rest of the application only has to
+ * reason about null.
  */
 class ConvertEmptyStringsToNull extends TransformsRequest
 {

@@ -7,10 +7,6 @@ use Nitro\Queue\WorkerStopReason;
 
 /**
  * A worker process is exiting.
- *
- * A supervisor restarts a worker whatever the exit code, so the code
- * alone says little; the reason is what separates a deliberate
- * --max-jobs recycle from a job that froze and had to be killed.
  */
 class WorkerStopping
 {

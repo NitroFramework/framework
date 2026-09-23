@@ -12,14 +12,7 @@ use Nitro\Queue\Drivers\ArrayQueue;
 use Nitro\Queue\QueueManager;
 use PHPUnit\Framework\TestCase;
 
-/**
- * What reaches the queue when a listener says it should not run now.
- *
- * A queued listener is written exactly as a synchronous one, which is
- * the point — so its terms have to mean the same thing either way. The
- * only chance to read them off the listener is at push time, because
- * the worker has a job and not a listener.
- */
+/** What reaches the queue when a listener says it should not run now. */
 class QueuedListenerParityTest extends TestCase
 {
     private Dispatcher $events;
@@ -86,12 +79,7 @@ class QueuedListenerParityTest extends TestCase
         $this->assertSame(ParityQueuedListener::class, $this->queued()->listenerClass);
     }
 
-    /**
-     * A queued listener cannot veto anything.
-     *
-     * The decision would be made after the fact, in another process,
-     * with the request long since answered — so it reads as no opinion.
-     */
+    /** A queued listener cannot veto anything. */
     public function test_a_queued_listener_does_not_halt(): void
     {
         $this->events->listen('e', ParityQueuedListener::class);
@@ -100,12 +88,7 @@ class QueuedListenerParityTest extends TestCase
         $this->assertSame('reached', $this->events->until('e'));
     }
 
-    /**
-     * A listener can decline the events it has nothing to do with.
-     *
-     * Being queued and returning immediately costs a whole round trip
-     * to establish that there was nothing to do.
-     */
+    /** A listener can decline the events it has nothing to do with. */
     public function test_a_listener_can_refuse_to_be_queued(): void
     {
         $this->events->listen('e', DecliningListener::class);
@@ -126,14 +109,7 @@ class QueuedListenerParityTest extends TestCase
 
     // ── Carrying the listener's terms ─────────────────────────────────
 
-    /**
-     * The listener's own terms travel with the job.
-     *
-     * A listener that says it may be tried three times means the same
-     * thing queued as it does called directly; the job carried none of
-     * it, so every queued listener ran on the defaults regardless of
-     * what it had asked for.
-     */
+    /** The listener's own terms travel with the job. */
     public function test_the_listeners_terms_reach_the_job(): void
     {
         $this->events->listen('e', ConfiguredListener::class);
@@ -178,13 +154,7 @@ class QueuedListenerParityTest extends TestCase
 
     // ── Failing ───────────────────────────────────────────────────────
 
-    /**
-     * A failed queued listener is told so.
-     *
-     * The listener wrote the work and is the only thing that knows what
-     * an unfinished one leaves behind; without this the failure is
-     * recorded and nothing that could act on it is ever told.
-     */
+    /** A failed queued listener is told so. */
     public function test_a_failed_job_reaches_the_listeners_failed_hook(): void
     {
         Container::getInstance()->instance(FailingListener::class, new FailingListener());
@@ -206,12 +176,7 @@ class QueuedListenerParityTest extends TestCase
 
     // ── Queued closures ──────────────────────────────────────────────
 
-    /**
-     * A closure listener can run on the queue too.
-     *
-     * The event class still comes from the type hint; the only
-     * difference is where the body runs.
-     */
+    /** A closure listener can run on the queue too. */
     public function test_a_queueable_closure_is_registered_by_its_hint(): void
     {
         $this->events->listen(queueable(static function (ParityQueuedEvent $event): void {
@@ -265,12 +230,7 @@ class QueuedListenerParityTest extends TestCase
 
     // ── Without an application ────────────────────────────────────────
 
-    /**
-     * With no queue to push to, the listener runs in process.
-     *
-     * A test that dispatches an event and silently does nothing is a
-     * worse outcome than one that does the work in the wrong place.
-     */
+    /** With no queue to push to, the listener runs in process. */
     public function test_a_queued_listener_runs_inline_when_there_is_no_queue(): void
     {
         $bare = new Dispatcher();

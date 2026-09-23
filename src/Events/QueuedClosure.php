@@ -12,10 +12,8 @@ use Laravel\SerializableClosure\SerializableClosure;
  *         Receipt::for($event->orderId)->send();
  *     })->onQueue('mail'));
  *
- * The event class is read from the closure's type hint, the same as any
- * closure listener; the difference is only where it runs. What the
- * closure captures travels with it, so the rule for a queued job
- * applies here too — capture ids, not models.
+ * The event class is read from the closure's type hint. What it
+ * captures travels with it, so capture ids, not models.
  */
 class QueuedClosure
 {
@@ -62,13 +60,8 @@ class QueuedClosure
     /**
      * The listener the dispatcher actually registers.
      *
-     * A closure that, when the event fires, queues the job that will run
-     * the real one — so nothing is serialized until there is something
-     * to serialize.
-     *
-     * Pushed through the dispatcher rather than the application, so a
-     * test that swapped the queue out sees a queued closure as well as
-     * a queued listener class.
+     * Queues the real closure when the event fires, so nothing is
+     * serialized until there is something to serialize.
      */
     public function resolve(Dispatcher $dispatcher): Closure
     {

@@ -10,15 +10,7 @@ use Nitro\Http\Request;
 use Nitro\Http\Response;
 use PHPUnit\Framework\TestCase;
 
-/**
- * The middleware that rewrite input before anything reads it.
- *
- * Each exists because the alternative is remembering to handle the same case
- * at every use: a trailing space that defeats a uniqueness check, an untouched
- * text input that arrives as '' rather than as nothing, and a body PHP threw
- * away for being too large — which otherwise presents as a form where every
- * field is suddenly missing.
- */
+/** The middleware that rewrite input before anything reads it. */
 class TransformsRequestTest extends TestCase
 {
     protected function tearDown(): void
@@ -73,12 +65,7 @@ class TransformsRequestTest extends TestCase
         $this->assertSame('one', $request->post('contact')['tags'][0]);
     }
 
-    /**
-     * Passwords are left exactly as typed.
-     *
-     * One may legitimately begin or end with a space, and trimming it would
-     * lock the owner out of an account they entered correctly.
-     */
+    /** Passwords are left exactly as typed. */
     public function test_passwords_are_never_trimmed(): void
     {
         $request = $this->through(new TrimStrings(), $this->request([

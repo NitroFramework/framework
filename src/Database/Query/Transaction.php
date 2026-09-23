@@ -22,9 +22,8 @@ class Transaction
     /**
      * Work to run once the outermost transaction commits.
      *
-     * Keyed by the level it was registered at, so a callback added inside a
-     * savepoint that is rolled back is discarded with it while one added at
-     * the outer level survives.
+     * Keyed by the level it was registered at, so one added inside a
+     * savepoint that is rolled back is discarded with it.
      *
      * @var array<int, list<Closure>>
      */
@@ -38,10 +37,8 @@ class Transaction
     /**
      * Run a callback once the data it depends on is durable.
      *
-     * Anything that cannot be rolled back — an email, a queued job, a
-     * webhook — has to wait for the commit, because the alternative is
-     * telling the world about a row that no longer exists. Outside a
-     * transaction there is nothing to wait for and it runs immediately.
+     * Outside a transaction there is nothing to wait for, so it runs
+     * immediately.
      */
     public function addCallback(Closure $callback): void
     {
@@ -57,9 +54,8 @@ class Transaction
     /**
      * Run and clear the callbacks registered at or below the current level.
      *
-     * Each is run inside its own try: one that throws must not stop the rest,
-     * and by this point the transaction is committed — there is nothing left
-     * to undo, so the failure belongs in the log rather than up the stack.
+     * Each runs in its own try, so one that throws does not stop the
+     * rest; the transaction is already committed.
      */
     private function runCommittedCallbacks(): void
     {
@@ -128,8 +124,7 @@ class Transaction
             fn (): TransactionEvent => new TransactionEvent($this->transactionLevel),
         );
 
-        // Only the outermost commit makes anything durable: a released
-        // savepoint is still inside a transaction that can roll back.
+        // Only the outermost commit makes anything durable.
         if ($this->transactionLevel === 0) {
             $this->runCommittedCallbacks();
         }
@@ -184,8 +179,7 @@ class Transaction
             } catch (Throwable) {
                 // Connection-lost-style failures: reset our state to 0
                 // so the next request doesn't think it's mid-transaction,
-                // and drop work that was waiting on a commit that will
-                // never come.
+                // and drop work waiting on a commit that will never come.
                 $this->transactionLevel = 0;
                 $this->committedCallbacks = [];
             }

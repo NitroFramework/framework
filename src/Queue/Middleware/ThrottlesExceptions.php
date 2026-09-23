@@ -19,9 +19,7 @@ use Throwable;
  * so a broken API is not called once per queued job.
  *
  * A throttled job is released rather than failed, and the exception is
- * not re-thrown — a dependency that is down is not the job's fault, and
- * letting it through would spend the job's attempt budget on an outage
- * it had no part in.
+ * not re-thrown, so an outage does not spend the job's attempts.
  */
 class ThrottlesExceptions
 {
@@ -82,9 +80,7 @@ class ThrottlesExceptions
 
             return $result;
         } catch (Throwable $throwable) {
-            // An exception the throttle does not cover is nothing to do
-            // with this dependency, so it travels on to the worker and
-            // is counted against the job's own attempts as usual.
+            // An uncovered exception travels on to the worker as usual.
             if ($this->whenCallback !== null && ! ($this->whenCallback)($throwable, $this->limiter)) {
                 throw $throwable;
             }
@@ -118,9 +114,7 @@ class ThrottlesExceptions
     /**
      * Give each queued job its own circuit.
      *
-     * The default groups by class, which is what a shared dependency
-     * calls for; this is for a job whose failures are its own — one
-     * bad record should not throttle the rest of the batch.
+     * The default groups by class, for a shared dependency.
      */
     public function byJob(): static
     {
@@ -140,8 +134,7 @@ class ThrottlesExceptions
     /**
      * Decide whether the throttle applies to an exception.
      *
-     * A class name is the common case — count only these — and a
-     * callback covers the rest.
+     * A class name counts only those; a callback covers the rest.
      *
      * @param array<int, class-string<Throwable>>|class-string<Throwable>|callable $exceptions
      */
@@ -256,10 +249,10 @@ class ThrottlesExceptions
     }
 
     /**
-     * Seconds until the circuit closes, plus a moment.
+     * Seconds until the circuit closes, plus a margin.
      *
-     * The margin keeps a job released at exactly the boundary from
-     * arriving a tick early and being turned away again.
+     * The margin keeps a job released at the boundary from arriving a
+     * tick early and being turned away again.
      */
     protected function timeUntilNextRetry(string $key): int
     {

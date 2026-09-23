@@ -4,10 +4,6 @@ namespace Nitro\Queue;
 
 /**
  * Why a worker process exited.
- *
- * A supervisor restarts a worker whatever the reason, so the exit code
- * alone says little; this is what distinguishes a deliberate --max-jobs
- * recycle from a job that froze and had to be killed.
  */
 enum WorkerStopReason: string
 {

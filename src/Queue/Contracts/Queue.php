@@ -45,9 +45,7 @@ interface Queue
     /**
      * Push many jobs onto the same queue at once.
      *
-     * A batch dispatches hundreds of jobs in one call, and a driver that
-     * can write them in one statement should — pushing individually
-     * turns one insert into hundreds of round trips.
+     * A driver that can write them in one statement should.
      *
      * @param array<int, QueuedJob> $jobs
      */
@@ -86,9 +84,7 @@ interface Queue
     /**
      * The name this connection is configured under.
      *
-     * A driver is built from one entry in config/queue.php but does not
-     * otherwise know which; the worker needs the name to say where a
-     * job came from in the events it fires.
+     * The worker needs it to say where a job came from.
      */
     public function getConnectionName(): string;
 

@@ -84,9 +84,7 @@ final class QueuedJob
     /**
      * The job's own identifier, stable across releases and retries.
      *
-     * Written at push time, so a payload from an older release has
-     * none; callers that key off it treat null as "cannot track this
-     * one" rather than inventing a fresh value each read.
+     * Null for a payload written before identifiers existed.
      */
     public function uuid(): ?string
     {

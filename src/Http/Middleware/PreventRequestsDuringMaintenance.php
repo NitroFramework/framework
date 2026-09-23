@@ -10,11 +10,6 @@ use Nitro\Http\Response;
 /**
  * Turns the down file into an actual 503.
  *
- * MaintenanceMode could already be activated, read, given a retry window and a
- * bypass secret — and nothing consulted it, so `nitro down` wrote a file and the
- * site carried on serving. A maintenance mode nobody checks is not a feature
- * with a missing command; it is a switch wired to nothing.
- *
  * Sits in the global stack so it covers a 404 as much as a hit: a URL that does
  * not exist should still say the site is down rather than report on the routing
  * table of an application that is mid-deploy.
@@ -29,9 +24,8 @@ class PreventRequestsDuringMaintenance
     /**
      * URIs that answer normally while the application is down.
      *
-     * A health check is the case that matters: a load balancer that cannot
-     * reach one takes the instance out of rotation, and then the deploy that
-     * put the site into maintenance has nothing to come back to.
+     * A health check above all: a load balancer that cannot reach one
+     * takes the instance out of rotation.
      *
      * @var array<int, string>
      */
@@ -45,9 +39,8 @@ class PreventRequestsDuringMaintenance
             return $next($request);
         }
 
-        // Presenting the secret as a path sets a cookie and sends the visitor to
-        // the root, so the secret leaves the URL bar — and the browser history,
-        // and any referrer header — immediately.
+        // The secret is exchanged for a cookie and the visitor redirected, so
+        // it leaves the URL bar, the history and any referrer.
         $secret = trim($request->path(), '/');
 
         if ($secret !== '' && $this->maintenance->bypassedBy($secret)) {
@@ -73,9 +66,8 @@ class PreventRequestsDuringMaintenance
     /**
      * Whether the URI is one that must keep answering while down.
      *
-     * Matched through the shared trait rather than here, so an exemption
-     * written for this middleware means the same thing as one written for
-     * CSRF — including the leading slash, which is otherwise the kind of
+     * Matched through the shared trait, so an exemption means the same
+     * thing here as it does for CSRF — including the leading slash, the kind of
      * detail two implementations quietly disagree about.
      */
     protected function isExcepted(Request $request): bool

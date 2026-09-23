@@ -8,15 +8,7 @@ use Nitro\Cache\Exceptions\LockTimeoutException;
 use Nitro\Cache\Repository;
 use PHPUnit\Framework\TestCase;
 
-/**
- * Locks as objects rather than as a callback.
- *
- * The distinction matters because a lock often outlives the call that took
- * it: a queued job holds one for its whole run, and whatever finishes the
- * work later has to release the lock it was actually holding — not whatever
- * carries that name by then. That is what the owner token is for, and why
- * release() is not simply "delete the key".
- */
+/** Locks as objects rather than as a callback. */
 class CacheLockTest extends TestCase
 {
     private function repository(): Repository
@@ -43,14 +35,7 @@ class CacheLockTest extends TestCase
         $this->assertTrue($store->lock('reports', 10)->acquire());
     }
 
-    /**
-     * Releasing is scoped to the holder.
-     *
-     * Without the owner check this is "delete the key", and a process whose
-     * lock had already expired would release the lock a second process is
-     * legitimately holding — the failure that makes an overlap guard worse
-     * than none at all.
-     */
+    /** Releasing is scoped to the holder. */
     public function test_one_holder_cannot_release_another_holders_lock(): void
     {
         $store = new ArrayStore();
@@ -179,13 +164,7 @@ class CacheLockTest extends TestCase
         $repository->lock('reports', 10);
     }
 
-    /**
-     * The null store grants every lock.
-     *
-     * Work guarded by one still runs, which is what a deliberately disabled
-     * cache should do — the alternative is an application that quietly stops
-     * doing things because nothing can grant it permission.
-     */
+    /** The null store grants every lock. */
     public function test_the_null_store_never_blocks_anything(): void
     {
         $store = new NullStore();

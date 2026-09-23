@@ -7,10 +7,8 @@ use Nitro\Http\Request;
 /**
  * The exemption list a middleware checks a request against.
  *
- * Shared because several of them need the same thing — a webhook endpoint
- * exempt from CSRF, a status page exempt from maintenance mode — and each
- * spelling the match out again is how two of them end up disagreeing about
- * whether a leading slash matters.
+ * Shared, so two of them cannot disagree about whether a leading slash
+ * matters.
  */
 trait ExcludesPaths
 {
@@ -23,8 +21,7 @@ trait ExcludesPaths
 
             /*
              * Matched against the full URL as well as the path, so an
-             * exemption can name a query string when it has to — a callback
-             * URL that is only exempt for one action.
+             * exemption can name a query string when it has to.
              */
             if ($request->fullUrlIs($except) || $request->is($except)) {
                 return true;

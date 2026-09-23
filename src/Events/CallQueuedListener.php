@@ -21,10 +21,8 @@ use Throwable;
  * re-queries, and it gets current data rather than a snapshot from whenever the
  * job was pushed.
  *
- * The listener's own terms travel with it. A listener that says it may be
- * tried three times means the same thing queued as it does called directly,
- * and reading them off the listener at push time is the only chance to do it —
- * the worker has a job, not a listener.
+ * The listener's own terms travel with it, read off the listener at
+ * push time — the worker has a job, not a listener.
  */
 class CallQueuedListener extends Job
 {
@@ -61,10 +59,8 @@ class CallQueuedListener extends Job
     /**
      * Read the listener's queue terms and carry them on the job.
      *
-     * A method is asked before a property, and both before this class's own
-     * defaults. viaQueue, viaConnection and withDelay are given the event when
-     * they take one, so a listener can route by what happened rather than
-     * having to decide once for everything.
+     * A method is asked before a property, and is given the event when
+     * it takes one, so a listener can route by what happened.
      *
      * @param array<int, mixed> $arguments The event, as it was dispatched.
      */
@@ -108,8 +104,7 @@ class CallQueuedListener extends Job
     /**
      * What the listener says about one term, by method or by property.
      *
-     * A method that takes no parameter is called without the event rather
-     * than with one it would refuse.
+     * A method taking no parameter is called without the event.
      */
     private function ask(object $listener, string $method, string $property, mixed $event): mixed
     {
@@ -155,10 +150,6 @@ class CallQueuedListener extends Job
 
     /**
      * Tell the listener its work failed.
-     *
-     * The listener wrote the work and is the only thing that knows what an
-     * unfinished one leaves behind; without this the failure is recorded and
-     * nothing that could act on it is ever told.
      */
     public function failed(Throwable $exception): void
     {
@@ -170,8 +161,7 @@ class CallQueuedListener extends Job
     }
 
     /**
-     * Name the listener in the failed-jobs table. Without this every failure is
-     * recorded as CallQueuedListener and the table cannot tell you what broke.
+     * Name the listener in the failed-jobs table.
      */
     public function displayName(): string
     {
