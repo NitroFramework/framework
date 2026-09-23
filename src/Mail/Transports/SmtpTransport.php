@@ -137,8 +137,8 @@ class SmtpTransport implements Transport
         if ($message->cc !== []) {
             $headers[] = 'Cc: ' . $this->formatAddressList($message->cc);
         }
-        if ($message->replyTo !== null) {
-            $headers[] = 'Reply-To: ' . $this->formatAddress($message->replyTo);
+        if ($message->replyTo !== []) {
+            $headers[] = 'Reply-To: ' . $this->formatAddressList($message->replyTo);
         }
         $headers[] = 'Message-ID: <' . bin2hex(random_bytes(12)) . '@' . $this->localDomain . '>';
 

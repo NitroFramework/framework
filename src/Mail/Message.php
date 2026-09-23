@@ -17,8 +17,13 @@ class Message
 
     /** @var array{address: string, name: ?string}|null */
     public ?array $from = null;
-    /** @var array{address: string, name: ?string}|null */
-    public ?array $replyTo = null;
+
+    /**
+     * Where a reply goes, which may be more than one address.
+     *
+     * @var array<int, array{address: string, name: ?string}>
+     */
+    public array $replyTo = [];
 
     public string $subject = '';
     public ?string $html = null;
@@ -63,7 +68,7 @@ class Message
 
     public function replyTo(string $address, ?string $name = null): static
     {
-        $this->replyTo = ['address' => $this->assertValidAddress($address), 'name' => $name];
+        $this->replyTo[] = ['address' => $this->assertValidAddress($address), 'name' => $name];
         return $this;
     }
 
