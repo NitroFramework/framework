@@ -279,7 +279,7 @@ class OptimizeCommand implements CommandInterface
 
             $allProviders = array_merge($defaults, $packageProviders, $userProviders, $moduleProviders);
 
-            [$eagerProviders, $deferredServices] = $this->splitDeferredProviders($allProviders);
+            [$eagerProviders, $deferredServices, $loadEvents] = $this->splitDeferredProviders($allProviders);
 
             // NOTE: Blade directives are intentionally NOT cached here. A directive
             // callback receives the invocation's $expression; caching its output
@@ -290,6 +290,7 @@ class OptimizeCommand implements CommandInterface
             $cache = [
                 'providers'  => $eagerProviders,
                 'deferred'   => $deferredServices,
+                'when'       => $loadEvents,
                 'timestamp'  => time(),
             ];
 
@@ -331,28 +332,7 @@ class OptimizeCommand implements CommandInterface
      */
     private function splitDeferredProviders(array $providers): array
     {
-        $eager = [];
-        $deferred = [];
-        $container = $this->app->getContainer();
-
-        foreach ($providers as $providerClass) {
-            try {
-                $instance = new $providerClass($container);
-
-                if (! $instance->isDeferred()) {
-                    $eager[] = $providerClass;
-                    continue;
-                }
-
-                foreach ($instance->provides() as $service) {
-                    $deferred[$service] = $providerClass;
-                }
-            } catch (\Throwable) {
-                $eager[] = $providerClass;
-            }
-        }
-
-        return [$eager, $deferred];
+        return \Nitro\Foundation\ProviderManifest::split($providers, $this->app->getContainer());
     }
 
     /**
@@ -570,6 +550,7 @@ class OptimizeCommand implements CommandInterface
         $caches  = [
             'config.php'         => 'Configuration',
             'bootstrap.php'      => 'Bootstrap',
+            'services.php'       => 'Service provider manifest',
             'container.php'      => 'Compiled container',
             'packages.php'       => 'Package discovery',
             'views_warmup.php'   => 'View warmup bundle',

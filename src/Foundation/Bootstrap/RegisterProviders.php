@@ -3,6 +3,7 @@
 namespace Nitro\Foundation\Bootstrap;
 
 use Nitro\Foundation\Application;
+use Nitro\Foundation\ProviderManifest;
 
 /**
  * Bootstrapper: registers service providers (from the cache in production, else config).
@@ -33,9 +34,10 @@ class RegisterProviders implements BootstrapperInterface
             $app->registerConfiguredProviders(
                 $cached['providers'] ?? [],
                 $cached['deferred'] ?? null,
+                $cached['when'] ?? null,
             );
         } else {
-            $app->registerConfiguredProviders();
+            $this->registerFromManifest($app);
         }
 
         // Install the AOT-compiled container factories so autowired controllers
@@ -59,6 +61,30 @@ class RegisterProviders implements BootstrapperInterface
         if (is_file($warmup)) {
             require_once $warmup;
         }
+    }
+
+    /**
+     * Register providers using the services manifest, building it if needed.
+     *
+     * `nitro optimize` is the fast path and stays the fast path; this is what
+     * happens without it. The manifest answers "does this provider defer?" once
+     * instead of on every request, which is the only way a deferred provider
+     * avoids loading its class — the application has to construct one before it
+     * can ask.
+     *
+     * Safe outside production, unlike the bootstrap cache, because the manifest
+     * records the provider list it was built from and rebuilds when that list
+     * changes. A new module or provider therefore appears on the next request
+     * with nothing to clear.
+     */
+    private function registerFromManifest(Application $app): void
+    {
+        $providers = $app->configuredProviders();
+
+        [$eager, $deferred, $when] = (new ProviderManifest($app->paths()->cachedServices()))
+            ->resolve($providers, $app->getContainer());
+
+        $app->registerConfiguredProviders($eager, $deferred, $when);
     }
 
     /**

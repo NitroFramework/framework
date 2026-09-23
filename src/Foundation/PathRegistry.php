@@ -77,6 +77,18 @@ class PathRegistry implements PathRegistryContract
         return $this->cache('bootstrap.php');
     }
 
+    /**
+     * Which providers are eager and which defer, written on first boot.
+     *
+     * Separate from bootstrap.php because this one answers a question about the
+     * provider classes alone, and rebuilds itself when that list changes — so
+     * it is safe to keep without running `nitro optimize`.
+     */
+    public function cachedServices(): string
+    {
+        return $this->cache('services.php');
+    }
+
     /** Providers and commands discovered from installed packages. */
     public function cachedPackages(): string
     {

@@ -663,16 +663,30 @@ class Application implements ApplicationInterface
      * @param array<int, class-string>|null   $providers Pre-merged eager list, or null to discover live.
      * @param array<string, class-string>|null $deferred [service => providerClass] from the cache.
      */
-    public function registerConfiguredProviders(?array $providers = null, ?array $deferred = null): void
+    /**
+     * Every provider this application runs, in registration order.
+     *
+     * The framework's own, then those discovered from installed packages, then
+     * the application's, then its modules'.
+     *
+     * @return array<int, class-string>
+     */
+    public function configuredProviders(): array
     {
-        if ($providers === null) {
-            $providers = array_merge(
-                $this->getDefaultProviders(),
-                $this->discoverPackageProviders(),
-                $this->config->get('app.providers'),
-                $this->discoverModuleProviders()
-            );
-        }
+        return array_merge(
+            $this->getDefaultProviders(),
+            $this->discoverPackageProviders(),
+            $this->config->get('app.providers'),
+            $this->discoverModuleProviders()
+        );
+    }
+
+    public function registerConfiguredProviders(
+        ?array $providers = null,
+        ?array $deferred = null,
+        ?array $when = null,
+    ): void {
+        $providers ??= $this->configuredProviders();
 
         /*
          * Seeded straight from the cache, so a deferred provider's class is never
@@ -685,8 +699,42 @@ class Application implements ApplicationInterface
             $this->deferredServices = $deferred + $this->deferredServices;
         }
 
+        /*
+         * A deferred provider whose services nothing resolves by name, but
+         * which has to exist once something happens. The listener registers it,
+         * at which point its own boot() runs and can listen for the same event
+         * properly — so this fires first and the provider's listener sees it.
+         */
+        if ($when !== null && $when !== []) {
+            $this->registerLoadEvents($when);
+        }
+
         foreach ($providers as $providerClass) {
             $this->register($providerClass);
+        }
+    }
+
+    /**
+     * Wake a deferred provider when one of its events is dispatched.
+     *
+     * @param array<class-string, array<int, string>> $when
+     */
+    private function registerLoadEvents(array $when): void
+    {
+        if (! $this->container->has('events')) {
+            return;
+        }
+
+        $dispatcher = $this->container->resolve('events');
+
+        foreach ($when as $providerClass => $events) {
+            if ($events === []) {
+                continue;
+            }
+
+            $dispatcher->listen($events, function () use ($providerClass): void {
+                $this->registerDeferredProvider($providerClass);
+            });
         }
     }
 
@@ -842,11 +890,39 @@ class Application implements ApplicationInterface
             return false;
         }
 
-        $providerClass = $this->deferredServices[$abstract];
+        $this->registerDeferredProvider($this->deferredServices[$abstract]);
+
+        return true;
+    }
+
+    /**
+     * Register a provider that was waiting, and boot it.
+     *
+     * Reached two ways: something resolved one of its services, or one of the
+     * events in its when() was dispatched. Registering it through register()
+     * would not do — that method sees a deferred provider and records it as
+     * deferred again, which is the right answer at boot and the wrong one here.
+     *
+     * Calling it twice is harmless: the second call finds nothing left in the
+     * deferred map and returns.
+     */
+    public function registerDeferredProvider(string $providerClass): void
+    {
         $instance = $this->loadedProviders[$providerClass] ?? new $providerClass($this->container);
 
-        foreach ($instance->provides() as $svc) {
-            unset($this->deferredServices[$svc]);
+        $waiting = false;
+
+        // Cleared before register() runs, so a re-entrant resolve from inside
+        // it finds nothing left to defer and cannot loop.
+        foreach ($instance->provides() as $service) {
+            if (isset($this->deferredServices[$service])) {
+                $waiting = true;
+                unset($this->deferredServices[$service]);
+            }
+        }
+
+        if (! $waiting && in_array($instance, $this->serviceProviders, true)) {
+            return;
         }
 
         $instance->register();
@@ -856,8 +932,6 @@ class Application implements ApplicationInterface
         if (method_exists($instance, 'boot')) {
             $this->container->call([$instance, 'boot']);
         }
-
-        return true;
     }
 
     /**

@@ -48,6 +48,23 @@ class ServiceProvider
         return [];
     }
 
+    /**
+     * Events that register this provider when they are dispatched.
+     *
+     * A deferred provider normally waits to be asked for one of the services
+     * in {@see provides()}. Some have nothing anyone resolves by name and are
+     * needed the moment something happens instead — a provider that listens
+     * for a job failing, say. Naming that event here wakes it.
+     *
+     * Only consulted for a provider that defers.
+     *
+     * @return array<int, string>
+     */
+    public function when(): array
+    {
+        return [];
+    }
+
     public function isDeferred(): bool
     {
         return $this->defer && $this->provides() !== [];
