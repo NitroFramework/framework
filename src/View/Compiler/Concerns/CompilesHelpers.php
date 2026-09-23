@@ -74,6 +74,35 @@ trait CompilesHelpers
     }
 
     /**
+     * `@trace` or `@trace('a label')` — the call stack, printed where it stands.
+     *
+     * Taken during the render, so the frames run past the controller and
+     * through the view engine to this template — which a trace taken in
+     * the controller cannot show, the view not having happened yet.
+     */
+    protected function compileTrace(string $args): string
+    {
+        $expression = $this->stripParentheses($args);
+        $label = $expression === '' ? 'null' : $expression;
+
+        return "<?php echo trace_renderer({$label})->toHtml(); ?>";
+    }
+
+    /**
+     * `@dt` or `@dt('a label')` — the same, then stop.
+     *
+     * For a template whose later output is what you are trying to get
+     * past, the way `@dd` stops on a value.
+     */
+    protected function compileDt(string $args): string
+    {
+        $expression = $this->stripParentheses($args);
+        $label = $expression === '' ? 'null' : $expression;
+
+        return "<?php echo trace_renderer({$label})->toHtml(); exit(1); ?>";
+    }
+
+    /**
      * `@rawdump($value)` — PHP's own `var_dump`, for when the formatted dumper
      * is itself what is in question.
      */
