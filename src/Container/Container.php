@@ -513,6 +513,22 @@ class Container extends IlluminateContainer implements ContainerInterface
     }
 
     /**
+     * Every name bound with scoped(), which is to say every service that lives
+     * for one request.
+     *
+     * Asked for rather than listed elsewhere: a service declares its lifetime
+     * where it is registered, so anything that needs to know which those are
+     * should read the answer here instead of keeping a list that a new binding
+     * silently falls out of.
+     *
+     * @return array<int, string>
+     */
+    public function scopedNames(): array
+    {
+        return $this->scopedInstances;
+    }
+
+    /**
      * Drop the resolved instance for each named service so the next request
      * gets a fresh one, while keeping the binding in place.
      *

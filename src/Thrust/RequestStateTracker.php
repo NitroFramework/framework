@@ -135,9 +135,26 @@ final class RequestStateTracker
      * An alias is asked about by the name it points at, since the target is
      * what declared how long it lives.
      */
+    /**
+     * Whether a name belongs to the request rather than to the worker.
+     *
+     * The names passed in are the ones the reset drops by hand. Everything
+     * bound with scoped() is request-lived too, and is asked for rather than
+     * listed: SessionGuard is bound under its class name and aliased to Guard
+     * and StatefulGuard, none of which appear in that list, so a guard handed
+     * out under a contract name was filed as long-lived and then reported for
+     * holding the session it is supposed to hold.
+     */
     private function livesForOneRequest(string $name): bool
     {
-        return isset($this->requestScoped[$name])
-            || isset($this->requestScoped[$this->container->getAlias($name)]);
+        $target = $this->container->getAlias($name);
+
+        if (isset($this->requestScoped[$name]) || isset($this->requestScoped[$target])) {
+            return true;
+        }
+
+        $scoped = $this->container->scopedNames();
+
+        return in_array($name, $scoped, true) || in_array($target, $scoped, true);
     }
 }
