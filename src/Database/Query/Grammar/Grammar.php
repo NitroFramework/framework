@@ -27,6 +27,18 @@ class Grammar
     ];
 
     /**
+     * How many entries a memo below holds before it is emptied.
+     *
+     * A schema has a small fixed set of identifiers, so an application never
+     * reaches this. It exists because a grammar outlives the request that
+     * filled it — under a worker the same instance serves every request — and
+     * a column name can come from request input, as `orderBy($request->
+     * query('sort'))` does. Dropping the whole memo is O(1), where evicting
+     * the oldest entry would put work on the path the memo exists to shorten.
+     */
+    private const CACHE_LIMIT = 1000;
+
+    /**
      * Memoized identifier wrap. wrap() is called once per column reference
      * per query — the same set of identifiers ('users.id', 'posts.title',
      * 'id', '*') recur thousands of times per request. Keying by raw input
@@ -57,13 +69,21 @@ class Grammar
         if ($groups = $this->compileGroups($query)) $sql[] = $groups;
         if ($havings = $this->compileHavings($query)) $sql[] = $havings;
 
-        // Before the ordering and the limit, which apply to the combined
-        // result rather than to the query that started it.
-        if ($unions = $this->compileUnions($query)) $sql[] = $unions;
-
         if ($orders = $this->compileOrders($query)) $sql[] = $orders;
         if ($limit = $this->compileLimit($query)) $sql[] = $limit;
         if ($offset = $this->compileOffset($query)) $sql[] = $offset;
+
+        // Each side of a union is enclosed, including the query that started
+        // it, so the clauses above stay that query's own. Without that a side
+        // carrying its own ORDER BY or LIMIT is a syntax error, because the
+        // clause reads as belonging to the union.
+        if ($unions = $this->compileUnions($query)) {
+            $sql = [$this->wrapUnion(implode(' ', $sql)), $unions];
+
+            if ($orders = $this->compileUnionOrders($query)) $sql[] = $orders;
+            if ($limit = $query->getUnionLimitValue()) $sql[] = "LIMIT {$limit}";
+            if ($offset = $query->getUnionOffsetValue()) $sql[] = "OFFSET {$offset}";
+        }
 
         // Last, because FOR UPDATE closes the statement.
         if (($lock = $query->getLock()) !== null && ($clause = $this->compileLock($lock)) !== '') {
@@ -281,10 +301,18 @@ class Grammar
         $sql = [];
 
         foreach ($unions as $union) {
-            $sql[] = ($union['all'] ? 'UNION ALL ' : 'UNION ') . $union['query']->toSql();
+            $sql[] = ($union['all'] ? 'UNION ALL ' : 'UNION ') . $this->wrapUnion($union['query']->toSql());
         }
 
         return implode(' ', $sql);
+    }
+
+    /**
+     * Enclose one side of a union so its own clauses stay its own.
+     */
+    protected function wrapUnion(string $sql): string
+    {
+        return '(' . $sql . ')';
     }
 
     /** The engine's random-ordering function. */
@@ -305,6 +333,31 @@ class Grammar
         // Unquoted, so a string inside the document compares against a bound
         // string rather than against its quoted JSON form.
         return "json_unquote(json_extract({$field}{$path}))";
+    }
+
+    /**
+     * Compile a JSON reference that is compared against a boolean literal.
+     *
+     * Separate from {@see wrapJsonSelector()} because an engine that unquotes
+     * a extracted string must not unquote here — `true` is a JSON value, not
+     * a quoted one, and unquoting turns it into text that matches nothing.
+     */
+    protected function wrapJsonBooleanSelector(string $value): string
+    {
+        [$field, $path] = $this->wrapJsonFieldAndPath($value);
+
+        return "json_extract({$field}{$path})";
+    }
+
+    /**
+     * The literal a JSON boolean is compared against.
+     *
+     * Written into the SQL rather than bound, so an engine that needs the
+     * comparison typed can say so here.
+     */
+    protected function wrapJsonBooleanValue(string $value): string
+    {
+        return $value;
     }
 
     /**
@@ -484,7 +537,10 @@ class Grammar
                 . $this->wrap($where['values'][0]) . ' AND ' . $this->wrap($where['values'][1]),
             'column' => $this->wrap($where['first']) . ' ' . $this->validateOperator($where['operator']) . ' ' . $this->wrap($where['second']),
             'date' => $this->compileDatePart($where['part'], $this->wrap($where['column']))
-                . ' ' . $this->validateOperator($where['operator']) . ' ?',
+                . ' ' . $this->validateOperator($where['operator']) . ' ' . $this->compileDateValue(),
+            'json_boolean' => $this->wrapJsonBooleanSelector($where['column'])
+                . ' ' . $this->validateOperator($where['operator'])
+                . ' ' . $this->wrapJsonBooleanValue($where['value']),
             'like' => $this->compileLike($this->wrap($where['column']), $where['caseSensitive'], $where['not']),
             'row_values' => '(' . implode(', ', array_map([$this, 'wrap'], $where['columns'])) . ') '
                 . $this->validateOperator($where['operator'])
@@ -512,6 +568,17 @@ class Grammar
      * Per engine, because the functions differ and comparing a DATETIME to
      * '2026-09-13' with a plain = matches only the rows stored at midnight.
      */
+    /**
+     * The placeholder a date comparison binds against.
+     *
+     * An engine whose date functions return text needs the bound value cast
+     * to match, or the comparison crosses storage classes.
+     */
+    public function compileDateValue(): string
+    {
+        return '?';
+    }
+
     public function compileDatePart(string $part, string $wrappedColumn): string
     {
         return match ($part) {
@@ -611,7 +678,18 @@ class Grammar
 
     protected function compileOrders(QueryBuilder $query): string
     {
-        $orders = $query->getOrders();
+        return $this->compileOrderList($query->getOrders());
+    }
+
+    /** The ordering that applies to a union's combined result. */
+    protected function compileUnionOrders(QueryBuilder $query): string
+    {
+        return $this->compileOrderList($query->getUnionOrders());
+    }
+
+    /** @param array<int, mixed> $orders */
+    protected function compileOrderList(array $orders): string
+    {
         if (empty($orders)) return '';
 
         $compiled = array_map(function ($order) {
@@ -666,32 +744,41 @@ class Grammar
             return $this->wrapCache[$value];
         }
 
+        if (count($this->wrapCache) >= self::CACHE_LIMIT) {
+            $this->wrapCache = [];
+        }
+
+        return $this->wrapCache[$value] = $this->compileWrap($value);
+    }
+
+    /** Wrap an identifier, with none of the memoising. */
+    private function compileWrap(string $value): string
+    {
         if ($value === '*') {
-            return $this->wrapCache[$value] = '*';
+            return '*';
         }
 
         // 'options->theme' addresses a value inside a JSON column, which no
         // amount of quoting turns into a column name — the engine needs its
         // own accessor for it.
         if (str_contains($value, '->')) {
-            return $this->wrapCache[$value] = $this->wrapJsonSelector($value);
+            return $this->wrapJsonSelector($value);
         }
 
         if (stripos($value, ' as ') !== false) {
             $parts = preg_split('/\s+as\s+/i', $value, 2);
-            $result = $this->wrap($parts[0]) . ' AS ' . $this->wrapSegment($parts[1]);
-            return $this->wrapCache[$value] = $result;
+
+            return $this->wrap($parts[0]) . ' AS ' . $this->wrapSegment($parts[1]);
         }
 
         if (str_contains($value, '.')) {
-            $segments = explode('.', $value);
-            $result = implode('.', array_map(function ($segment) {
-                return $segment === '*' ? '*' : $this->wrapSegment($segment);
-            }, $segments));
-            return $this->wrapCache[$value] = $result;
+            return implode('.', array_map(
+                fn (string $segment): string => $segment === '*' ? '*' : $this->wrapSegment($segment),
+                explode('.', $value),
+            ));
         }
 
-        return $this->wrapCache[$value] = $this->wrapSegment($value);
+        return $this->wrapSegment($value);
     }
 
     public function wrapTable(string|RawExpression $table): string
@@ -706,24 +793,35 @@ class Grammar
             return $this->tableWrapCache[$table];
         }
 
+        if (count($this->tableWrapCache) >= self::CACHE_LIMIT) {
+            $this->tableWrapCache = [];
+        }
+
+        return $this->tableWrapCache[$table] = $this->compileWrapTable($table);
+    }
+
+    /** Wrap a table name, with none of the memoising. */
+    private function compileWrapTable(string $table): string
+    {
         if ($table === '') {
             throw new InvalidArgumentException('Table name cannot be empty.');
         }
 
         if (stripos($table, ' as ') !== false) {
             $parts = preg_split('/\s+as\s+/i', $table, 2);
-            $result = $this->wrapTable($parts[0]) . ' AS ' . $this->wrapSegment($parts[1]);
-            return $this->tableWrapCache[$table] = $result;
+
+            return $this->wrapTable($parts[0]) . ' AS ' . $this->wrapSegment($parts[1]);
         }
 
         if (str_contains($table, '.')) {
-            $segments = explode('.', $table);
-            $result = implode('.', array_map([$this, 'wrapSegment'], $segments));
-            return $this->tableWrapCache[$table] = $result;
+            return implode('.', array_map([$this, 'wrapSegment'], explode('.', $table)));
         }
 
-        return $this->tableWrapCache[$table] = $this->wrapSegment($table);
+        return $this->wrapSegment($table);
     }
+
+    /** The character an engine encloses an identifier with. */
+    protected string $identifierQuote = '`';
 
     protected function wrapSegment(string $segment): string
     {
@@ -731,7 +829,7 @@ class Grammar
         if (!preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $segment)) {
             throw new InvalidArgumentException("Invalid identifier: {$segment}");
         }
-        return '`' . $segment . '`';
+        return $this->identifierQuote . $segment . $this->identifierQuote;
     }
 
     protected function validateOperator(string $operator): string
@@ -739,10 +837,20 @@ class Grammar
         if (isset($this->operatorCache[$operator])) {
             return $this->operatorCache[$operator];
         }
+
         $normalized = strtolower(trim($operator));
+
         if (!in_array($normalized, self::VALID_OPERATORS, true)) {
             throw new InvalidArgumentException("Invalid SQL operator: {$operator}");
         }
+
+        // Keyed by what was passed rather than by the normalised form, so a
+        // repeat skips the trim and the search. Padding makes those keys
+        // distinct, so the same bound applies here as to the identifiers.
+        if (count($this->operatorCache) >= self::CACHE_LIMIT) {
+            $this->operatorCache = [];
+        }
+
         return $this->operatorCache[$operator] = strtoupper($normalized);
     }
 

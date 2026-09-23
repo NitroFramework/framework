@@ -183,7 +183,7 @@ class QueryBuilderSurfaceTest extends TestCase
         $query = $this->builder(new SqliteGrammar())->from('posts')->whereYear('published_at', 2026);
 
         $this->assertSame(
-            "SELECT * FROM `posts` WHERE strftime('%Y', `published_at`) = ?",
+            "SELECT * FROM \"posts\" WHERE strftime('%Y', \"published_at\") = cast(? as text)",
             $query->toSql()
         );
     }
@@ -237,11 +237,11 @@ class QueryBuilderSurfaceTest extends TestCase
     {
         $query = $this->builder(new SqliteGrammar())->from('users')->whereLike('name', 'Ada%_x');
 
-        $this->assertSame('SELECT * FROM `users` WHERE `name` LIKE ?', $query->toSql());
+        $this->assertSame('SELECT * FROM "users" WHERE "name" LIKE ?', $query->toSql());
 
         $sensitive = $this->builder(new SqliteGrammar())->from('users')->whereLike('name', 'Ada%_x', true);
 
-        $this->assertSame('SELECT * FROM `users` WHERE `name` GLOB ?', $sensitive->toSql());
+        $this->assertSame('SELECT * FROM "users" WHERE "name" GLOB ?', $sensitive->toSql());
         $this->assertSame(['Ada*?x'], $sensitive->getBindings());
     }
 
@@ -532,8 +532,8 @@ class QueryBuilderSurfaceTest extends TestCase
         $first->union($second)->orderBy('id')->limit(10);
 
         $this->assertSame(
-            'SELECT * FROM `users` WHERE `active` = ?'
-                . ' UNION SELECT * FROM `archived_users` WHERE `active` = ?'
+            '(SELECT * FROM `users` WHERE `active` = ?)'
+                . ' UNION (SELECT * FROM `archived_users` WHERE `active` = ?)'
                 . ' ORDER BY `id` ASC LIMIT 10',
             $first->toSql()
         );
@@ -546,7 +546,7 @@ class QueryBuilderSurfaceTest extends TestCase
 
         $first->unionAll($this->builder()->from('b'));
 
-        $this->assertSame('SELECT * FROM `a` UNION ALL SELECT * FROM `b`', $first->toSql());
+        $this->assertSame('(SELECT * FROM `a`) UNION ALL (SELECT * FROM `b`)', $first->toSql());
     }
 
     // ─── Index hints ──────────────────────────────────────
@@ -559,7 +559,7 @@ class QueryBuilderSurfaceTest extends TestCase
         );
 
         $this->assertSame(
-            'SELECT * FROM `users` INDEXED BY `users_email_index`',
+            'SELECT * FROM "users" INDEXED BY "users_email_index"',
             $this->builder(new SqliteGrammar())->from('users')->useIndex('users_email_index')->toSql()
         );
 
@@ -580,7 +580,7 @@ class QueryBuilderSurfaceTest extends TestCase
         );
 
         $this->assertSame(
-            "SELECT * FROM `users` WHERE json_extract(`options`, '$.\"theme\"') = ?",
+            "SELECT * FROM \"users\" WHERE json_extract(\"options\", '$.\"theme\"') = ?",
             $this->builder(new SqliteGrammar())->from('users')->where('options->theme', 'dark')->toSql()
         );
     }
@@ -648,7 +648,7 @@ class QueryBuilderSurfaceTest extends TestCase
         );
 
         $this->assertSame(
-            "SELECT * FROM `users` WHERE json_type(`options`, '$.\"theme\"') IS NULL",
+            "SELECT * FROM \"users\" WHERE json_type(\"options\", '$.\"theme\"') IS NULL",
             $this->builder(new SqliteGrammar())->from('users')->whereJsonDoesntContainKey('options->theme')->toSql()
         );
     }

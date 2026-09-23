@@ -52,4 +52,17 @@ trait Conditionable
 
         return $this->when(! $condition, $callback, $default);
     }
+
+    /**
+     * Hand this object to the callback and carry on with it regardless.
+     *
+     * For a step that inspects or records the chain rather than changing it,
+     * so whatever the callback returns is discarded.
+     */
+    public function tap(callable $callback): static
+    {
+        $callback($this);
+
+        return $this;
+    }
 }

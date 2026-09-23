@@ -11,6 +11,12 @@ namespace Nitro\Database\Query\Grammar;
  */
 class SqliteGrammar extends Grammar
 {
+    /**
+     * SQLite accepts backticks for MySQL's sake, but the double quote is the
+     * standard form and the one its own tooling emits.
+     */
+    protected string $identifierQuote = '"';
+
     public function compileTables(): string
     {
         return "SELECT name AS table_name
@@ -86,13 +92,32 @@ class SqliteGrammar extends Grammar
     }
 
     /**
+     * SQLite does not accept a parenthesised SELECT as a union term, so each
+     * side is enclosed as a subquery instead.
+     */
+    protected function wrapUnion(string $sql): string
+    {
+        return "SELECT * FROM ({$sql})";
+    }
+
+    /**
      * SQLite has no DATE() over a DATETIME string in the MySQL sense; date()
      * is the equivalent, and it also copes with the ISO strings this framework
      * writes.
      */
     public function compileDate(string $wrappedColumn): string
     {
-        return "date({$wrappedColumn})";
+        return "strftime('%Y-%m-%d', {$wrappedColumn})";
+    }
+
+    /**
+     * strftime() answers with text, so the bound value is cast to text too.
+     * SQLite compares across storage classes by class before value, and an
+     * integer year would otherwise never equal the text one.
+     */
+    public function compileDateValue(): string
+    {
+        return 'cast(? as text)';
     }
 
     /**

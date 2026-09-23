@@ -48,6 +48,19 @@ class QueryBuilder
 
     /** Queries appended with UNION, each with its own 'all' flag. */
     protected array $unions = [];
+
+    /**
+     * Ordering and limits stated after a union was added.
+     *
+     * Held apart from the query's own, because once a union exists these
+     * apply to the combined result while the ones already stated belong to
+     * the query that started it.
+     */
+    protected array $unionOrders = [];
+
+    protected ?int $unionLimitValue = null;
+
+    protected ?int $unionOffsetValue = null;
     protected bool $distinct = false;
     protected array $wheres = [];
     /**
@@ -274,7 +287,15 @@ class QueryBuilder
 
     public function orderBy(string $column, string $direction = 'asc'): static
     {
-        $this->orders[] = ['column' => $column, 'direction' => strtoupper($direction)];
+        $order = ['column' => $column, 'direction' => strtoupper($direction)];
+
+        if ($this->unions !== []) {
+            $this->unionOrders[] = $order;
+
+            return $this;
+        }
+
+        $this->orders[] = $order;
         return $this;
     }
 
@@ -378,6 +399,12 @@ class QueryBuilder
 
     public function limit(int $limit): static
     {
+        if ($this->unions !== []) {
+            $this->unionLimitValue = $limit;
+
+            return $this;
+        }
+
         $this->limitValue = $limit;
         return $this;
     }
@@ -436,6 +463,12 @@ class QueryBuilder
 
     public function offset(int $offset): static
     {
+        if ($this->unions !== []) {
+            $this->unionOffsetValue = $offset;
+
+            return $this;
+        }
+
         $this->offsetValue = $offset;
         return $this;
     }
@@ -653,5 +686,21 @@ class QueryBuilder
     public function getOffsetValue(): ?int
     {
         return $this->offsetValue;
+    }
+
+    /** @return array<int, array{column: string, direction: string}> */
+    public function getUnionOrders(): array
+    {
+        return $this->unionOrders;
+    }
+
+    public function getUnionLimitValue(): ?int
+    {
+        return $this->unionLimitValue;
+    }
+
+    public function getUnionOffsetValue(): ?int
+    {
+        return $this->unionOffsetValue;
     }
 }

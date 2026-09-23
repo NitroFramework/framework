@@ -50,6 +50,21 @@ trait BuildsWheres
             };
         }
 
+        // A boolean against a JSON path is written into the SQL rather than
+        // bound. PDO sends a bound true as the integer 1, which never equals
+        // the JSON literal the column holds, so the row is silently missed.
+        if (is_bool($value) && str_contains($column, '->')) {
+            $this->wheres[] = [
+                'type' => 'json_boolean',
+                'column' => $column,
+                'operator' => $operator,
+                'value' => $value ? 'true' : 'false',
+                'boolean' => $boolean,
+            ];
+
+            return $this;
+        }
+
         $this->wheres[] = [
             'type' => 'basic',
             'column' => $column,
