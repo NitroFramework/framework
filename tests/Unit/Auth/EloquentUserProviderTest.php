@@ -33,10 +33,33 @@ class EloquentUserProviderTest extends TestCase
         };
     }
 
-    public function test_constructor_rejects_a_missing_model(): void
+    /**
+     * Checked when the model is first needed, not when the provider is built:
+     * class_exists() loads the class, and a guest never reaches a user at all.
+     */
+    public function test_a_missing_model_is_rejected_when_it_is_first_needed(): void
     {
+        $provider = new EloquentUserProvider('App\\Models\\DoesNotExist');
+
         $this->expectException(AuthConfigurationException::class);
-        new EloquentUserProvider('App\\Models\\DoesNotExist');
+
+        $provider->retrieveById(1);
+    }
+
+    public function test_building_the_provider_does_not_touch_the_model(): void
+    {
+        $provider = new EloquentUserProvider('App\\Models\\DoesNotExist');
+
+        $this->assertInstanceOf(EloquentUserProvider::class, $provider);
+    }
+
+    public function test_a_missing_model_is_rejected_when_retrieving_by_credentials(): void
+    {
+        $provider = new EloquentUserProvider('App\\Models\\DoesNotExist');
+
+        $this->expectException(AuthConfigurationException::class);
+
+        $provider->retrieveByCredentials(['email' => 'a@b.test']);
     }
 
     public function test_valid_password_passes(): void

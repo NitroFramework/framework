@@ -16,14 +16,38 @@ use Nitro\Auth\Exceptions\AuthConfigurationException;
  */
 class EloquentUserProvider implements UserProvider
 {
+    /** Whether the configured class has been checked to exist. */
+    private bool $modelVerified = false;
+
     public function __construct(protected string $model)
     {
-        if (!class_exists($this->model)) {
-            throw new AuthConfigurationException(
-                "Configured auth model [{$this->model}] does not exist. "
-                . "Check the 'auth.model' config key."
-            );
+    }
+
+    /**
+     * The configured model class, checked to exist the first time it is asked for.
+     *
+     * Checked here rather than in the constructor because class_exists() loads
+     * the class, and the model flattens nine Concerns traits. A guest never
+     * reaches a user: SessionGuard::user() finds no identifier and answers null
+     * without consulting this provider, so validating at construction loaded a
+     * whole model hierarchy on every request from someone not logged in.
+     *
+     * @throws AuthConfigurationException When the configured class does not exist.
+     */
+    protected function model(): string
+    {
+        if (! $this->modelVerified) {
+            if (! class_exists($this->model)) {
+                throw new AuthConfigurationException(
+                    "Configured auth model [{$this->model}] does not exist. "
+                    . "Check the 'auth.model' config key."
+                );
+            }
+
+            $this->modelVerified = true;
         }
+
+        return $this->model;
     }
 
     /**
@@ -35,7 +59,7 @@ class EloquentUserProvider implements UserProvider
             return null;
         }
 
-        $user = ($this->model)::find($identifier);
+        $user = ($this->model())::find($identifier);
 
         return $user instanceof Authenticatable ? $user : null;
     }
@@ -47,7 +71,7 @@ class EloquentUserProvider implements UserProvider
      */
     public function retrieveByCredentials(array $credentials): ?Authenticatable
     {
-        $query = ($this->model)::query();
+        $query = ($this->model())::query();
         $usable = false;
 
         foreach ($credentials as $key => $value) {
