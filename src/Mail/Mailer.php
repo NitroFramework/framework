@@ -17,8 +17,12 @@ class Mailer implements MailerContract
         protected ?Dispatcher $events = null,
     ) {}
 
-    public function send(Message $message): void
+    public function send(Message|Mailable $message): void
     {
+        if ($message instanceof Mailable) {
+            $message = $message->buildMessage();
+        }
+
         if ($message->from === null && $this->from !== null) {
             $message->from($this->from['address'], $this->from['name'] ?? null);
         }

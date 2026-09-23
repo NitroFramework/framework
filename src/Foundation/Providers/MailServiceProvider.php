@@ -6,6 +6,8 @@ use Nitro\Foundation\Contracts\ConfigRepository;
 use Nitro\Mail\Contracts\Mailer as MailerContract;
 use Nitro\Mail\MailManager;
 use Nitro\Mail\Mailer;
+use Nitro\Mail\Markdown;
+use Nitro\View\Contracts\ViewFinder;
 
 /**
  * Registers the mail layer: a MailManager ('mail') that resolves mailers from
@@ -19,7 +21,7 @@ class MailServiceProvider extends ServiceProvider
     /** @return array<int, string> */
     public function provides(): array
     {
-        return ['mail', MailManager::class, 'mailer', Mailer::class, MailerContract::class];
+        return ['mail', MailManager::class, 'mailer', Mailer::class, MailerContract::class, Markdown::class];
     }
 
     public function register(): void
@@ -39,5 +41,27 @@ class MailServiceProvider extends ServiceProvider
         });
         $this->container->alias('mailer', Mailer::class);
         $this->container->alias('mailer', MailerContract::class);
+
+        $this->registerMarkdown();
+    }
+
+    /** What renders a markdown mail view, and where it finds its layout. */
+    protected function registerMarkdown(): void
+    {
+        $this->container->singleton(Markdown::class, function ($container) {
+            $config = (array) $container->resolve(ConfigRepository::class)->get('mail', []);
+
+            return new Markdown((string) ($config['markdown']['theme'] ?? 'default'));
+        });
+    }
+
+    public function boot(): void
+    {
+        // An application overrides the layout by putting its own under
+        // resources/views/vendor/mail, so there is nothing to publish.
+        if ($this->container->has(ViewFinder::class)) {
+            $this->container->resolve(ViewFinder::class)
+                ->addNamespace(Markdown::NAMESPACE, __DIR__ . '/../../Mail/views');
+        }
     }
 }

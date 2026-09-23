@@ -34,6 +34,47 @@ class MailManager
         return $this->mailers[$name] ??= $this->resolve($name);
     }
 
+    /** Begin a message to these recipients. */
+    public function to(mixed $users, ?string $name = null): PendingMail
+    {
+        return (new PendingMail($this))->to($users, $name);
+    }
+
+    /** Begin a message copied to these recipients. */
+    public function cc(mixed $users, ?string $name = null): PendingMail
+    {
+        return (new PendingMail($this))->cc($users, $name);
+    }
+
+    /** Begin a message blind-copied to these recipients. */
+    public function bcc(mixed $users, ?string $name = null): PendingMail
+    {
+        return (new PendingMail($this))->bcc($users, $name);
+    }
+
+    /** Begin a message on a named mailer rather than the default. */
+    public function usingMailer(string $name): PendingMail
+    {
+        return new PendingMail($this, $name);
+    }
+
+    /**
+     * Put a mailable on the queue rather than sending it now.
+     */
+    public function queue(Mailable $mailable): void
+    {
+        SendQueuedMailable::dispatch($mailable)
+            ->onConnection($mailable->connection)
+            ->onQueue($mailable->queue)
+            ->delay($mailable->delay);
+    }
+
+    /** Queue a mailable to become eligible after a delay. */
+    public function later(int $delay, Mailable $mailable): void
+    {
+        $this->queue($mailable->delay($delay));
+    }
+
     protected function resolve(string $name): Mailer
     {
         $config = $this->config['mailers'][$name]

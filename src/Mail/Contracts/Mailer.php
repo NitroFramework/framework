@@ -2,6 +2,7 @@
 
 namespace Nitro\Mail\Contracts;
 
+use Nitro\Mail\Mailable;
 use Nitro\Mail\Message;
 
 /**
@@ -9,8 +10,8 @@ use Nitro\Mail\Message;
  */
 interface Mailer
 {
-    /** Deliver a fully-built message. */
-    public function send(Message $message): void;
+    /** Deliver a built message, or a mailable that describes one. */
+    public function send(Message|Mailable $message): void;
 
     /** Deliver a plain-text body to an address. */
     public function raw(string $to, string $subject, string $text): void;
