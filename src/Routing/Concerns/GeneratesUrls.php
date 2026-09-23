@@ -121,7 +121,7 @@ trait GeneratesUrls
                 continue;
             }
 
-            $path = str_replace($placeholder, rawurlencode($this->routeParameterValue($value)), $path);
+            $path = str_replace($placeholder, $this->encodeParameter($this->routeParameterValue($value)), $path);
         }
 
         /*
@@ -142,6 +142,40 @@ trait GeneratesUrls
         }
 
         return $query === [] ? $path : $path . '?' . http_build_query($query);
+    }
+
+    /**
+     * Characters that survive encoding in a path segment.
+     *
+     * A URL is escaped so a value cannot change the shape of the path, but a
+     * reserved character written deliberately has to arrive as written. The
+     * important one is the slash: a {path} constrained with where('path', '.*')
+     * holds a path, and encoding its separators produces a URL that no longer
+     * matches the route that generated it.
+     *
+     * @var array<string, string>
+     */
+    private const KEEP_ENCODED = [
+        '%2F' => '/',
+        '%40' => '@',
+        '%3A' => ':',
+        '%3B' => ';',
+        '%2C' => ',',
+        '%3D' => '=',
+        '%2B' => '+',
+        '%21' => '!',
+        '%2A' => '*',
+        '%7C' => '|',
+        '%3F' => '?',
+        '%26' => '&',
+        '%23' => '#',
+        '%25' => '%',
+    ];
+
+    /** Escape a value for a path segment, leaving the reserved set readable. */
+    private function encodeParameter(string $value): string
+    {
+        return strtr(rawurlencode($value), self::KEEP_ENCODED);
     }
 
     /**
