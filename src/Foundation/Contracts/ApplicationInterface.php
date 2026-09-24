@@ -64,4 +64,42 @@ interface ApplicationInterface
 
     /** Run the terminating callbacks. */
     public function terminate(): void;
+
+    /** Whether the bootstrappers have run. */
+    public function hasBeenBootstrapped(): bool;
+
+    /** The locale in use. */
+    public function getLocale(): string;
+
+    /** Set the locale for the rest of this request. */
+    public function setLocale(string $locale): void;
+
+    /** Whether the given locale is the one in use. */
+    public function isLocale(string $locale): bool;
+
+    /** The locale a missing translation falls back to. */
+    public function getFallbackLocale(): string;
+
+    /** What decides whether the application is down. */
+    public function maintenanceMode(): \Nitro\Foundation\MaintenanceMode;
+
+    /**
+     * The registered instance of a provider, or null if it has not registered.
+     *
+     * @param class-string|ServiceProvider $provider
+     */
+    public function getProvider(string|ServiceProvider $provider): ?ServiceProvider;
+
+    /**
+     * Whether a provider has registered.
+     *
+     * @param class-string|ServiceProvider $provider
+     */
+    public function providerIsLoaded(string|ServiceProvider $provider): bool;
+
+    /** Whether the configuration has been compiled. */
+    public function configurationIsCached(): bool;
+
+    /** Whether the route table has been compiled. */
+    public function routesAreCached(): bool;
 }

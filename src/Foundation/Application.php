@@ -135,6 +135,21 @@ class Application implements ApplicationInterface
     private array $bootstrappers = [];
 
     /**
+     * Hooks attached to one bootstrapper, keyed by its class.
+     *
+     * A package that has to act between two stages — after configuration is
+     * loaded but before providers register, say — has nowhere else to say so:
+     * the sequence is a list of classes, and a provider's own boot() is too
+     * late because registration has already happened.
+     *
+     * @var array<class-string, array<int, callable>>
+     */
+    private array $beforeBootstrappingHooks = [];
+
+    /** @var array<class-string, array<int, callable>> */
+    private array $afterBootstrappingHooks = [];
+
+    /**
      * Hooks fired just before providers boot, during {@see bootstrap()}.
      *
      * @var array<int, callable>
@@ -617,6 +632,89 @@ class Application implements ApplicationInterface
     }
 
     /**
+     * Every provider the application has registered, by class.
+     *
+     * Keyed, unlike {@see getServiceProviders()}, so a caller can ask about one
+     * without walking the list.
+     *
+     * @return array<class-string, ServiceProvider>
+     */
+    public function getLoadedProviders(): array
+    {
+        return $this->loadedProviders;
+    }
+
+    /**
+     * The registered instance of a provider, or null if it has not registered.
+     *
+     * @param class-string|ServiceProvider $provider
+     */
+    public function getProvider(string|ServiceProvider $provider): ?ServiceProvider
+    {
+        $class = is_string($provider) ? $provider : $provider::class;
+
+        return $this->loadedProviders[$class] ?? null;
+    }
+
+    /**
+     * Whether a provider has registered.
+     *
+     * True for a deferred provider only once something asked for one of its
+     * services — before that it has been seen but has not run.
+     *
+     * @param class-string|ServiceProvider $provider
+     */
+    public function providerIsLoaded(string|ServiceProvider $provider): bool
+    {
+        return $this->getProvider($provider) !== null;
+    }
+
+    /**
+     * Build a provider without registering it.
+     *
+     * @param class-string $provider
+     */
+    public function resolveProvider(string $provider): ServiceProvider
+    {
+        return new $provider($this->container);
+    }
+
+    /** Whether a service is waiting on a provider nothing has asked for yet. */
+    public function isDeferredService(string $service): bool
+    {
+        return isset($this->deferredServices[$service]);
+    }
+
+    // ── Is it cached? ───────────────────────────────────────────────────────
+    //
+    // The paths live on the registry; these answer the question a command asks
+    // before it offers to build or clear one.
+
+    /** Whether the configuration has been compiled. */
+    public function configurationIsCached(): bool
+    {
+        return is_file($this->paths()->cachedConfig());
+    }
+
+    /** Whether the route table has been compiled. */
+    public function routesAreCached(): bool
+    {
+        return is_file($this->paths()->cachedRoutes());
+    }
+
+    /** Whether the listener map has been compiled. */
+    public function eventsAreCached(): bool
+    {
+        return is_file($this->paths()->cachedEvents());
+    }
+
+    /** Whether the provider list has been compiled by `nitro optimize`. */
+    public function providersAreCached(): bool
+    {
+        return is_file($this->paths()->cachedProviders());
+    }
+
+    /**
      * Inject the loaded configuration repository.
      *
      * Called by the LoadConfiguration bootstrapper once config is available.
@@ -632,11 +730,15 @@ class Application implements ApplicationInterface
     protected function runBootstrappers(): void
     {
         foreach ($this->bootstrappers as $bootstrapper) {
+            $this->runBootstrapperHooks($this->beforeBootstrappingHooks, $bootstrapper);
+
             $instance = $this->container->resolve($bootstrapper);
 
             if ($instance instanceof BootstrapperInterface) {
                 $instance->bootstrap($this);
             }
+
+            $this->runBootstrapperHooks($this->afterBootstrappingHooks, $bootstrapper);
 
             /*
              * Marked here rather than inside each bootstrapper so the stage
@@ -994,6 +1096,62 @@ class Application implements ApplicationInterface
         $this->bootstrappers = array_merge($this->bootstrappers, $bootstrappers);
     }
 
+    /**
+     * Run a hook immediately before one bootstrapper.
+     *
+     *   $app->beforeBootstrapping(RegisterProviders::class, fn ($app) => …);
+     *
+     * The hook is given the application and the bootstrapper's class name. It
+     * fires once per run of that stage, and not at all if the stage is not in
+     * the sequence.
+     *
+     * @param class-string $bootstrapper
+     */
+    public function beforeBootstrapping(string $bootstrapper, callable $hook): void
+    {
+        $this->beforeBootstrappingHooks[$bootstrapper][] = $hook;
+    }
+
+    /**
+     * Run a hook immediately after one bootstrapper.
+     *
+     * @param class-string $bootstrapper
+     */
+    public function afterBootstrapping(string $bootstrapper, callable $hook): void
+    {
+        $this->afterBootstrappingHooks[$bootstrapper][] = $hook;
+    }
+
+    /**
+     * Run a hook once the environment file has been read.
+     *
+     * The first point at which env() answers, and the last before
+     * configuration is built from it.
+     */
+    public function afterLoadingEnvironment(callable $hook): void
+    {
+        $this->afterBootstrapping(Bootstrap\LoadEnvironment::class, $hook);
+    }
+
+    /** Whether the bootstrappers have run. */
+    public function hasBeenBootstrapped(): bool
+    {
+        return $this->bootstrapped;
+    }
+
+    /**
+     * Fire the hooks attached to one bootstrapper.
+     *
+     * @param array<class-string, array<int, callable>> $hooks
+     * @param class-string $bootstrapper
+     */
+    private function runBootstrapperHooks(array $hooks, string $bootstrapper): void
+    {
+        foreach ($hooks[$bootstrapper] ?? [] as $hook) {
+            $hook($this, $bootstrapper);
+        }
+    }
+
     /** Register a hook to run just before providers boot. */
     public function beforeBooting(callable $hook): void
     {
@@ -1119,7 +1277,83 @@ class Application implements ApplicationInterface
      */
     public function isDownForMaintenance(): bool
     {
-        return $this->container->resolve(MaintenanceMode::class)->active();
+        return $this->maintenanceMode()->active();
+    }
+
+    /**
+     * What decides whether the application is down.
+     *
+     * Reached rather than only asked, so an application can put the flag
+     * somewhere shared — a cache, a row — instead of a file on one machine's
+     * disk, which every other machine behind a load balancer cannot see.
+     */
+    public function maintenanceMode(): MaintenanceMode
+    {
+        return $this->container->resolve(MaintenanceMode::class);
+    }
+
+    // ── Locale ──────────────────────────────────────────────────────────────
+    //
+    // The translator owns the locale; these forward to it, because `app()` is
+    // where a caller looks for the current one and setting it through the
+    // translator means naming a class that has nothing to do with the request.
+
+    /** The locale in use. */
+    public function getLocale(): string
+    {
+        return $this->translator()?->getLocale()
+            ?? (string) ($this->config?->get('app.locale') ?? 'en');
+    }
+
+    /** The locale in use, spelled as Laravel spells it. */
+    public function currentLocale(): string
+    {
+        return $this->getLocale();
+    }
+
+    /** Set the locale for the rest of this request. */
+    public function setLocale(string $locale): void
+    {
+        $this->translator()?->setLocale($locale);
+
+        $this->config?->set('app.locale', $locale);
+    }
+
+    /** Whether the given locale is the one in use. */
+    public function isLocale(string $locale): bool
+    {
+        return $this->getLocale() === $locale;
+    }
+
+    /** The locale a missing translation falls back to. */
+    public function getFallbackLocale(): string
+    {
+        return (string) ($this->config?->get('app.fallback_locale') ?? 'en');
+    }
+
+    public function setFallbackLocale(string $locale): void
+    {
+        $this->config?->set('app.fallback_locale', $locale);
+
+        $translator = $this->translator();
+
+        if ($translator !== null && method_exists($translator, 'setFallback')) {
+            $translator->setFallback($locale);
+        }
+    }
+
+    /**
+     * The translator, or null where translation is not in play.
+     *
+     * Its provider defers, so asking for it here would build the whole
+     * translation layer to answer a question about a string — and a console
+     * command or a test may have no translator bound at all.
+     */
+    private function translator(): ?object
+    {
+        return $this->container->has('translator')
+            ? $this->container->resolve('translator')
+            : null;
     }
 
     /**
