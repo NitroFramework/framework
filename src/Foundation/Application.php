@@ -101,12 +101,24 @@ class Application implements ApplicationInterface
     private array $serviceProviders = [];
 
     /**
-     * Every provider instance seen, by class name, so registering twice is a
-     * no-op rather than a second set of bindings.
+     * Every provider that has registered, by class name, so registering twice
+     * is a no-op rather than a second set of bindings.
      *
      * @var array<class-string, ServiceProvider>
      */
     private array $loadedProviders = [];
+
+    /**
+     * Deferred providers seen but not yet registered, by class name.
+     *
+     * Kept apart from {@see $loadedProviders} because that map answers
+     * providerIsLoaded(), and a provider waiting on its first resolve has not
+     * run. Holding the instance means the one built at boot is the one that
+     * registers later.
+     *
+     * @var array<class-string, ServiceProvider>
+     */
+    private array $deferredProviders = [];
 
     /**
      * Providers that expose a boot(), in registration order.
@@ -940,6 +952,10 @@ class Application implements ApplicationInterface
             return $this->loadedProviders[$className];
         }
 
+        if (isset($this->deferredProviders[$className])) {
+            return $this->deferredProviders[$className];
+        }
+
         $instance = is_string($provider)
             ? new $provider($this->container)
             : $provider;
@@ -954,7 +970,7 @@ class Application implements ApplicationInterface
             foreach ($instance->provides() as $service) {
                 $this->deferredServices[$service] = $className;
             }
-            $this->loadedProviders[$className] = $instance;
+            $this->deferredProviders[$className] = $instance;
             return $instance;
         }
 
@@ -1023,7 +1039,9 @@ class Application implements ApplicationInterface
      */
     public function registerDeferredProvider(string $providerClass): void
     {
-        $instance = $this->loadedProviders[$providerClass] ?? new $providerClass($this->container);
+        $instance = $this->loadedProviders[$providerClass]
+            ?? $this->deferredProviders[$providerClass]
+            ?? new $providerClass($this->container);
 
         $waiting = false;
 
@@ -1043,6 +1061,7 @@ class Application implements ApplicationInterface
         $instance->register();
         $this->serviceProviders[] = $instance;
         $this->loadedProviders[$providerClass] = $instance;
+        unset($this->deferredProviders[$providerClass]);
 
         if (method_exists($instance, 'boot')) {
             $this->container->call([$instance, 'boot']);

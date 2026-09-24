@@ -180,6 +180,40 @@ class ApplicationSurfaceTest extends TestCase
         $this->assertFalse($app->isDeferredService('nothing.defers.this'));
     }
 
+    /**
+     * The defect: a deferred provider was recorded as loaded when it was only
+     * seen, so this answered true for a provider whose register() had not run.
+     */
+    public function test_a_deferred_provider_is_not_loaded_until_its_service_is_resolved(): void
+    {
+        $app = $this->app();
+        $app->bootstrap();
+
+        $service = array_key_first($app->getDeferredServices());
+        $provider = $app->getDeferredServices()[$service];
+
+        $this->assertFalse($app->providerIsLoaded($provider));
+        $this->assertNull($app->getProvider($provider));
+        $this->assertArrayNotHasKey($provider, $app->getLoadedProviders());
+
+        $app->getContainer()->resolve($service);
+
+        $this->assertTrue($app->providerIsLoaded($provider));
+        $this->assertFalse($app->isDeferredService($service));
+    }
+
+    /** Seen at boot and registered later, it is the same instance throughout. */
+    public function test_registering_a_deferred_provider_again_returns_the_waiting_instance(): void
+    {
+        $app = $this->app();
+        $app->bootstrap();
+
+        $provider = $app->getDeferredServices()[array_key_first($app->getDeferredServices())];
+
+        $this->assertSame($app->register($provider), $app->register($provider));
+        $this->assertFalse($app->providerIsLoaded($provider));
+    }
+
     // ── Is it cached? ───────────────────────────────────────
 
     public function test_the_cache_questions_answer_from_the_registry(): void
