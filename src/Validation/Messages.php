@@ -3,83 +3,83 @@
 namespace Nitro\Validation;
 
 /**
- * Messages
- * 
- * Manages validation error messages
- * Allows customization of default messages and per-rule messages
+ * The messages an application supplies in place of a rule's own wording.
+ *
+ * Each rule class carries the sentence it fails with, so this holds only the
+ * overrides. A key may name a field and a rule ('email.required'), a rule
+ * alone ('required'), or a field alone ('email'), and may contain a wildcard
+ * so one line covers every entry of a list.
  */
 class Messages
 {
-    /**
-     * @var array<string, string> Custom message overrides
-     */
+    /** @var array<string, string> */
     protected array $messages;
 
+    /** @param array<string, string> $customMessages */
     public function __construct(array $customMessages = [])
     {
-        $this->messages = array_merge(
-            $this->defaults(),
-            $customMessages
-        );
+        $this->messages = $customMessages;
     }
 
     /**
-     * Get default validation messages
+     * The message an application gave for this field and rule, if any.
+     *
+     * Most specific first: a line written for one rule on one field beats one
+     * written for the rule everywhere, which beats one written for the field.
      */
-    protected function defaults(): array
+    public function resolve(string $attribute, string $rule): ?string
     {
-        return [
-            'required' => 'The {attribute} field is required.',
-            'string' => 'The {attribute} must be a string.',
-            'numeric' => 'The {attribute} must be numeric.',
-            'integer' => 'The {attribute} must be an integer.',
-            'email' => 'The {attribute} must be a valid email address.',
-            'date' => 'The {attribute} must be a valid date (YYYY-MM-DD).',
-            'max' => 'The {attribute} may not exceed {max} characters.',
-            'max.numeric' => 'The {attribute} may not be greater than {max}.',
-            'min' => 'The {attribute} must be at least {min} characters.',
-            'min.numeric' => 'The {attribute} must be at least {min}.',
-            'in' => 'The {attribute} must be one of: {values}.',
-            'regex' => 'The {attribute} format is invalid.',
-            'url' => 'The {attribute} must be a valid URL.',
-            'confirmed' => 'The {attribute} confirmation does not match.',
-            'unique' => 'The {attribute} has already been taken.',
-        ];
+        foreach (["{$attribute}.{$rule}", $rule, $attribute] as $wanted) {
+            foreach ($this->messages as $key => $message) {
+                if (self::keyMatches($key, $wanted)) {
+                    return $message;
+                }
+            }
+        }
+
+        return null;
     }
 
     /**
-     * Get a message by key
-     * 
-     * Supports hierarchical keys:
-     *   'email' -> general email message
-     *   'email.unique' -> specific unique error for email field
-     *   'max' -> general max message
-     *   'max.numeric' -> numeric-specific max message
+     * Whether a key covers a wanted one, treating '*' as one path segment.
+     *
+     * 'items.*.qty.integer' has to reach 'items.0.qty.integer' without also
+     * reaching 'items.0.lines.0.qty.integer', which is why the wildcard stops
+     * at a dot.
      */
+    public static function keyMatches(string $key, string $wanted): bool
+    {
+        if ($key === $wanted) {
+            return true;
+        }
+
+        if (! str_contains($key, '*')) {
+            return false;
+        }
+
+        $pattern = str_replace('\*', '[^.]*', preg_quote($key, '#'));
+
+        return preg_match('#^' . $pattern . '$#u', $wanted) === 1;
+    }
+
+    /** A message by exact key. */
     public function get(string $key, string $default = ''): string
     {
         return $this->messages[$key] ?? $default;
     }
 
-    /**
-     * Set a custom message
-     */
     public function set(string $key, string $message): void
     {
         $this->messages[$key] = $message;
     }
 
-    /**
-     * Set multiple custom messages at once
-     */
+    /** @param array<string, string> $messages */
     public function setMultiple(array $messages): void
     {
         $this->messages = array_merge($this->messages, $messages);
     }
 
-    /**
-     * Get all messages
-     */
+    /** @return array<string, string> */
     public function all(): array
     {
         return $this->messages;

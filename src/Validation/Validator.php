@@ -49,6 +49,36 @@ class Validator
      */
     protected bool $bail = false;
 
+    /** Whether to stop the whole run at the first field that fails. */
+    protected bool $stopOnFirstFailure = false;
+
+    /**
+     * Checks that run once the rules have, with the validator to hand.
+     *
+     * For what no rule can express — a comparison between two fields, or
+     * something only a query can answer. They add errors like any rule.
+     *
+     * @var array<int, callable(self): void>
+     */
+    protected array $after = [];
+
+    /**
+     * Friendlier names for fields in messages.
+     *
+     * @var array<string, string>
+     */
+    protected array $attributeNames = [];
+
+    /**
+     * Which rules failed, keyed by field.
+     *
+     * Kept alongside the messages because a caller branching on the kind of
+     * failure should not have to match on the wording of one.
+     *
+     * @var array<string, array<int, string>>
+     */
+    protected array $failedRules = [];
+
     /** Whether validate() has been run (so passes()/fails() can trigger it). */
     protected bool $hasValidated = false;
 
@@ -116,11 +146,89 @@ class Validator
     {
         $this->hasValidated = true;
 
-        foreach ($this->rules as $field => $ruleString) {
+        foreach ($this->expandWildcards($this->rules) as $field => $ruleString) {
             $this->validateField($field, $ruleString);
+
+            if ($this->stopOnFirstFailure && $this->errors->isNotEmpty()) {
+                break;
+            }
+        }
+
+        foreach ($this->after as $callback) {
+            $callback($this);
         }
 
         return $this->errors->isEmpty();
+    }
+
+    /**
+     * Turn 'items.*.qty' into one rule per item that is actually there.
+     *
+     * The rest of validation works on concrete dotted paths, and Arr::get
+     * already reads those — so a wildcard is resolved once, here, rather than
+     * every rule having to know about it. A pattern matching nothing produces
+     * no rules, which is why 'items' => 'required|array' is what says the list
+     * must be there at all.
+     *
+     * @param array<string, string|array<int, mixed>> $rules
+     * @return array<string, string|array<int, mixed>>
+     */
+    protected function expandWildcards(array $rules): array
+    {
+        $expanded = [];
+
+        foreach ($rules as $field => $ruleString) {
+            if (! str_contains((string) $field, '*')) {
+                $expanded[$field] = $ruleString;
+
+                continue;
+            }
+
+            foreach ($this->pathsMatching((string) $field) as $path) {
+                $expanded[$path] = $ruleString;
+            }
+        }
+
+        return $expanded;
+    }
+
+    /**
+     * Every concrete path in the data that a wildcard pattern reaches.
+     *
+     * Walked a segment at a time, so 'a.*.b.*.c' expands both levels and only
+     * against keys that exist — a rule is never made for an index nobody sent.
+     *
+     * @return array<int, string>
+     */
+    protected function pathsMatching(string $pattern): array
+    {
+        $paths = [''];
+
+        foreach (explode('.', $pattern) as $segment) {
+            $next = [];
+
+            foreach ($paths as $path) {
+                if ($segment !== '*') {
+                    $next[] = $path === '' ? $segment : $path . '.' . $segment;
+
+                    continue;
+                }
+
+                $value = $path === '' ? $this->data : Arr::get($this->data, $path);
+
+                if (! is_array($value)) {
+                    continue;
+                }
+
+                foreach (array_keys($value) as $key) {
+                    $next[] = $path === '' ? (string) $key : $path . '.' . $key;
+                }
+            }
+
+            $paths = $next;
+        }
+
+        return $paths;
     }
 
     /**
@@ -131,9 +239,23 @@ class Validator
         // Rules may be a pipe string ('required|email') or an array
         // (['required', 'email', Rule::unique('users')]) whose elements are
         // strings or Stringable Rule expressions. Normalise both to a token list.
-        $ruleNames = is_array($ruleString)
-            ? array_map(static fn ($rule) => (string) $rule, $ruleString)
-            : explode('|', $ruleString);
+        $given = is_array($ruleString) ? $ruleString : explode('|', $ruleString);
+
+        // A rule may arrive as an object or a closure rather than a token.
+        // Rule::in() and friends return strings and cast cleanly; a rule class
+        // or a closure does not, and casting one used to be how it was lost.
+        $ruleNames = [];
+        $inlineRules = [];
+
+        foreach ($given as $rule) {
+            if (is_object($rule) && ! $rule instanceof \Stringable) {
+                $inlineRules[] = $rule;
+
+                continue;
+            }
+
+            $ruleNames[] = (string) $rule;
+        }
 
         // Dot-aware so nested fields ('form.email') validate against nested data.
         $value = Arr::get($this->data, $field);
@@ -191,19 +313,85 @@ class Validator
 
             $rule = $this->factory->create($ruleName);
             $rule->setAttribute($field);
+            $rule->setDisplayName($this->displayName($field));
             $rule->setValue($value);
             $rule->setData($this->data);
 
             // Run the validation
             if (!$rule->passes()) {
-                $message = $rule->message();
-                $this->errors->add($field, $message);
+                $this->errors->add($field, $this->messageFor($field, $baseName, $rule));
+                $this->failedRules[$field][] = $baseName;
 
                 if ($bail) {
                     break;
                 }
             }
         }
+
+        foreach ($inlineRules as $rule) {
+            if ($this->runInlineRule($rule, $field, $value) && $bail) {
+                break;
+            }
+        }
+    }
+
+    /**
+     * Run a rule given as an object or a closure.
+     *
+     * Three shapes are accepted, because all three read naturally at a call
+     * site and refusing two of them would only make the caller wrap one in
+     * another:
+     *
+     *   fn ($attribute, $value, $fail) => ...     a closure
+     *   new MyRule()                              validate($attribute, $value, $fail)
+     *   new MyRule()                              an AbstractRule subclass
+     *
+     * @return bool Whether it failed.
+     */
+    protected function runInlineRule(object $rule, string $field, mixed $value): bool
+    {
+        $failed = false;
+
+        $fail = function (string $message = '') use ($field, &$failed): void {
+            $this->errors->add($field, $message !== '' ? $message : "The {$field} field is invalid.");
+
+            $failed = true;
+        };
+
+        if ($rule instanceof \Closure) {
+            $rule($field, $value, $fail);
+
+            return $failed;
+        }
+
+        if (method_exists($rule, 'validate')) {
+            $rule->validate($field, $value, $fail);
+
+            return $failed;
+        }
+
+        if ($rule instanceof Rules\AbstractRule) {
+            $rule->setAttribute($field);
+            $rule->setDisplayName($this->displayName($field));
+            $rule->setValue($value);
+            $rule->setData($this->data);
+
+            if (! $rule->passes()) {
+                $baseName = strtolower(basename(str_replace('\\', '/', $rule::class)));
+
+                $this->errors->add($field, $this->messageFor($field, $baseName, $rule));
+
+                return true;
+            }
+
+            return false;
+        }
+
+        throw new \InvalidArgumentException(sprintf(
+            'A rule given as an object must be a closure, declare validate($attribute, $value, $fail), '
+            . 'or extend AbstractRule; %s does none of those.',
+            $rule::class,
+        ));
     }
 
     /**
@@ -387,5 +575,383 @@ class Validator
     public function getRules(): array
     {
         return $this->rules;
+    }
+
+    // ─── Steering the run ─────────────────────────────────
+
+    /**
+     * Stop the whole run at the first field that fails.
+     *
+     * Different from bail(), which stops one field at its first failing rule
+     * and carries on to the next field. This is for when the first problem is
+     * the only one worth reporting — a queued job about to do expensive work,
+     * or an API that answers with one error.
+     */
+    public function stopOnFirstFailure(bool $stop = true): static
+    {
+        $this->stopOnFirstFailure = $stop;
+
+        return $this;
+    }
+
+    /**
+     * Run a check of your own once the rules have run.
+     *
+     *     $validator->after(function ($validator) {
+     *         if ($this->somethingElseIsWrong()) {
+     *             $validator->errors()->add('field', 'Something else is wrong.');
+     *         }
+     *     });
+     *
+     * For what no rule can express, and for anything needing more than one
+     * field to decide.
+     *
+     * @param callable(self): void $callback
+     */
+    public function after(callable $callback): static
+    {
+        $this->after[] = $callback;
+
+        return $this;
+    }
+
+    /**
+     * Add rules to a field only when the condition holds.
+     *
+     * The condition is given the data, so a rule can depend on another field's
+     * value — 'reason' is required, but only when 'status' is 'rejected'.
+     *
+     * @param array<int, string>|string $attribute
+     * @param array<int, mixed>|string $rules
+     * @param (callable(array<string, mixed>): bool)|bool $condition
+     */
+    public function sometimes(array|string $attribute, array|string $rules, callable|bool $condition = true): static
+    {
+        $holds = is_callable($condition) ? $condition($this->data) : $condition;
+
+        if (! $holds) {
+            return $this;
+        }
+
+        foreach ((array) $attribute as $field) {
+            $existing = $this->rules[$field] ?? [];
+
+            $existing = is_array($existing) ? $existing : explode('|', $existing);
+            $added = is_array($rules) ? $rules : explode('|', $rules);
+
+            $this->rules[$field] = array_values(array_merge($existing, $added));
+        }
+
+        // Rules changed, so whatever was decided before no longer stands.
+        return $this->reset();
+    }
+
+    // ─── Adjusting the run ────────────────────────────────
+
+    /**
+     * Replace the rules outright.
+     *
+     * @param array<string, string|array<int, mixed>> $rules
+     */
+    public function setRules(array $rules): static
+    {
+        $this->rules = $rules;
+
+        return $this->reset();
+    }
+
+    /**
+     * Add rules, replacing any already set for the same field.
+     *
+     * @param array<string, string|array<int, mixed>> $rules
+     */
+    public function addRules(array $rules): static
+    {
+        foreach ($rules as $field => $fieldRules) {
+            $this->rules[$field] = $fieldRules;
+        }
+
+        return $this->reset();
+    }
+
+    /**
+     * Add rules onto whatever a field already has.
+     *
+     * @param array<string, string|array<int, mixed>> $rules
+     */
+    public function appendRules(array $rules): static
+    {
+        foreach ($rules as $field => $fieldRules) {
+            $existing = $this->rules[$field] ?? [];
+            $existing = is_array($existing) ? $existing : explode('|', $existing);
+            $added = is_array($fieldRules) ? $fieldRules : explode('|', $fieldRules);
+
+            $this->rules[$field] = array_values(array_merge($existing, $added));
+        }
+
+        return $this->reset();
+    }
+
+    /** Validate different data with the same rules. */
+    public function setData(array $data): static
+    {
+        $this->data = $data;
+
+        return $this->reset();
+    }
+
+    /** One field's value. */
+    public function getValue(string $field, mixed $default = null): mixed
+    {
+        return Arr::get($this->data, $field, $default);
+    }
+
+    /** Change one field's value before the rules see it. */
+    public function setValue(string $field, mixed $value): static
+    {
+        Arr::set($this->data, $field, $value);
+
+        return $this->reset();
+    }
+
+    /** Whether a field carries a rule, by base name. */
+    public function hasRule(string $field, array|string $rules): bool
+    {
+        $given = $this->rules[$field] ?? [];
+        $given = is_array($given) ? $given : explode('|', $given);
+
+        $names = [];
+
+        foreach ($given as $rule) {
+            if (is_object($rule) && ! $rule instanceof \Stringable) {
+                continue;
+            }
+
+            $names[] = strtolower(trim(explode(':', trim((string) $rule), 2)[0]));
+        }
+
+        foreach ((array) $rules as $wanted) {
+            if (in_array(strtolower($wanted), $names, true)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Add an error from outside the rules.
+     *
+     * What an after() callback calls, and what a controller reaches for when
+     * something only it can check has gone wrong.
+     */
+    public function addFailure(string $field, string $message): static
+    {
+        $this->errors->add($field, $message);
+
+        return $this;
+    }
+
+    /**
+     * Friendlier names for fields in messages.
+     *
+     * 'dob' reads badly in "The dob field is required"; this is where it
+     * becomes "date of birth".
+     *
+     * @param array<string, string> $attributes
+     */
+    public function setAttributeNames(array $attributes): static
+    {
+        $this->attributeNames = array_merge($this->attributeNames, $attributes);
+
+        return $this;
+    }
+
+    /** Laravel's name for {@see setAttributeNames()}. */
+    public function addCustomAttributes(array $attributes): static
+    {
+        return $this->setAttributeNames($attributes);
+    }
+
+    /** @return array<string, string> */
+    public function attributes(): array
+    {
+        return $this->attributeNames;
+    }
+
+    /**
+     * Add messages after construction.
+     *
+     * @param array<string, string> $messages
+     */
+    public function setCustomMessages(array $messages): static
+    {
+        $this->messages->setMultiple($messages);
+
+        return $this;
+    }
+
+    /**
+     * What to say when a rule fails on a field.
+     *
+     * A rule carries the sentence it fails with, so it has one without the
+     * application saying anything; an override replaces that sentence, and
+     * either way the field is named the way {@see setAttributeNames()} asked.
+     */
+    protected function messageFor(string $field, string $rule, Rules\AbstractRule $failed): string
+    {
+        $override = $this->messages->resolve($field, $rule);
+
+        if ($override === null) {
+            return $failed->message();
+        }
+
+        return str_replace(
+            ['{attribute}', ':attribute'],
+            $this->displayName($field),
+            $override
+        );
+    }
+
+    /**
+     * What to call a field in a message.
+     *
+     * The name may be given for the exact field or, when the field came from
+     * a wildcard, for the pattern that produced it — so one line covers every
+     * entry of a list rather than one per index.
+     */
+    protected function displayName(string $field): string
+    {
+        foreach ($this->attributeNames as $key => $name) {
+            if (Messages::keyMatches((string) $key, $field)) {
+                return $name;
+            }
+        }
+
+        return $field;
+    }
+
+    /** Anything decided before the rules or data changed no longer stands. */
+    protected function reset(): static
+    {
+        $this->hasValidated = false;
+        $this->errors = new ErrorBag();
+        $this->excluded = [];
+        $this->failedRules = [];
+
+        return $this;
+    }
+
+    // ─── Reading the result ───────────────────────────────
+
+    /**
+     * The fields that passed, with their values.
+     *
+     * @return array<string, mixed>
+     */
+    public function valid(): array
+    {
+        return $this->safe();
+    }
+
+    /**
+     * The fields that failed, with the values they were given.
+     *
+     * Useful when building a response by hand: the errors say what was wrong,
+     * and this says what was sent.
+     *
+     * @return array<string, mixed>
+     */
+    public function invalid(): array
+    {
+        if (! $this->hasValidated) {
+            $this->validate();
+        }
+
+        $invalid = [];
+
+        foreach (array_keys($this->errors->all()) as $field) {
+            if (Arr::has($this->data, $field)) {
+                Arr::set($invalid, $field, Arr::get($this->data, $field));
+            }
+        }
+
+        return $invalid;
+    }
+
+    /**
+     * Which rules failed, per field.
+     *
+     * Keyed field => list of rule names, so a caller can branch on the kind of
+     * failure rather than on the wording of a message.
+     *
+     * @return array<string, array<int, string>>
+     */
+    public function failed(): array
+    {
+        if (! $this->hasValidated) {
+            $this->validate();
+        }
+
+        return $this->failedRules;
+    }
+
+    /** The error bag, under Laravel's name for it. */
+    public function getMessageBag(): ErrorBag
+    {
+        if (! $this->hasValidated) {
+            $this->validate();
+        }
+
+        return $this->errors;
+    }
+
+    /**
+     * The validated data, without throwing.
+     *
+     * validated() throws so a controller can use it as a guard. This is for
+     * the cases that want to look at both halves — what passed and what did
+     * not — which is most of them once the response is being built by hand.
+     */
+    public function safe(): array
+    {
+        if (! $this->hasValidated) {
+            $this->validate();
+        }
+
+        $expanded = $this->expandWildcards($this->rules);
+
+        $safe = [];
+
+        foreach (array_keys($expanded) as $field) {
+            if (isset($this->excluded[$field]) || $this->errors->has($field)) {
+                continue;
+            }
+
+            if (Arr::has($this->data, $field)) {
+                Arr::set($safe, $field, Arr::get($this->data, $field));
+            }
+        }
+
+        return $safe;
+    }
+
+    /** Whether the run passed, without running the after() callbacks twice. */
+    public function whenPasses(callable $callback): static
+    {
+        if ($this->passes()) {
+            $callback($this);
+        }
+
+        return $this;
+    }
+
+    public function whenFails(callable $callback): static
+    {
+        if ($this->fails()) {
+            $callback($this);
+        }
+
+        return $this;
     }
 }

@@ -14,6 +14,9 @@ abstract class AbstractRule
     protected array $data;
     protected array $parameters = [];
 
+    /** What to call the field in a message, when it is not the field name. */
+    protected ?string $displayName = null;
+
     /**
      * Determine if the validation rule passes
      * 
@@ -34,6 +37,17 @@ abstract class AbstractRule
     public function setAttribute(string $attribute): void
     {
         $this->attribute = $attribute;
+    }
+
+    /**
+     * Name the field the way a reader should see it.
+     *
+     * 'dob' is what the form posts; 'date of birth' is what the message
+     * should say.
+     */
+    public function setDisplayName(?string $name): void
+    {
+        $this->displayName = $name;
     }
 
     /**
@@ -296,6 +310,10 @@ abstract class AbstractRule
      */
     protected function replaceMessage(string $message): string
     {
-        return str_replace('{attribute}', $this->attribute, $message);
+        return str_replace(
+            ['{attribute}', ':attribute'],
+            $this->displayName ?? $this->attribute,
+            $message
+        );
     }
 }
