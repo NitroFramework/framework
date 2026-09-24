@@ -4,6 +4,7 @@ namespace Nitro\Database\Query\Concerns;
 
 use Closure;
 use Nitro\Support\Collection;
+use Nitro\Database\Query\Exceptions\RecordsNotFoundException;
 use Nitro\Database\Query\Paginator;
 use Nitro\Database\Query\RawExpression;
 
@@ -33,6 +34,74 @@ trait ExecutesQueries
         $clone = clone $this;
         $clone->limitValue = 1;
         return $clone->get()->first();
+    }
+
+    /**
+     * The first row, insisting there is one.
+     *
+     * first() returns null, which a caller then has to check — and the check
+     * is forgotten often enough that the failure surfaces as "property on
+     * null" somewhere further down instead of here.
+     *
+     * @throws RecordsNotFoundException
+     */
+    public function firstOrFail(): object
+    {
+        $row = $this->first();
+
+        if ($row === null) {
+            throw new RecordsNotFoundException(
+                'No matching row was found for the query on [' . ($this->from ?? 'the table') . '].'
+            );
+        }
+
+        return $row;
+    }
+
+    /**
+     * A copy of this builder, so a base query can be reused.
+     *
+     *     $base = DB::table('orders')->where('status', 'paid');
+     *     $thisMonth = $base->clone()->whereToday('created_at');
+     *     $total     = $base->clone()->sum('total');
+     *
+     * Without it the second call sees the first one's extra clauses.
+     */
+    public function clone(): static
+    {
+        return clone $this;
+    }
+
+    /**
+     * Hand the builder to a callback and return whatever it gives back.
+     *
+     * For a query that is built in pieces by several functions, without each
+     * of them having to return the builder.
+     */
+    public function pipe(Closure $callback): mixed
+    {
+        return $callback($this);
+    }
+
+    /**
+     * Walk the rows in chunks, collecting what the callback returns.
+     *
+     * chunk() is for doing something to each row; this is for turning them
+     * into something, without holding every row in memory at once.
+     *
+     * @return Collection
+     */
+    public function chunkMap(Closure $callback, int $count = 1000): Collection
+    {
+        $mapped = [];
+
+        $this->chunk($count, function (Collection $rows) use ($callback, &$mapped): void {
+            foreach ($rows as $row) {
+                $mapped[] = $callback($row);
+            }
+        });
+
+        return new Collection($mapped);
     }
 
     /**

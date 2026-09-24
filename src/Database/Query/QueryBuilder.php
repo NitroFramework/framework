@@ -9,6 +9,7 @@ use Nitro\Database\Query\RawExpression;
 use Nitro\Database\Query\Concerns\BuildsHavings;
 use Nitro\Database\Query\Concerns\BuildsJoins;
 use Nitro\Database\Query\Concerns\BuildsJsonWheres;
+use Nitro\Database\Query\Concerns\BuildsWhereDateClauses;
 use Nitro\Database\Query\Concerns\BuildsWheres;
 use Nitro\Database\Query\Concerns\CachesQueries;
 use Nitro\Database\Query\Concerns\ExecutesQueries;
@@ -22,6 +23,7 @@ use Nitro\Support\Conditionable;
 class QueryBuilder
 {
     use BuildsWheres;
+    use BuildsWhereDateClauses;
     use BuildsJsonWheres;
     use BuildsHavings;
     use BuildsJoins;
@@ -30,6 +32,11 @@ class QueryBuilder
     use InspectsQueries;
     use CachesQueries;
     use Conditionable;
+
+    // Aliased rather than plain: this class already answers __call() for
+    // whereNameAndEmail() style calls, and a dynamic where must keep winning
+    // over a macro of the same name.
+    use \Nitro\Support\Macroable { __call as callRegisteredMacro; }
 
     protected Connection $connection;
     protected Grammar $grammar;
@@ -106,6 +113,10 @@ class QueryBuilder
     {
         if (str_starts_with($method, 'where') && strlen($method) > 5) {
             return $this->dynamicWhere($method, $parameters);
+        }
+
+        if (static::hasMacro($method)) {
+            return $this->callRegisteredMacro($method, $parameters);
         }
 
         throw new \BadMethodCallException(
