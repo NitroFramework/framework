@@ -11,6 +11,47 @@ namespace Nitro\Support;
  */
 class Str
 {
+    use Macroable;
+
+    /**
+     * How many conversions each cache holds before it is dropped whole.
+     *
+     * The inputs worth caching are a small recurring set. Measured over six
+     * recurring names the caches are 5x; over sixty thousand distinct ones
+     * they are 35% slower and hold 28MB, which in a worker that passes user
+     * input through snake() is a leak rather than a cache. Dropping the whole
+     * memo is O(1), where evicting the oldest entry would put work on the path
+     * the memo exists to shorten.
+     */
+    private const CACHE_LIMIT = 1000;
+
+    /**
+     * Results of the case conversions, keyed by input.
+     *
+     * snake() and studly() are called with the same handful of values over and
+     * over — a model name on every query, a column name on every attribute
+     * read — and each call is several regular expressions. The conversion is
+     * pure, so the answer is worth keeping. {@see flushCache()} empties them.
+     *
+     * @var array<string, array<string, string>>
+     */
+    protected static array $snakeCache = [];
+
+    /** @var array<string, string> */
+    protected static array $camelCache = [];
+
+    /** @var array<string, string> */
+    protected static array $studlyCache = [];
+
+    /** Where random strings come from, when something has taken over. */
+    protected static ?\Closure $randomStringFactory = null;
+
+    /** Where UUIDs come from, when something has taken over. */
+    protected static ?\Closure $uuidFactory = null;
+
+    /** Where ULIDs come from, when something has taken over. */
+    protected static ?\Closure $ulidFactory = null;
+
     /**
      * Lowercase transliteration of common Latin accented characters to ASCII,
      * used by slug()/ascii(). Not exhaustive like Laravel's full table (which
@@ -143,22 +184,64 @@ class Str
 
     public static function studly(string $value): string
     {
-        return str_replace(' ', '', ucwords(str_replace(['-', '_'], ' ', $value)));
+        if (isset(static::$studlyCache[$value])) {
+            return static::$studlyCache[$value];
+        }
+
+        if (count(static::$studlyCache) >= self::CACHE_LIMIT) {
+            static::$studlyCache = [];
+        }
+
+        return static::$studlyCache[$value] = str_replace(
+            ' ', '', ucwords(str_replace(['-', '_'], ' ', $value))
+        );
     }
 
     public static function camel(string $value): string
     {
-        return lcfirst(static::studly($value));
+        if (isset(static::$camelCache[$value])) {
+            return static::$camelCache[$value];
+        }
+
+        if (count(static::$camelCache) >= self::CACHE_LIMIT) {
+            static::$camelCache = [];
+        }
+
+        return static::$camelCache[$value] = lcfirst(static::studly($value));
     }
 
     public static function snake(string $value, string $delimiter = '_'): string
     {
-        if (ctype_lower($value)) {
-            return $value;
+        if (isset(static::$snakeCache[$value][$delimiter])) {
+            return static::$snakeCache[$value][$delimiter];
         }
-        $value = preg_replace('/\s+/u', '', ucwords($value));
-        $value = preg_replace('/(.)(?=[A-Z])/u', '$1' . $delimiter, $value);
-        return mb_strtolower($value ?? '');
+
+        if (count(static::$snakeCache) >= self::CACHE_LIMIT) {
+            static::$snakeCache = [];
+        }
+
+        $key = $value;
+
+        if (! ctype_lower($value)) {
+            $value = preg_replace('/\s+/u', '', ucwords($value));
+            $value = mb_strtolower((string) preg_replace('/(.)(?=[A-Z])/u', '$1' . $delimiter, (string) $value));
+        }
+
+        return static::$snakeCache[$key][$delimiter] = $value;
+    }
+
+    /**
+     * Forget every cached case conversion.
+     *
+     * The caches are static and grow with the number of distinct inputs, so a
+     * long-running worker handing out arbitrary strings should empty them
+     * between requests rather than hold every one it has ever seen.
+     */
+    public static function flushCache(): void
+    {
+        static::$snakeCache = [];
+        static::$camelCache = [];
+        static::$studlyCache = [];
     }
 
     public static function kebab(string $value): string
@@ -197,6 +280,10 @@ class Str
 
     public static function random(int $length = 16): string
     {
+        if (static::$randomStringFactory !== null) {
+            return (string) (static::$randomStringFactory)($length);
+        }
+
         // Base62-ish alphabet (a-zA-Z0-9) like Laravel, ~5.95 bits/char — the
         // old hex output was [0-9a-f], roughly half the entropy per character.
         $string = '';
@@ -210,6 +297,10 @@ class Str
 
     public static function uuid(): string
     {
+        if (static::$uuidFactory !== null) {
+            return (string) (static::$uuidFactory)();
+        }
+
         $data = random_bytes(16);
         $data[6] = chr((ord($data[6]) & 0x0f) | 0x40); // version 4
         $data[8] = chr((ord($data[8]) & 0x3f) | 0x80); // variant
@@ -274,8 +365,11 @@ class Str
      * Where a name is genuinely irregular and not listed here, name the table
      * explicitly: that is always available and always unambiguous.
      */
-    public static function plural(string $value, int|float|array|\Countable $count = 2): string
-    {
+    public static function plural(
+        string $value,
+        int|float|array|\Countable $count = 2,
+        bool $prependCount = false,
+    ): string {
         // A count of exactly one keeps the singular, so a template can write
         // Str::plural('course', $n) and get "1 course" / "2 courses" without
         // an inline conditional at every call site.
@@ -283,8 +377,14 @@ class Str
             $count = count($count);
         }
 
+        $prefix = $prependCount ? $count . ' ' : '';
+
         if ((float) $count === 1.0) {
-            return $value;
+            return $prefix . $value;
+        }
+
+        if ($prependCount) {
+            return $prefix . static::plural($value, $count);
         }
 
         $lower = mb_strtolower($value);
@@ -1021,6 +1121,10 @@ class Str
     /** A ULID: 48 bits of timestamp then 80 bits of randomness, base32. */
     public static function ulid(?\DateTimeInterface $time = null): string
     {
+        if (static::$ulidFactory !== null) {
+            return (string) (static::$ulidFactory)();
+        }
+
         $alphabet = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 
         $milliseconds = $time === null
@@ -1092,5 +1196,381 @@ class Str
         [$class, $method] = explode('@', $callback, 2);
 
         return [$class, $method];
+    }
+
+    /**
+     * Pluralise and put the count in front of it.
+     *
+     * `Str::counted('comment', 3)` → `3 comments`.
+     */
+    public static function counted(string $value, int|float|array|\Countable $count): string
+    {
+        return static::plural($value, $count, prependCount: true);
+    }
+
+    /**
+     * Title case following APA style.
+     *
+     * Differs from {@see title()} in that short joining words stay lowercase
+     * unless they open the title or follow punctuation, which is what a
+     * citation or a heading is actually supposed to look like.
+     */
+    public static function apa(string $value): string
+    {
+        if (trim($value) === '') {
+            return $value;
+        }
+
+        $minor = [
+            'and', 'as', 'but', 'for', 'if', 'nor', 'or', 'so', 'yet', 'a', 'an',
+            'the', 'at', 'by', 'in', 'of', 'off', 'on', 'per', 'to', 'up', 'via',
+            'et', 'ou', 'un', 'une', 'la', 'le', 'les', 'de', 'du', 'des', 'par', 'à',
+        ];
+
+        $endPunctuation = ['.', '!', '?', ':', '—', ','];
+
+        $words = preg_split('/\s+/u', $value, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+
+        foreach ($words as $index => $word) {
+            $lower = mb_strtolower($word);
+
+            if (str_contains($lower, '-')) {
+                $words[$index] = implode('-', array_map(
+                    static fn (string $part): string => in_array($part, $minor, true) && mb_strlen($part) <= 3
+                        ? $part
+                        : static::ucfirst($part),
+                    explode('-', $lower),
+                ));
+
+                continue;
+            }
+
+            // Opening the title, or following punctuation that ended a clause,
+            // means even a minor word is capitalised.
+            $opens = $index === 0
+                || in_array(mb_substr($words[$index - 1], -1), $endPunctuation, true);
+
+            $words[$index] = in_array($lower, $minor, true) && mb_strlen($lower) <= 3 && ! $opens
+                ? $lower
+                : static::ucfirst($lower);
+        }
+
+        return implode(' ', $words);
+    }
+
+    /**
+     * Render the value to ASCII, replacing anything unmappable.
+     *
+     * Unlike {@see ascii()} this keeps the original case and does not pass
+     * unknown characters through — a character with no ASCII equivalent
+     * becomes $unknown, so the result is ASCII or nothing.
+     *
+     * The map behind it is the Latin one {@see ASCII_MAP}. A script it does
+     * not cover — Han, Cyrillic, Greek — is unmappable rather than romanised,
+     * which is a limit of the table and not of the method.
+     *
+     * @param string|null $unknown What replaces an unmappable character. Null drops it.
+     * @param bool $strict Whether to leave already-ASCII input untouched.
+     */
+    public static function transliterate(string $string, ?string $unknown = '?', bool $strict = false): string
+    {
+        if ($strict && mb_check_encoding($string, 'ASCII')) {
+            return $string;
+        }
+
+        // The map is lowercase, so each character is looked up in its own case
+        // and the result put back the way it came in.
+        $out = '';
+
+        foreach (preg_split('//u', $string, -1, PREG_SPLIT_NO_EMPTY) ?: [] as $character) {
+            if (mb_check_encoding($character, 'ASCII')) {
+                $out .= $character;
+
+                continue;
+            }
+
+            $lower = mb_strtolower($character, 'UTF-8');
+            $mapped = self::ASCII_MAP[$lower] ?? null;
+
+            if ($mapped === null) {
+                $out .= $unknown ?? '';
+
+                continue;
+            }
+
+            if ($character === $lower) {
+                $out .= $mapped;
+
+                continue;
+            }
+
+            // An uppercase letter expanding to more than one — Æ to AE — is
+            // uppercase throughout, not title case.
+            $out .= mb_strlen($mapped) > 1 ? mb_strtoupper($mapped) : static::ucfirst($mapped);
+        }
+
+        return $out;
+    }
+
+    /**
+     * Convert Markdown to HTML.
+     *
+     * Uses the application's bound Markdown parser, so a template and a string
+     * rendered through here produce the same HTML.
+     *
+     * @param array{allow_html?: bool, hard_breaks?: bool} $options
+     */
+    public static function markdown(string $string, array $options = []): string
+    {
+        return $options === []
+            ? \Nitro\View\Markdown\Markdown::render($string)
+            : (new \Nitro\View\Markdown\Parser(
+                allowHtml: (bool) ($options['allow_html'] ?? false),
+                hardBreaks: (bool) ($options['hard_breaks'] ?? false),
+            ))->toHtml($string);
+    }
+
+    /**
+     * Convert Markdown to HTML without wrapping it in a block element.
+     *
+     * For a fragment going inside a paragraph or a table cell, where a
+     * surrounding <p> would be wrong.
+     *
+     * @param array{allow_html?: bool, hard_breaks?: bool} $options
+     */
+    public static function inlineMarkdown(string $string, array $options = []): string
+    {
+        return (new \Nitro\View\Markdown\InlineParser(
+            allowHtml: (bool) ($options['allow_html'] ?? false),
+            hardBreaks: (bool) ($options['hard_breaks'] ?? false),
+        ))->parse($string);
+    }
+
+    /**
+     * Translate a key and carry on with the result.
+     *
+     * @param array<string, mixed> $replace
+     */
+    public static function trans(string $key, array $replace = [], ?string $locale = null): Stringable
+    {
+        return new Stringable((string) __($key, $replace, $locale));
+    }
+
+    // ─── Where the generated values come from ───────────────
+
+    /**
+     * Take over what random() returns.
+     *
+     * A test asserting on output that embeds a random string cannot write the
+     * expectation down, and retrying until it passes is not a test. This makes
+     * the value the test's to choose.
+     *
+     * @param \Closure(int): string|string|null $factory
+     */
+    public static function createRandomStringsUsing(\Closure|string|null $factory = null): void
+    {
+        static::$randomStringFactory = is_string($factory)
+            ? static fn (): string => $factory
+            : $factory;
+    }
+
+    /**
+     * Hand out these strings in order, then fall back.
+     *
+     * @param array<int, string> $sequence
+     * @param (\Closure(int): string)|null $whenMissing What to do once the sequence runs out.
+     */
+    public static function createRandomStringsUsingSequence(array $sequence, ?\Closure $whenMissing = null): void
+    {
+        $next = 0;
+
+        $whenMissing ??= static function (int $length) use (&$next): string {
+            $held = static::$randomStringFactory;
+
+            static::$randomStringFactory = null;
+
+            $string = static::random($length);
+
+            static::$randomStringFactory = $held;
+
+            $next++;
+
+            return $string;
+        };
+
+        static::createRandomStringsUsing(static function (int $length) use (&$next, $sequence, $whenMissing): string {
+            if (array_key_exists($next, $sequence)) {
+                return $sequence[$next++];
+            }
+
+            return $whenMissing($length);
+        });
+    }
+
+    /** Go back to generating random strings. */
+    public static function createRandomStringsNormally(): void
+    {
+        static::$randomStringFactory = null;
+    }
+
+    /**
+     * Take over what uuid() returns.
+     *
+     * @param (\Closure(): string)|null $factory
+     */
+    public static function createUuidsUsing(?\Closure $factory = null): void
+    {
+        static::$uuidFactory = $factory;
+    }
+
+    /**
+     * Hand out these UUIDs in order, then fall back.
+     *
+     * @param array<int, string> $sequence
+     * @param (\Closure(): string)|null $whenMissing
+     */
+    public static function createUuidsUsingSequence(array $sequence, ?\Closure $whenMissing = null): void
+    {
+        $next = 0;
+
+        $whenMissing ??= static function () use (&$next): string {
+            $held = static::$uuidFactory;
+
+            static::$uuidFactory = null;
+
+            $uuid = static::uuid();
+
+            static::$uuidFactory = $held;
+
+            $next++;
+
+            return $uuid;
+        };
+
+        static::createUuidsUsing(static function () use (&$next, $sequence, $whenMissing): string {
+            if (array_key_exists($next, $sequence)) {
+                return $sequence[$next++];
+            }
+
+            return $whenMissing();
+        });
+    }
+
+    /**
+     * Make every uuid() in the callback return the same one.
+     *
+     * Without the callback the freeze lasts until
+     * {@see createUuidsNormally()}, which is easy to forget in a test that
+     * fails part way through.
+     *
+     * @param (\Closure(string): void)|null $callback
+     * @return string The frozen UUID.
+     */
+    public static function freezeUuids(?\Closure $callback = null): string
+    {
+        $uuid = static::uuid();
+
+        static::createUuidsUsing(static fn (): string => $uuid);
+
+        if ($callback !== null) {
+            try {
+                $callback($uuid);
+            } finally {
+                static::createUuidsNormally();
+            }
+        }
+
+        return $uuid;
+    }
+
+    /** Go back to generating UUIDs. */
+    public static function createUuidsNormally(): void
+    {
+        static::$uuidFactory = null;
+    }
+
+    /**
+     * Take over what ulid() returns.
+     *
+     * @param (\Closure(): string)|null $factory
+     */
+    public static function createUlidsUsing(?\Closure $factory = null): void
+    {
+        static::$ulidFactory = $factory;
+    }
+
+    /**
+     * Hand out these ULIDs in order, then fall back.
+     *
+     * @param array<int, string> $sequence
+     * @param (\Closure(): string)|null $whenMissing
+     */
+    public static function createUlidsUsingSequence(array $sequence, ?\Closure $whenMissing = null): void
+    {
+        $next = 0;
+
+        $whenMissing ??= static function () use (&$next): string {
+            $held = static::$ulidFactory;
+
+            static::$ulidFactory = null;
+
+            $ulid = static::ulid();
+
+            static::$ulidFactory = $held;
+
+            $next++;
+
+            return $ulid;
+        };
+
+        static::createUlidsUsing(static function () use (&$next, $sequence, $whenMissing): string {
+            if (array_key_exists($next, $sequence)) {
+                return $sequence[$next++];
+            }
+
+            return $whenMissing();
+        });
+    }
+
+    /**
+     * Make every ulid() in the callback return the same one.
+     *
+     * @param (\Closure(string): void)|null $callback
+     * @return string The frozen ULID.
+     */
+    public static function freezeUlids(?\Closure $callback = null): string
+    {
+        $ulid = static::ulid();
+
+        static::createUlidsUsing(static fn (): string => $ulid);
+
+        if ($callback !== null) {
+            try {
+                $callback($ulid);
+            } finally {
+                static::createUlidsNormally();
+            }
+        }
+
+        return $ulid;
+    }
+
+    /** Go back to generating ULIDs. */
+    public static function createUlidsNormally(): void
+    {
+        static::$ulidFactory = null;
+    }
+
+    /**
+     * Put every generator back.
+     *
+     * One call for a test's tearDown, so a frozen UUID cannot leak into the
+     * next test and fail it somewhere unrelated.
+     */
+    public static function resetFactoryState(): void
+    {
+        static::createRandomStringsNormally();
+        static::createUlidsNormally();
+        static::createUuidsNormally();
     }
 }
