@@ -87,6 +87,7 @@ class CommandManager implements CommandRunner, ReceivesDispatcher
             Commands\PackageDiscoverCommand::class,
             Commands\KeyGenerateCommand::class,
             Commands\MaintenanceCommands::class,
+            Commands\StorageLinkCommand::class,
             Commands\ServeCommand::class,
             ThrustCommands::class,
             Commands\QueueCommands::class,
