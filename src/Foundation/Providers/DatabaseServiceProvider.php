@@ -50,10 +50,13 @@ class DatabaseServiceProvider extends ServiceProvider
 
         /*
          * The connection raises query and transaction events, so it needs the
-         * same bus. Wired here rather than in boot() for the reason above: a
-         * listener registered in a provider's boot() must find it already set.
+         * same bus. Handed to DB rather than to a connection: asking for the
+         * connection here built one on every request — loading Connection and
+         * its grammar and event classes — for requests that never query
+         * anything. DB holds the bus and applies it when a connection is
+         * first built, which is still before any query can have run.
          */
-        DB::connection()->setDispatcher($this->container->resolve(EventDispatcher::class));
+        DB::setDispatcher($this->container->resolve(EventDispatcher::class));
 
         /*
          * Named-query registry (query('name')), built on first use.

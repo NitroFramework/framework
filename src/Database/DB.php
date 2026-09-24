@@ -25,6 +25,9 @@ class DB
     private static ?array $config = null;
     private static ?Grammar $grammar = null;
 
+    /** The bus the connection raises query events on, held until one is built. */
+    private static ?\Nitro\Events\Contracts\Dispatcher $dispatcher = null;
+
     /**
      * Pick the grammar matching the configured driver. MySQL is the only
      * one shipped with a custom grammar today — other drivers fall back
@@ -72,8 +75,27 @@ class DB
             $resolved = $config['connections'][$default] ?? $config;
 
             static::$connection = new Connection($resolved);
+
+            if (static::$dispatcher !== null) {
+                static::$connection->setDispatcher(static::$dispatcher);
+            }
         }
         return static::$connection;
+    }
+
+    /**
+     * The bus the connection raises query and transaction events on.
+     *
+     * Held rather than handed over, so a request that never queries anything
+     * never builds a connection to give it to. Applied to the connection at
+     * the moment one is first built, which is after every listener a provider
+     * registers and before any query can have run.
+     */
+    public static function setDispatcher(?\Nitro\Events\Contracts\Dispatcher $dispatcher): void
+    {
+        static::$dispatcher = $dispatcher;
+
+        static::$connection?->setDispatcher($dispatcher);
     }
 
     public static function configure(array $config): void
