@@ -167,12 +167,28 @@ class BroadcastTest extends TestCase
         $this->assertSame('spy', $this->broadcast->getDefaultDriver());
     }
 
+    /** 'pusher' was the name used here until it became a real driver. */
     public function test_an_unknown_driver_raises(): void
+    {
+        $this->broadcast->setDefaultDriver('carrier-pigeon');
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('not registered');
+
+        $this->broadcast->connection();
+    }
+
+    /**
+     * A driver that ships but has not been configured says which value it
+     * wants, rather than "not registered" — which would send someone looking
+     * for a driver that is right there.
+     */
+    public function test_a_shipped_driver_with_no_credentials_says_what_is_missing(): void
     {
         $this->broadcast->setDefaultDriver('pusher');
 
         $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage('not registered');
+        $this->expectExceptionMessage('[key]');
 
         $this->broadcast->connection();
     }

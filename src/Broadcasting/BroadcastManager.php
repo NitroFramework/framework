@@ -96,11 +96,105 @@ class BroadcastManager
             return;
         }
 
-        $this->connection()->broadcast(
-            array_map(static fn (Channel $channel): string => $channel->name, $channels),
-            $this->nameFor($event),
-            $payload ?? $this->payloadFor($event)
+        $names = array_map(
+            static fn (Channel|string $channel): string => $channel instanceof Channel
+                ? $channel->name
+                : (string) $channel,
+            $channels,
         );
+
+        $name = $this->nameFor($event);
+        $data = $payload ?? $this->payloadFor($event);
+
+        // The connection that caused the event, when the event asked to be
+        // kept from it. Carried in the payload because that is what a driver
+        // receives, and a driver that cannot exclude simply ignores it.
+        if (($socket = $this->socketFor($event)) !== null) {
+            $data['socket'] = $socket;
+        }
+
+        foreach ($this->connectionsFor($event) as $connection) {
+            $connection->broadcast($names, $name, $data);
+        }
+    }
+
+    /**
+     * Send an event the way it asked to be sent.
+     *
+     * A plain {@see ShouldBroadcast} is queued, so the request does not wait
+     * on a third party's network call. A {@see ShouldBroadcastNow} goes out
+     * inline. With no queue bound, a queued broadcast is sent inline rather
+     * than dropped — silence would be the harder failure to find.
+     */
+    public function queue(ShouldBroadcast $event): void
+    {
+        if ($event instanceof ShouldBroadcastNow) {
+            $this->event($event);
+
+            return;
+        }
+
+        $queue = $this->queueFor($event);
+
+        if ($queue === null) {
+            $this->event($event);
+
+            return;
+        }
+
+        $queue->dispatch(new BroadcastEvent($event));
+    }
+
+    /**
+     * The queue a broadcast should go on, or null when there is none.
+     *
+     * Resolved rather than injected, because most applications broadcast
+     * inline and asking for a queue manager at construction would make every
+     * one of them build the queue layer.
+     */
+    protected function queueFor(ShouldBroadcast $event): ?\Nitro\Queue\QueueManager
+    {
+        if (! \Nitro\Container\Container::hasInstance()) {
+            return null;
+        }
+
+        $container = \Nitro\Container\Container::getInstance();
+
+        if (! $container->has(\Nitro\Queue\QueueManager::class)) {
+            return null;
+        }
+
+        return $container->resolve(\Nitro\Queue\QueueManager::class);
+    }
+
+    /**
+     * The drivers this event goes out on.
+     *
+     * An event naming its own connections through
+     * {@see InteractsWithBroadcasting} overrides the default, so one noisy
+     * event can take a different route from everything else.
+     *
+     * @return array<int, Broadcaster>
+     */
+    protected function connectionsFor(ShouldBroadcast $event): array
+    {
+        $named = method_exists($event, 'broadcastConnections')
+            ? $event->broadcastConnections()
+            : [];
+
+        if ($named === []) {
+            return [$this->connection()];
+        }
+
+        return array_map(fn (string $name): Broadcaster => $this->connection($name), $named);
+    }
+
+    /** The connection to keep this broadcast away from, if any. */
+    protected function socketFor(ShouldBroadcast $event): ?string
+    {
+        return property_exists($event, 'socket') && is_string($event->socket) && $event->socket !== ''
+            ? $event->socket
+            : null;
     }
 
     /**
@@ -137,23 +231,66 @@ class BroadcastManager
      */
     public function check(mixed $user, string $channel): bool
     {
+        return $this->authorise($user, $channel) !== false;
+    }
+
+    /**
+     * Ask the channel's callback, keeping what it said.
+     *
+     * {@see check()} flattens the answer to a boolean, which is enough for a
+     * private channel and loses what a presence channel needs: returning an
+     * array from the callback is how the member describes itself to the other
+     * subscribers, and casting that to true threw it away.
+     *
+     * @return array<string, mixed>|bool False when refused.
+     */
+    public function authorise(mixed $user, string $channel): array|bool
+    {
+        $callback = $this->channelFor($channel, $parameters);
+
+        if ($callback === null) {
+            return false;
+        }
+
+        $result = $callback($user, ...$parameters);
+
+        return is_array($result) ? $result : (bool) $result;
+    }
+
+    /** Whether any registered pattern covers this channel. */
+    public function hasChannelFor(string $channel): bool
+    {
+        return $this->channelFor($channel, $parameters) !== null;
+    }
+
+    /**
+     * The callback for a channel, and the placeholders it matched.
+     *
+     * @param array<int, string>|null $parameters Filled with the matches.
+     */
+    protected function channelFor(string $channel, ?array &$parameters): ?callable
+    {
+        // The prefix is the socket server's convention, not part of the name
+        // the application registered.
         $name = preg_replace('/^(private-|presence-)/', '', $channel) ?? $channel;
 
         foreach ($this->channels as $pattern => $callback) {
-            $parameters = $this->matchPattern($pattern, $name);
+            $matched = $this->matchPattern($pattern, $name);
 
-            if ($parameters === null) {
+            if ($matched === null) {
                 continue;
             }
 
-            if (is_string($callback)) {
-                $callback = [$this->resolver->resolve($callback), 'join'];
-            }
+            $parameters = $matched;
 
-            return (bool) $callback($user, ...$parameters);
+            return is_string($callback)
+                ? [$this->resolver->resolve($callback), 'join']
+                : $callback;
         }
 
-        return false;
+        $parameters = [];
+
+        return null;
     }
 
     /** @return array<string, callable|string> */
@@ -207,12 +344,45 @@ class BroadcastManager
             return ($this->customCreators[$name])($this->resolver);
         }
 
-        return match ($name) {
+        $config = (array) $this->config->get("broadcasting.connections.{$name}", []);
+
+        return match ($config['driver'] ?? $name) {
             'log' => new LogBroadcaster(),
             'null' => new NullBroadcaster(),
+            'redis' => $this->createRedisDriver($config),
+            'pusher' => new Drivers\PusherBroadcaster($config),
             default => throw new RuntimeException(
                 "Broadcast driver [{$name}] is not registered. Add it with Broadcast::extend()."
             ),
         };
+    }
+
+    /**
+     * The Redis driver, which needs the Redis layer to be there.
+     *
+     * Asked for through the container rather than the constructor, so an
+     * application broadcasting over Pusher never builds a Redis manager.
+     *
+     * @param array<string, mixed> $config
+     */
+    protected function createRedisDriver(array $config): Broadcaster
+    {
+        if (! \Nitro\Container\Container::hasInstance()) {
+            throw new RuntimeException(
+                'The redis broadcast driver needs the application container to reach the Redis layer.'
+            );
+        }
+
+        $container = \Nitro\Container\Container::getInstance();
+        $name = isset($config['connection']) ? (string) $config['connection'] : null;
+
+        return new Drivers\RedisBroadcaster(
+            // Resolved on each publish rather than now, so a worker that has
+            // been idle does not hold a connection the server has dropped.
+            static fn (): object => $container
+                ->resolve(\Nitro\Redis\RedisManager::class)
+                ->connection($name),
+            (string) ($config['prefix'] ?? ''),
+        );
     }
 }

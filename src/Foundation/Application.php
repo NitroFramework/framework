@@ -476,6 +476,19 @@ class Application implements ApplicationInterface
                 static fn (): ?object => \Nitro\Database\DB::transactions()
             );
 
+            /*
+             * How an event implementing ShouldBroadcast reaches listening
+             * clients. Resolved on each dispatch rather than captured, so the
+             * deferred broadcast provider is only registered by an application
+             * that actually fires a broadcastable event — and null when
+             * nothing is bound, which is the answer for one that never does.
+             */
+            $dispatcher->setBroadcastResolver(
+                static fn (): ?object => $container->has(BroadcastManager::class)
+                    ? $container->resolve(BroadcastManager::class)
+                    : null
+            );
+
             return $dispatcher;
         });
 

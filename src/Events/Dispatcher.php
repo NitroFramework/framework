@@ -3,6 +3,7 @@
 namespace Nitro\Events;
 
 use Closure;
+use Nitro\Broadcasting\Contracts\ShouldBroadcast;
 use Nitro\Events\Contracts\Dispatcher as DispatcherContract;
 use Nitro\Events\Contracts\ShouldDispatchAfterCommit;
 use Nitro\Events\Contracts\ShouldHandleEventsAfterCommit;
@@ -79,6 +80,9 @@ class Dispatcher implements DispatcherContract, TogglesEvents
     /** Where after-commit listeners register; null dispatches immediately. */
     private ?Closure $transactionManagerResolver = null;
 
+    /** What sends an event to listening clients; null broadcasts nothing. */
+    private ?Closure $broadcastResolver = null;
+
     public function setContainer(?object $container): void
     {
         $this->container = $container;
@@ -102,6 +106,25 @@ class Dispatcher implements DispatcherContract, TogglesEvents
     public function setTransactionManagerResolver(?callable $resolver): static
     {
         $this->transactionManagerResolver = $resolver === null ? null : $resolver(...);
+
+        return $this;
+    }
+
+    /**
+     * Name what sends an event on to listening clients.
+     *
+     * An event implementing {@see ShouldBroadcast} says it should reach the
+     * browser as well as the application's own listeners. Nothing read that
+     * before: the contract marked events and no dispatch path acted on the
+     * mark, so broadcastOn() was never called and the event went nowhere.
+     *
+     * Resolved lazily and left null when nothing is bound, so an application
+     * that does not broadcast pays nothing and an event still reaches its
+     * listeners.
+     */
+    public function setBroadcastResolver(?callable $resolver): static
+    {
+        $this->broadcastResolver = $resolver === null ? null : $resolver(...);
 
         return $this;
     }
@@ -219,18 +242,62 @@ class Dispatcher implements DispatcherContract, TogglesEvents
             return null;
         }
 
+        // Sent to listening clients as well as to listeners, when the event
+        // asks for it. Held with the listeners rather than done here, so an
+        // event waiting on a commit broadcasts when it is committed — telling
+        // a browser about a row that then rolled back is worse than silence.
+        $broadcast = $isObject && $payload[0] instanceof ShouldBroadcast
+            ? fn () => $this->broadcastEvent($payload[0])
+            : null;
+
         // An event that belongs to a transaction waits for the commit.
         if ($isObject
             && $payload[0] instanceof ShouldDispatchAfterCommit
             && ($transactions = $this->resolveTransactionManager()) !== null) {
             $transactions->addCallback(
-                fn () => $this->invokeListeners($event, $payload, $halt)
+                function () use ($broadcast, $event, $payload, $halt) {
+                    if ($broadcast !== null) {
+                        $broadcast();
+                    }
+
+                    return $this->invokeListeners($event, $payload, $halt);
+                }
             );
 
             return null;
         }
 
+        if ($broadcast !== null) {
+            $broadcast();
+        }
+
         return $this->invokeListeners($event, $payload, $halt);
+    }
+
+    /**
+     * Hand an event to whatever sends it to clients.
+     *
+     * A failure here must not take the event's listeners with it: the
+     * application's own work is the part that has to happen, and a broadcast
+     * that cannot reach its driver is worth logging and carrying on from.
+     */
+    private function broadcastEvent(ShouldBroadcast $event): void
+    {
+        if ($this->broadcastResolver === null) {
+            return;
+        }
+
+        $broadcaster = ($this->broadcastResolver)();
+
+        if ($broadcaster === null) {
+            return;
+        }
+
+        try {
+            $broadcaster->queue($event);
+        } catch (\Throwable $exception) {
+            error_log('[broadcast] ' . $event::class . ': ' . $exception->getMessage());
+        }
     }
 
     /**
