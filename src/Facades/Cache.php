@@ -16,8 +16,21 @@ namespace Nitro\Facades;
  */
 class Cache extends Facade
 {
+    use \Nitro\Facades\Concerns\SwapsForFakes;
+
     protected static function getFacadeAccessor(): string
     {
         return 'cache.store';
+    }
+
+    /**
+     * Cache into memory, remembering what was asked of it.
+     *
+     * Still a working cache, not only a recorder: code that caches usually
+     * reads back what it wrote.
+     */
+    public static function fake(): \Nitro\Cache\CacheFake
+    {
+        return static::swap(new \Nitro\Cache\CacheFake());
     }
 }

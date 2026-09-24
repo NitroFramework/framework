@@ -16,8 +16,27 @@ namespace Nitro\Facades;
  */
 class Event extends Facade
 {
+    use \Nitro\Facades\Concerns\SwapsForFakes;
+
     protected static function getFacadeAccessor(): string
     {
         return 'events';
+    }
+
+    /**
+     * Record events instead of running their listeners.
+     *
+     * @param array<int, class-string>|string $except Events that still reach theirs.
+     */
+    public static function fake(array|string $except = []): \Nitro\Events\EventFake
+    {
+        $container = app();
+
+        $real = $container->has('events') ? $container->resolve('events') : null;
+
+        return static::swap(new \Nitro\Events\EventFake(
+            $real instanceof \Nitro\Events\Dispatcher ? $real : null,
+            (array) $except,
+        ));
     }
 }

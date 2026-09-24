@@ -11,8 +11,16 @@ namespace Nitro\Facades;
  */
 class Notification extends Facade
 {
+    use \Nitro\Facades\Concerns\SwapsForFakes;
+
     protected static function getFacadeAccessor(): string
     {
         return 'notification';
+    }
+
+    /** Record notifications instead of delivering them. */
+    public static function fake(): \Nitro\Notifications\NotificationFake
+    {
+        return static::swap(new \Nitro\Notifications\NotificationFake());
     }
 }

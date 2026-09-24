@@ -22,8 +22,16 @@ namespace Nitro\Facades;
  */
 class Mail extends Facade
 {
+    use \Nitro\Facades\Concerns\SwapsForFakes;
+
     protected static function getFacadeAccessor(): string
     {
         return 'mail';
+    }
+
+    /** Record mail instead of sending it. */
+    public static function fake(): \Nitro\Mail\MailFake
+    {
+        return static::swap(new \Nitro\Mail\MailFake());
     }
 }
