@@ -6,6 +6,7 @@ use Closure;
 use Nitro\Events\Contracts\Dispatcher as EventDispatcher;
 use Nitro\Foundation\Contracts\ConfigRepository;
 use Nitro\Http\Kernel;
+use Nitro\Queue\Batching\Batch;
 use Nitro\Queue\Batching\BatchCallbacks;
 use Nitro\Queue\Batching\BatchRepository;
 use Nitro\Queue\Batching\PendingBatch;
@@ -62,7 +63,11 @@ class QueueManager
 
     public function connection(?string $name = null): Queue
     {
-        $name ??= $this->config->get('queue.default');
+        // Falling back by name rather than passing null through: an unset
+        // queue.default used to reach resolve() as null and fail with a
+        // TypeError, where resolve() exists to say which connection is
+        // missing and where to configure it.
+        $name ??= (string) ($this->config->get('queue.default') ?? 'sync');
 
         if (!isset($this->connections[$name])) {
             $this->connections[$name] = $this->resolve($name)->setConnectionName($name);
@@ -143,9 +148,19 @@ class QueueManager
      *
      * Every dispatch path runs through here, so the queueing events
      * fire once wherever a job entered from.
+     *
+     * Everything but the job is optional: push() and later() fill all four in,
+     * but Bus::dispatch($job) and Queue::dispatch($job) are how a job is
+     * dispatched by hand, and requiring the queue, the connection and the
+     * delay at those call sites made the documented one-argument form an
+     * ArgumentCountError. A null queue means the job's own.
      */
-    public function dispatch(Job $job, ?string $queue, ?string $connection, int $delay): int|string
-    {
+    public function dispatch(
+        Job $job,
+        ?string $queue = null,
+        ?string $connection = null,
+        int $delay = 0,
+    ): int|string {
         $queueName = $queue ?? $job->queueName();
         $now = time();
 
@@ -180,6 +195,18 @@ class QueueManager
     }
 
     /**
+     * Announce something on the application's dispatcher.
+     *
+     * For the objects the manager hands out — a Batch, most of it — which have
+     * something to say and no reason to be given a dispatcher of their own. A
+     * manager built without one raises nothing rather than failing.
+     */
+    public function raise(object $event): void
+    {
+        $this->events?->dispatch($event);
+    }
+
+    /**
      * Start a batch of jobs dispatched together.
      *
      *     Queue::batch([new ImportRows(1), new ImportRows(2)])->dispatch();
@@ -195,5 +222,69 @@ class QueueManager
             jobs: $jobs,
             kernel: $this->kernel,
         );
+    }
+
+    /**
+     * Run jobs one after another, each only if the one before it succeeded.
+     *
+     *     Queue::chain([new PullOrders(), new Reconcile()])->dispatch();
+     *
+     * Unlike a batch, only the first job is queued: it carries the rest and
+     * queues the next itself once it has finished. So a failure stops the
+     * chain, where a batch's other jobs would already be on the queue.
+     *
+     * @param array<int, Job> $jobs
+     */
+    public function chain(array $jobs): PendingChain
+    {
+        return new PendingChain($this, $jobs);
+    }
+
+    /**
+     * Look up a batch by its identifier.
+     *
+     * For a progress endpoint, which has the id from the client and nothing
+     * else to go on.
+     */
+    public function findBatch(string $batchId): ?Batch
+    {
+        return ($this->batches)()->find($batchId);
+    }
+
+    /**
+     * Queue several jobs at once.
+     *
+     * They are independent — no order, no shared state. A batch is the one
+     * with callbacks and counters, and a chain the one with order.
+     *
+     * @param array<int, Job> $jobs
+     * @return array<int, int|string> The ids, in the order given.
+     */
+    public function bulk(array $jobs, ?string $queue = null, ?string $connection = null): array
+    {
+        return array_map(
+            fn (Job $job): int|string => $this->dispatch($job, $queue, $connection),
+            array_values($jobs),
+        );
+    }
+
+    /**
+     * Queue a job once the response has been sent.
+     *
+     * The caller does not wait for the push, which is worth having when the
+     * queue is a network hop away. Without a kernel to wait on — a console
+     * command — it is dispatched now rather than dropped.
+     */
+    public function dispatchAfterResponse(Job $job, ?string $queue = null, ?string $connection = null): void
+    {
+        if ($this->kernel === null) {
+            $this->dispatch($job, $queue, $connection);
+
+            return;
+        }
+
+        $this->kernel->terminating(function () use ($job, $queue, $connection): void {
+            $this->dispatch($job, $queue, $connection);
+        });
     }
 }

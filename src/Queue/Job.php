@@ -38,6 +38,7 @@ namespace Nitro\Queue;
  */
 abstract class Job
 {
+    use Concerns\Chainable;
     use Dispatchable;
     use Attributes\ReadsQueueAttributes;
 
