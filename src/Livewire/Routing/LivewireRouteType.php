@@ -45,10 +45,21 @@ class LivewireRouteType implements RouteType
             : null;
     }
 
+    /**
+     * Render the component as a page, giving it the route's parameters.
+     *
+     * The parameters reach mount(), which is how Route::livewire('/posts/{post}')
+     * tells the component which post. Without them a parameterised route matched
+     * and then rendered the component as if the URL had carried nothing — every
+     * address under it showing the same page.
+     */
     public function dispatch(Route $route, Request $request): Response
     {
         return Response::html(
-            ($this->livewire)()->page((string) $route->getHandler())
+            ($this->livewire)()->page(
+                (string) $route->getHandler(),
+                $route->getParameters(),
+            )
         );
     }
 }
