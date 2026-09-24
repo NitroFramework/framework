@@ -577,14 +577,29 @@ class CollectionMethodsTest extends TestCase
     // partition()
     // =====================================================================
 
+    /**
+     * Keys are kept on both sides, so a partitioned keyed collection still
+     * says which item was which. values() is there when a list is wanted.
+     */
     public function test_partition_splits_by_callback(): void
     {
         $c = new Collection([1, 2, 3, 4, 5, 6]);
         $parts = $c->partition(fn($item) => $item % 2 === 0);
 
         $this->assertCount(2, $parts);
-        $this->assertEquals([2, 4, 6], $parts->all()[0]->all());
-        $this->assertEquals([1, 3, 5], $parts->all()[1]->all());
+        $this->assertEquals([1 => 2, 3 => 4, 5 => 6], $parts->all()[0]->all());
+        $this->assertEquals([0 => 1, 2 => 3, 4 => 5], $parts->all()[1]->all());
+
+        $this->assertEquals([2, 4, 6], $parts->all()[0]->values()->all());
+        $this->assertEquals([1, 3, 5], $parts->all()[1]->values()->all());
+    }
+
+    public function test_partition_keeps_the_keys_of_a_keyed_collection(): void
+    {
+        $parts = (new Collection(['a' => 1, 'b' => 2, 'c' => 3]))->partition(fn($item) => $item > 1);
+
+        $this->assertEquals(['b' => 2, 'c' => 3], $parts->all()[0]->all());
+        $this->assertEquals(['a' => 1], $parts->all()[1]->all());
     }
 
     public function test_partition_returns_collections(): void

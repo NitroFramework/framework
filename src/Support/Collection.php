@@ -14,6 +14,7 @@ use JsonSerializable;
 class Collection implements ArrayAccess, Countable, IteratorAggregate, JsonSerializable
 {
     use Conditionable;
+    use Macroable;
 
     protected array $items;
 
@@ -25,6 +26,37 @@ class Collection implements ArrayAccess, Countable, IteratorAggregate, JsonSeria
     public function __toString(): string
     {
         return $this->toJson();
+    }
+
+    /**
+     * The methods that can be written `$collection->map->name`.
+     *
+     * A fixed list rather than any method, because the shorthand only reads
+     * well where the callback takes one item and returns something about it.
+     *
+     * @var array<int, string>
+     */
+    protected static array $proxies = [
+        'average', 'avg', 'contains', 'doesntContain', 'each', 'every', 'filter',
+        'first', 'flatMap', 'groupBy', 'hasSole', 'keyBy', 'last', 'map', 'max',
+        'min', 'partition', 'percentage', 'reject', 'skipUntil', 'skipWhile',
+        'some', 'sortBy', 'sortByDesc', 'sum', 'takeUntil', 'takeWhile', 'unique',
+    ];
+
+    /**
+     * Hand back a proxy for the shorthand forms.
+     *
+     * @throws \InvalidArgumentException When the name is not one of them.
+     */
+    public function __get(string $key)
+    {
+        if (! in_array($key, static::$proxies, true)) {
+            throw new \InvalidArgumentException(
+                "Collection has no property [{$key}], and it is not one of the shorthand methods."
+            );
+        }
+
+        return new HigherOrderCollectionProxy($this, $key);
     }
 
     // =========================================================================
@@ -375,21 +407,28 @@ class Collection implements ArrayAccess, Countable, IteratorAggregate, JsonSeria
         return new static(array_diff_key($this->items, array_flip($keys)));
     }
 
-    public function unique(?string $key = null): static
+    public function unique($key = null): static
     {
+        // Keys preserved, here and below: unique() is a filter, and a filter
+        // that renumbers loses which item survived. values() is there for a
+        // caller that wants a list back.
         if ($key === null) {
-            return new static(array_values(array_unique($this->items, SORT_REGULAR)));
+            return new static(array_unique($this->items, SORT_REGULAR));
         }
+
+        // A callable as well as a key name, so uniqueness can be by something
+        // derived — and so the $collection->unique->age shorthand works.
+        $callable = is_callable($key) && ! is_string($key);
 
         $exists = [];
         $unique = [];
 
-        foreach ($this->items as $item) {
-            $value = $this->getItemValue($item, $key);
+        foreach ($this->items as $itemKey => $item) {
+            $value = $callable ? $key($item, $itemKey) : $this->getItemValue($item, $key);
 
             if (!in_array($value, $exists, true)) {
                 $exists[] = $value;
-                $unique[] = $item;
+                $unique[$itemKey] = $item;
             }
         }
 
@@ -525,11 +564,14 @@ class Collection implements ArrayAccess, Countable, IteratorAggregate, JsonSeria
         $passed = [];
         $failed = [];
 
+        // Keyed rather than renumbered: partitioning a keyed collection and
+        // getting two lists back loses which item was which, and the caller
+        // can always call values() when it wants a list.
         foreach ($this->items as $key => $item) {
             if ($callback($item, $key)) {
-                $passed[] = $item;
+                $passed[$key] = $item;
             } else {
-                $failed[] = $item;
+                $failed[$key] = $item;
             }
         }
 
@@ -628,6 +670,13 @@ class Collection implements ArrayAccess, Countable, IteratorAggregate, JsonSeria
 
     public function min($key = null)
     {
+        // A callable, like sum() and avg() already took: needed for the
+        // $collection->min->age shorthand, and for anything derived rather
+        // than read straight off a key.
+        if (is_callable($key) && ! is_string($key)) {
+            return (new static(array_map($key, $this->items)))->min();
+        }
+
         if ($key !== null) {
             return $this->pluck($key)->min();
         }
@@ -638,6 +687,10 @@ class Collection implements ArrayAccess, Countable, IteratorAggregate, JsonSeria
 
     public function max($key = null)
     {
+        if (is_callable($key) && ! is_string($key)) {
+            return (new static(array_map($key, $this->items)))->max();
+        }
+
         if ($key !== null) {
             return $this->pluck($key)->max();
         }
@@ -1369,6 +1422,733 @@ class Collection implements ArrayAccess, Countable, IteratorAggregate, JsonSeria
             '<='    => $itemValue <= $value,
             '>='    => $itemValue >= $value,
             default => $itemValue == $value,
+        };
+    }
+
+    // =========================================================================
+    // EXACTLY ONE
+    // =========================================================================
+
+    /**
+     * The only matching item, insisting there is exactly one.
+     *
+     * first() hides two different bugs: no match at all, and more than one
+     * where the code assumed a unique row. Both return something plausible and
+     * go wrong later. This says which happened, at the point it happened.
+     *
+     * @throws \RuntimeException When none match, or more than one does.
+     */
+    public function sole($key = null, $operator = null, $value = null)
+    {
+        $matching = func_num_args() === 0
+            ? $this
+            : (is_callable($key) && ! is_string($key)
+                ? $this->filter($key)
+                : $this->where(...func_get_args()));
+
+        $count = $matching->count();
+
+        if ($count === 0) {
+            throw new ItemNotFoundException('No matching item was found.');
+        }
+
+        if ($count > 1) {
+            throw new MultipleItemsFoundException($count);
+        }
+
+        return $matching->first();
+    }
+
+    /**
+     * The first item, insisting there is one.
+     *
+     * @throws \RuntimeException When nothing matches.
+     */
+    public function firstOrFail($key = null, $operator = null, $value = null)
+    {
+        $matching = func_num_args() === 0
+            ? $this
+            : (is_callable($key) && ! is_string($key)
+                ? $this->filter($key)
+                : $this->where(...func_get_args()));
+
+        if ($matching->isEmpty()) {
+            throw new ItemNotFoundException('No matching item was found.');
+        }
+
+        return $matching->first();
+    }
+
+    /** Whether exactly one item matches, without throwing when it does not. */
+    public function hasSole($key = null, $operator = null, $value = null): bool
+    {
+        try {
+            func_num_args() === 0 ? $this->sole() : $this->sole(...func_get_args());
+
+            return true;
+        } catch (ItemNotFoundException | MultipleItemsFoundException) {
+            return false;
+        }
+    }
+
+    public function containsOneItem(): bool
+    {
+        return $this->count() === 1;
+    }
+
+    public function containsManyItems(): bool
+    {
+        return $this->count() > 1;
+    }
+
+    // =========================================================================
+    // NEIGHBOURS
+    // =========================================================================
+
+    /**
+     * The item before this one, or null at the start.
+     *
+     * @param mixed $item A value, or a callback answering which item to find.
+     */
+    public function before($item, $strict = false)
+    {
+        $key = $this->keyOf($item, $strict);
+
+        if ($key === null) {
+            return null;
+        }
+
+        $keys = array_keys($this->items);
+        $position = array_search($key, $keys, true);
+
+        return $position > 0 ? $this->items[$keys[$position - 1]] : null;
+    }
+
+    /** The item after this one, or null at the end. */
+    public function after($item, $strict = false)
+    {
+        $key = $this->keyOf($item, $strict);
+
+        if ($key === null) {
+            return null;
+        }
+
+        $keys = array_keys($this->items);
+        $position = array_search($key, $keys, true);
+
+        return $position !== false && $position < count($keys) - 1
+            ? $this->items[$keys[$position + 1]]
+            : null;
+    }
+
+    /** The key an item sits at, or null. */
+    protected function keyOf($item, bool $strict = false)
+    {
+        if (is_callable($item) && ! is_string($item)) {
+            foreach ($this->items as $key => $value) {
+                if ($item($value, $key)) {
+                    return $key;
+                }
+            }
+
+            return null;
+        }
+
+        $key = array_search($item, $this->items, $strict);
+
+        return $key === false ? null : $key;
+    }
+
+    // =========================================================================
+    // KEYS AND SHAPE
+    // =========================================================================
+
+    /**
+     * Flatten to a single level, keys joined with dots.
+     *
+     * ['user' => ['name' => 'Ada']] becomes ['user.name' => 'Ada'], which is
+     * the shape a form's field names and a validation error bag are already in.
+     */
+    public function dot(string $prepend = ''): static
+    {
+        $flattened = [];
+
+        foreach ($this->items as $key => $value) {
+            if (is_array($value) && $value !== []) {
+                $flattened += (new static($value))->dot($prepend . $key . '.')->all();
+
+                continue;
+            }
+
+            $flattened[$prepend . $key] = $value;
+        }
+
+        return new static($flattened);
+    }
+
+    /** The inverse of {@see dot()}. */
+    public function undot(): static
+    {
+        $expanded = [];
+
+        foreach ($this->items as $key => $value) {
+            $segments = explode('.', (string) $key);
+            $target = &$expanded;
+
+            foreach ($segments as $index => $segment) {
+                if ($index === count($segments) - 1) {
+                    break;
+                }
+
+                if (! isset($target[$segment]) || ! is_array($target[$segment])) {
+                    $target[$segment] = [];
+                }
+
+                $target = &$target[$segment];
+            }
+
+            $target[end($segments)] = $value;
+
+            unset($target);
+        }
+
+        return new static($expanded);
+    }
+
+    /** Collapse one level, keeping the inner keys rather than renumbering. */
+    public function collapseWithKeys(): static
+    {
+        $collapsed = [];
+
+        foreach ($this->items as $values) {
+            if (is_array($values) || $values instanceof self) {
+                $collapsed += $values instanceof self ? $values->all() : $values;
+            }
+        }
+
+        return new static($collapsed);
+    }
+
+    /** Overwrite by key, one level deep. */
+    public function replace($items): static
+    {
+        return new static(array_replace($this->items, $this->itemsFrom($items)));
+    }
+
+    /** Overwrite by key, all the way down. */
+    public function replaceRecursive($items): static
+    {
+        return new static(array_replace_recursive($this->items, $this->itemsFrom($items)));
+    }
+
+    /**
+     * Keep only these keys from every item.
+     *
+     * For trimming rows to what a response should carry, without mapping each
+     * one by hand.
+     *
+     * @param array<int, string>|string $keys
+     */
+    public function select($keys): static
+    {
+        $keys = is_array($keys) ? $keys : func_get_args();
+
+        return $this->map(function ($item) use ($keys) {
+            $selected = [];
+
+            foreach ($keys as $key) {
+                $value = $this->getItemValue($item, $key);
+
+                if ($value !== null || (is_array($item) && array_key_exists($key, $item))) {
+                    $selected[$key] = $value;
+                }
+            }
+
+            return $selected;
+        });
+    }
+
+    /** Read a key, putting the value there first when it is absent. */
+    public function getOrPut($key, $value)
+    {
+        if (array_key_exists($key, $this->items)) {
+            return $this->items[$key];
+        }
+
+        $this->items[$key] = is_callable($value) && ! is_string($value) ? $value() : $value;
+
+        return $this->items[$key];
+    }
+
+    // =========================================================================
+    // WINDOWS AND CHUNKS
+    // =========================================================================
+
+    /**
+     * Overlapping windows of $size, moving $step at a time.
+     *
+     * sliding(2) gives consecutive pairs, which is what comparing each item to
+     * the next one needs — a gap between dates, a change between readings.
+     */
+    public function sliding(int $size = 2, int $step = 1): static
+    {
+        $chunks = [];
+        $values = array_values($this->items);
+        $count = count($values);
+
+        for ($offset = 0; $offset + $size <= $count; $offset += $step) {
+            $chunks[] = new static(array_slice($values, $offset, $size, true));
+        }
+
+        return new static($chunks);
+    }
+
+    /**
+     * Break where the callback says to, rather than at a fixed size.
+     *
+     * The callback is given the current value, its key and the chunk so far,
+     * and returns whether the value belongs with what came before.
+     */
+    public function chunkWhile(callable $callback): static
+    {
+        $chunks = [];
+        $chunk = [];
+
+        foreach ($this->items as $key => $value) {
+            if ($chunk === []) {
+                $chunk[$key] = $value;
+
+                continue;
+            }
+
+            if ($callback($value, $key, new static($chunk))) {
+                $chunk[$key] = $value;
+
+                continue;
+            }
+
+            $chunks[] = new static($chunk);
+            $chunk = [$key => $value];
+        }
+
+        if ($chunk !== []) {
+            $chunks[] = new static($chunk);
+        }
+
+        return new static($chunks);
+    }
+
+    /** Break each time the callback's answer changes. */
+    public function chunkBy(callable $callback): static
+    {
+        $previous = null;
+        $first = true;
+
+        return $this->chunkWhile(function ($value, $key) use ($callback, &$previous, &$first): bool {
+            $current = $callback($value, $key);
+
+            if ($first) {
+                $first = false;
+                $previous = $current;
+
+                return true;
+            }
+
+            $same = $current === $previous;
+            $previous = $current;
+
+            return $same;
+        });
+    }
+
+    /** Split into $groups, filling each in turn rather than spreading evenly. */
+    public function splitIn(int $groups): static
+    {
+        return $this->chunk((int) ceil($this->count() / max(1, $groups)));
+    }
+
+    /** One page of items, counting from page 1. */
+    public function forPage(int $page, int $perPage): static
+    {
+        return $this->slice(max(0, ($page - 1) * $perPage), $perPage);
+    }
+
+    /**
+     * Grow to $size, filling with $value.
+     *
+     * A negative size pads the front, which is how a fixed-width row is built
+     * from a short one.
+     */
+    public function pad(int $size, $value): static
+    {
+        return new static(array_pad($this->items, $size, $value));
+    }
+
+    // =========================================================================
+    // ADDING
+    // =========================================================================
+
+    /** Append an item. Laravel's name for push(). */
+    public function add($item): static
+    {
+        $this->items[] = $item;
+
+        return $this;
+    }
+
+    /** Put items at the front, keeping their order. */
+    public function unshift(...$values): static
+    {
+        array_unshift($this->items, ...$values);
+
+        return $this;
+    }
+
+    /**
+     * Repeat the whole collection $times.
+     *
+     * @return static
+     */
+    public function multiply(int $times): static
+    {
+        $repeated = [];
+
+        for ($i = 0; $i < max(0, $times); $i++) {
+            foreach ($this->items as $item) {
+                $repeated[] = $item;
+            }
+        }
+
+        return new static($repeated);
+    }
+
+    // =========================================================================
+    // SORTING
+    // =========================================================================
+
+    /** Sort by value, largest first. */
+    public function sortDesc(int $options = SORT_REGULAR): static
+    {
+        $items = $this->items;
+
+        arsort($items, $options);
+
+        return new static($items);
+    }
+
+    /** Sort by key, with a comparison of your own. */
+    public function sortKeysUsing(callable $comparison): static
+    {
+        $items = $this->items;
+
+        uksort($items, $comparison);
+
+        return new static($items);
+    }
+
+    // =========================================================================
+    // CONDITIONALS
+    // =========================================================================
+
+    public function whenEmpty(callable $callback, ?callable $default = null)
+    {
+        return $this->when($this->isEmpty(), $callback, $default);
+    }
+
+    public function whenNotEmpty(callable $callback, ?callable $default = null)
+    {
+        return $this->when($this->isNotEmpty(), $callback, $default);
+    }
+
+    public function unlessEmpty(callable $callback, ?callable $default = null)
+    {
+        return $this->whenNotEmpty($callback, $default);
+    }
+
+    public function unlessNotEmpty(callable $callback, ?callable $default = null)
+    {
+        return $this->whenEmpty($callback, $default);
+    }
+
+    // =========================================================================
+    // STRICT COMPARISON
+    // =========================================================================
+
+    /**
+     * The strict variants.
+     *
+     * Loose comparison treats 0, '0', '' and false as the same value, so a
+     * collection of ids with a stray '' silently collapses into one. These
+     * compare with ===, which is what an id or a status code wants.
+     */
+    public function uniqueStrict(?string $key = null): static
+    {
+        $seen = [];
+        $unique = [];
+
+        foreach ($this->items as $itemKey => $item) {
+            $value = $key === null ? $item : $this->getItemValue($item, $key);
+
+            if (in_array($value, $seen, true)) {
+                continue;
+            }
+
+            $seen[] = $value;
+            $unique[$itemKey] = $item;
+        }
+
+        return new static($unique);
+    }
+
+    public function duplicatesStrict(?string $key = null): static
+    {
+        $seen = [];
+        $duplicates = [];
+
+        foreach ($this->items as $itemKey => $item) {
+            $value = $key === null ? $item : $this->getItemValue($item, $key);
+
+            if (in_array($value, $seen, true)) {
+                $duplicates[$itemKey] = $value;
+
+                continue;
+            }
+
+            $seen[] = $value;
+        }
+
+        return new static($duplicates);
+    }
+
+    public function whereStrict(string $key, $value): static
+    {
+        return $this->where($key, '===', $value);
+    }
+
+    public function whereInStrict(string $key, array $values): static
+    {
+        return $this->filter(fn ($item): bool => in_array($this->getItemValue($item, $key), $values, true));
+    }
+
+    public function whereNotInStrict(string $key, array $values): static
+    {
+        return $this->reject(fn ($item): bool => in_array($this->getItemValue($item, $key), $values, true));
+    }
+
+    public function doesntContainStrict($key, $value = null): bool
+    {
+        if (func_num_args() === 1) {
+            return ! in_array($key, $this->items, true);
+        }
+
+        foreach ($this->items as $item) {
+            if ($this->getItemValue($item, $key) === $value) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    // =========================================================================
+    // SET OPERATIONS WITH A COMPARISON
+    // =========================================================================
+
+    public function diffUsing($items, callable $comparison): static
+    {
+        return new static(array_udiff($this->items, $this->itemsFrom($items), $comparison));
+    }
+
+    public function diffAssocUsing($items, callable $comparison): static
+    {
+        return new static(array_diff_uassoc($this->items, $this->itemsFrom($items), $comparison));
+    }
+
+    public function diffKeysUsing($items, callable $comparison): static
+    {
+        return new static(array_diff_ukey($this->items, $this->itemsFrom($items), $comparison));
+    }
+
+    public function intersectUsing($items, callable $comparison): static
+    {
+        return new static(array_uintersect($this->items, $this->itemsFrom($items), $comparison));
+    }
+
+    public function intersectAssoc($items): static
+    {
+        return new static(array_intersect_assoc($this->items, $this->itemsFrom($items)));
+    }
+
+    public function intersectAssocUsing($items, callable $comparison): static
+    {
+        return new static(array_intersect_uassoc($this->items, $this->itemsFrom($items), $comparison));
+    }
+
+    // =========================================================================
+    // MAPPING AND REDUCING
+    // =========================================================================
+
+    /**
+     * Map, spreading each item's values as separate arguments.
+     *
+     * What {@see sliding()} and zip() produce is a collection of small arrays,
+     * and this is how they are read without indexing into each one.
+     */
+    public function mapSpread(callable $callback): static
+    {
+        return $this->map(static function ($chunk, $key) use ($callback) {
+            $values = $chunk instanceof self ? $chunk->all() : (array) $chunk;
+            $values[] = $key;
+
+            return $callback(...array_values($values));
+        });
+    }
+
+    /**
+     * Map to key => list, collecting every value under the same key.
+     *
+     * The callback returns a single-entry [key => value] pair.
+     */
+    public function mapToDictionary(callable $callback): static
+    {
+        $dictionary = [];
+
+        foreach ($this->items as $key => $item) {
+            $pair = $callback($item, $key);
+
+            $pairKey = array_key_first($pair);
+
+            $dictionary[$pairKey][] = $pair[$pairKey];
+        }
+
+        return new static($dictionary);
+    }
+
+    /** Reduce, spreading a list of carries as separate arguments. */
+    public function reduceSpread(callable $callback, ...$initial): array
+    {
+        $carry = $initial;
+
+        foreach ($this->items as $key => $item) {
+            $carry = $callback(...array_merge($carry, [$item, $key]));
+
+            if (! is_array($carry)) {
+                throw new \UnexpectedValueException('reduceSpread() expects the callback to return an array.');
+            }
+        }
+
+        return $carry;
+    }
+
+    /** Reduce, with the key passed alongside the value. */
+    public function reduceWithKeys(callable $callback, $initial = null)
+    {
+        $carry = $initial;
+
+        foreach ($this->items as $key => $item) {
+            $carry = $callback($carry, $item, $key);
+        }
+
+        return $carry;
+    }
+
+    /** Reduce into an object, which is passed as the carry. */
+    public function reduceInto($object, callable $callback)
+    {
+        return $this->reduce($callback, $object);
+    }
+
+    // =========================================================================
+    // MISCELLANY
+    // =========================================================================
+
+    /** Whether anything matches. Laravel's name for contains(). */
+    public function some($key, $operator = null, $value = null): bool
+    {
+        return $this->contains(...func_get_args());
+    }
+
+    /**
+     * Insist every item is of a type, and say which one was not.
+     *
+     * A collection is only as trustworthy as what was put in it, and the
+     * failure otherwise surfaces much later as a call to a method on the wrong
+     * kind of object.
+     *
+     * @param array<int, string>|string $type
+     *
+     * @throws \UnexpectedValueException
+     */
+    public function ensure($type): static
+    {
+        $types = is_array($type) ? $type : [$type];
+
+        foreach ($this->items as $index => $item) {
+            foreach ($types as $allowed) {
+                if ($item instanceof $allowed || get_debug_type($item) === $allowed) {
+                    continue 2;
+                }
+            }
+
+            throw new \UnexpectedValueException(sprintf(
+                'Expected every item to be of type [%s]; item at [%s] is a %s.',
+                implode('|', $types),
+                $index,
+                get_debug_type($item),
+            ));
+        }
+
+        return $this;
+    }
+
+    /** What share of the collection matches, as a percentage. */
+    public function percentage(callable $callback, int $precision = 2): ?float
+    {
+        if ($this->items === []) {
+            return null;
+        }
+
+        return round($this->filter($callback)->count() / $this->count() * 100, $precision);
+    }
+
+    /** A new collection of these items. */
+    public function collect(): static
+    {
+        return new static($this->items);
+    }
+
+    /** This collection as a plain one, for a subclass that added behaviour. */
+    public function toBase(): self
+    {
+        return new self($this->items);
+    }
+
+    /** Build a collection from a JSON string. */
+    public static function fromJson(string $json, int $depth = 512, int $flags = 0): static
+    {
+        $decoded = json_decode($json, true, $depth, $flags);
+
+        return new static(is_array($decoded) ? $decoded : []);
+    }
+
+    /** JSON a person can read. */
+    public function toPrettyJson(int $options = 0): string
+    {
+        return $this->toJson($options | JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+    }
+
+    /**
+     * Items from a collection, an array, or anything iterable.
+     *
+     * @return array<mixed>
+     */
+    protected function itemsFrom($items): array
+    {
+        return match (true) {
+            $items instanceof self => $items->all(),
+            is_array($items) => $items,
+            is_iterable($items) => iterator_to_array($items),
+            default => (array) $items,
         };
     }
 }
