@@ -211,6 +211,56 @@ class BroadcastManager
     // ─── Channel authorisation ────────────────────────────
 
     /**
+     * Serve the endpoint a client asks for permission at.
+     *
+     *     Broadcast::routes();
+     *     Broadcast::channel('orders.{id}', fn ($user, $id) => $user->owns($id));
+     *
+     * Called by the application, beside the channels it registers, rather than
+     * by the provider at boot: a provider that registers a route has to boot
+     * on every request, and most applications broadcast nothing.
+     *
+     * Behind the 'web' group by default, so the session is loaded and CSRF
+     * verified: the question being answered is "may this signed-in person
+     * listen here", and without the session there is nobody to ask about. The
+     * path is configurable because an application already serving something
+     * at /broadcasting has to be able to move it.
+     *
+     * @param array<string, mixed>|null $attributes Route group attributes, in
+     *                                              place of the 'web' group.
+     */
+    public function routes(?array $attributes = null): void
+    {
+        $container = \Nitro\Container\Container::getInstance();
+
+        if (! $container->has(\Nitro\Routing\Router::class)) {
+            return;
+        }
+
+        $app = $container->has(\Nitro\Foundation\Contracts\ApplicationInterface::class)
+            ? $container->resolve(\Nitro\Foundation\Contracts\ApplicationInterface::class)
+            : null;
+
+        // A cached route table already holds this route, and adding it again
+        // would register it twice.
+        if ($app?->routesAreCached()) {
+            return;
+        }
+
+        $path = (string) $this->config->get('broadcasting.auth_path', '/broadcasting/auth');
+
+        $router = $container->resolve(\Nitro\Routing\Router::class);
+
+        $router->group($attributes ?? ['middleware' => ['web']], static function () use ($router, $path): void {
+            // The [class, method] form rather than the bare class string: the
+            // router calls class_exists() on a string action to work out
+            // whether it is a single-action class, and that would load the
+            // controller while routes are registered.
+            $router->post($path, [BroadcastController::class, '__invoke'])->name('broadcasting.auth');
+        });
+    }
+
+    /**
      * Say who may listen on a channel.
      *
      * The pattern may carry {placeholders}, which are passed to the callback

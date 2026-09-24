@@ -14,11 +14,13 @@ use Nitro\Broadcasting\Drivers\FakeBroadcaster;
  * Most applications never call this: an event implementing
  * {@see \Nitro\Broadcasting\Contracts\ShouldBroadcast} is broadcast when it is
  * dispatched, and `broadcast($event)->toOthers()` is the usual call site. This
- * is for registering channel authorisers and for sending without an event.
+ * is for serving the authorisation endpoint, registering channel authorisers,
+ * and sending without an event.
  *
  * @method static void event(\Nitro\Broadcasting\Contracts\ShouldBroadcast $event, ?array $payload = null)
  * @method static void queue(\Nitro\Broadcasting\Contracts\ShouldBroadcast $event)
  * @method static void send(array|string $channels, string $event, array $payload = [])
+ * @method static void routes(?array $attributes = null)
  * @method static \Nitro\Broadcasting\BroadcastManager channel(string $pattern, callable|string $callback)
  * @method static bool check(mixed $user, string $channel)
  * @method static array|bool authorise(mixed $user, string $channel)
