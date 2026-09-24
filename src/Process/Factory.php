@@ -83,6 +83,33 @@ class Factory
         return new ProcessResult('', $exitCode, $output, $errorOutput);
     }
 
+    /**
+     * Answer the same command differently each time it is run.
+     *
+     *     Process::fake(['git pull' => Process::sequence()
+     *         ->push(Process::result('Already up to date.'))
+     *         ->push(Process::result(exitCode: 1))]);
+     *
+     * For testing a retry: the first attempt fails and the second succeeds,
+     * which a single stub cannot express.
+     */
+    public function sequence(array $results = []): ResultSequence
+    {
+        return new ResultSequence($results);
+    }
+
+    /*
+     * concurrently() / pool() are deliberately absent.
+     *
+     * Running commands at once means splitting spawn() into a start and a
+     * wait, holding each handle and its pipes, and reading from all of them in
+     * one loop — a process whose output pipe fills while nothing is reading it
+     * blocks forever, so the loop has to be a real one rather than a sequence
+     * of blocking reads. That is worth doing and is not a method signature.
+     * Until then a loop over run() is what there is, and it is honest about
+     * taking the sum of the durations rather than the longest.
+     */
+
     // ─── Assertions ───────────────────────────────────────
 
     /**
@@ -133,6 +160,58 @@ class Factory
         }
     }
 
+    /** Laravel's name for {@see assertRanCount()}. */
+    public function assertRanTimes(int $count): void
+    {
+        $this->assertRanCount($count);
+    }
+
+    /** Laravel's name for {@see assertDidntRun()}. */
+    public function assertNotRan(Closure $callback): void
+    {
+        $this->assertDidntRun($callback);
+    }
+
+    /**
+     * Assert these commands ran, in this order.
+     *
+     * Order is what a deploy or a build is about — install before build,
+     * migrate before restart — and asserting each one separately says nothing
+     * about the sequence. Other commands may run in between; what is asserted
+     * is that these appeared in this relative order.
+     *
+     * @param array<int, string> $patterns Command patterns, '*' matching anything.
+     *
+     * @throws RuntimeException
+     */
+    public function assertRanInOrder(array $patterns): void
+    {
+        $position = 0;
+
+        foreach ($this->recorded as $entry) {
+            if ($position >= count($patterns)) {
+                break;
+            }
+
+            if ($this->commandMatches($patterns[$position], $entry['process']['command'])) {
+                $position++;
+            }
+        }
+
+        if ($position < count($patterns)) {
+            $ran = array_map(
+                static fn (array $entry): string => $entry['process']['command'],
+                $this->recorded,
+            );
+
+            throw new RuntimeException(sprintf(
+                'Expected [%s] to run after the ones before it. What ran: %s.',
+                $patterns[$position],
+                $ran === [] ? 'nothing' : implode(', ', $ran),
+            ));
+        }
+    }
+
     /** @return array<int, array<string, mixed>> */
     public function recorded(): array
     {
@@ -177,7 +256,11 @@ class Factory
                 continue;
             }
 
-            $result = $stub instanceof Closure ? $stub($process) : $stub;
+            $result = match (true) {
+                $stub instanceof ResultSequence => $stub->next(),
+                $stub instanceof Closure => $stub($process),
+                default => $stub,
+            };
 
             if (is_string($result)) {
                 $result = $this->result($result);
