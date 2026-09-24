@@ -69,4 +69,30 @@ interface PathRegistry
 
     /** The web-server document root. */
     public function public(string $path = ''): string;
+
+    /** Where the application's own classes live. */
+    public function app(string $path = ''): string;
+
+    /** Where translation files live. */
+    public function lang(string $path = ''): string;
+
+    /** Where the framework is bootstrapped from. */
+    public function bootstrap(string $path = ''): string;
+
+    /** The compiled event listener map. */
+    public function cachedEvents(): string;
+
+    /** Join path segments with this platform's separator, dropping empty ones. */
+    public function join(string $base, string ...$segments): string;
+
+    /**
+     * Point a directory somewhere other than its default.
+     *
+     * A relative path is taken from the base path, an absolute one as given.
+     * Set it before anything reads that path — a bootstrapper, not a request.
+     */
+    public function use(string $name, string $path): static;
+
+    /** Move the application root, and everything deriving from it with it. */
+    public function useBase(string $path): static;
 }
