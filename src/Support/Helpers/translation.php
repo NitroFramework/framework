@@ -8,7 +8,7 @@ if (! function_exists('trans')) {
      *
      * @param array<string, mixed> $replace
      */
-    function trans(?string $key = null, array $replace = [], ?string $locale = null): mixed
+    function trans(?string $key = null, array $replace = [], ?string $locale = null, bool $fallback = true): mixed
     {
         $translator = app('translator');
 
@@ -16,7 +16,7 @@ if (! function_exists('trans')) {
             return $translator;
         }
 
-        return $translator->get($key, $replace, $locale);
+        return $translator->get($key, $replace, $locale, $fallback);
     }
 }
 
@@ -26,9 +26,9 @@ if (! function_exists('__')) {
      *
      * @param array<string, mixed> $replace
      */
-    function __(?string $key = null, array $replace = [], ?string $locale = null): mixed
+    function __(?string $key = null, array $replace = [], ?string $locale = null, bool $fallback = true): mixed
     {
-        return trans($key, $replace, $locale);
+        return trans($key, $replace, $locale, $fallback);
     }
 }
 
@@ -51,6 +51,6 @@ if (! function_exists('lang_path')) {
      */
     function lang_path(string $path = ''): string
     {
-        return app('paths')->base('lang' . ($path === '' ? '' : DIRECTORY_SEPARATOR . $path));
+        return app('paths')->lang($path);
     }
 }

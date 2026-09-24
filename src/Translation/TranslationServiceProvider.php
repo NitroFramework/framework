@@ -5,6 +5,7 @@ namespace Nitro\Translation;
 use Nitro\Foundation\Contracts\ConfigRepository;
 use Nitro\Foundation\Contracts\PathRegistry;
 use Nitro\Foundation\Providers\ServiceProvider;
+use Nitro\Translation\Contracts\Loader;
 
 /**
  * Binds the translator against the application's lang directory and configured
@@ -21,17 +22,20 @@ class TranslationServiceProvider extends ServiceProvider
     /** @return array<int, string> */
     public function provides(): array
     {
-        return [Translator::class];
+        return [Translator::class, Loader::class];
     }
 
     public function register(): void
     {
+        $this->container->singleton(Loader::class, function ($container) {
+            return new FileLoader($container->resolve(PathRegistry::class)->lang());
+        });
+
         $this->container->singleton(Translator::class, function ($container) {
-            $paths  = $container->resolve(PathRegistry::class);
             $config = $container->resolve(ConfigRepository::class);
 
             return new Translator(
-                $paths->base('lang'),
+                $container->resolve(Loader::class),
                 (string) $config->get('app.locale', 'en'),
                 (string) $config->get('app.fallback_locale', 'en'),
             );

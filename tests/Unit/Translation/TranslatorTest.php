@@ -174,7 +174,7 @@ class TranslatorTest extends TestCase
     {
         $translator = $this->translator();
 
-        $translator->addLines(['runtime' => 'Added later'], 'en', 'messages');
+        $translator->addLines(['messages.runtime' => 'Added later'], 'en');
 
         $this->assertSame('Added later', $translator->get('messages.runtime'));
     }
@@ -184,7 +184,7 @@ class TranslatorTest extends TestCase
         $translator = $this->translator();
 
         $translator->get('messages.welcome', ['name' => 'Ada']);
-        $translator->addLines(['runtime' => 'Added later'], 'en', 'messages');
+        $translator->addLines(['messages.runtime' => 'Added later'], 'en');
 
         $this->assertSame('Welcome, Ada', $translator->get('messages.welcome', ['name' => 'Ada']));
         $this->assertSame('Added later', $translator->get('messages.runtime'));
