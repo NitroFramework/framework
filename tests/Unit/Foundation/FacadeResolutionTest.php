@@ -84,14 +84,18 @@ class FacadeResolutionTest extends TestCase
 
         $duplicates = array_diff_assoc($accessors, array_unique($accessors));
 
-        // Three pairs share a service on purpose:
-        //   Bus and Queue     — dispatching and batching are the same manager
-        //   File and Storage  — one filesystem, two names for it
-        //   Route and URL     — URL generation lives on the router
+        // Two pairs share a service on purpose:
+        //   Bus and Queue    — dispatching and batching are the same manager
+        //   Route and URL    — URL generation lives on the router
+        //
+        // File and Storage used to be a third, on the belief that there was
+        // one filesystem with two names for it. There are two: File reads real
+        // paths and Storage reads a disk whose paths are relative to its root,
+        // so File resolving the disk manager meant every absolute path it was
+        // given was joined onto a disk root.
         $this->assertSame(
             [
                 'Queue' => 'queue',
-                'Storage' => 'filesystem',
                 'URL' => 'router',
             ],
             $duplicates,

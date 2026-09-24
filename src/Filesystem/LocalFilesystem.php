@@ -2,6 +2,7 @@
 
 namespace Nitro\Filesystem;
 
+use Nitro\Filesystem\Concerns\InteractsWithDisk;
 use Nitro\Filesystem\Contracts\Filesystem;
 use RuntimeException;
 
@@ -11,15 +12,21 @@ use RuntimeException;
  */
 class LocalFilesystem implements Filesystem
 {
+    use InteractsWithDisk;
+
     protected string $root;
     protected string $defaultVisibility;
     protected ?string $url;
+
+    /** @var array<string, mixed> */
+    protected array $config;
 
     public function __construct(string $root, array $config = [])
     {
         $this->root = rtrim(str_replace('\\', '/', $root), '/');
         $this->defaultVisibility = $config['visibility'] ?? 'private';
         $this->url = isset($config['url']) ? rtrim((string) $config['url'], '/') : null;
+        $this->config = $config;
     }
 
     public function exists(string $path): bool
@@ -30,6 +37,22 @@ class LocalFilesystem implements Filesystem
     public function missing(string $path): bool
     {
         return ! $this->exists($path);
+    }
+
+    public function fileExists(string $path): bool
+    {
+        return is_file($this->fullPath($path));
+    }
+
+    public function directoryExists(string $directory): bool
+    {
+        return is_dir($this->fullPath($directory));
+    }
+
+    /** @return array<string, mixed> */
+    public function getConfig(): array
+    {
+        return $this->config;
     }
 
     public function get(string $path): ?string
@@ -153,6 +176,112 @@ class LocalFilesystem implements Filesystem
     public function directories(?string $directory = null, bool $recursive = false): array
     {
         return $this->scan($directory, $recursive, files: false);
+    }
+
+    public function allDirectories(?string $directory = null): array
+    {
+        return $this->directories($directory, true);
+    }
+
+    /**
+     * A read handle on the file.
+     *
+     * @return resource|null
+     */
+    public function readStream(string $path)
+    {
+        $full = $this->fullPath($path);
+
+        if (! is_file($full)) {
+            return null;
+        }
+
+        $handle = fopen($full, 'rb');
+
+        return $handle === false ? null : $handle;
+    }
+
+    /**
+     * Write from a read handle, a block at a time.
+     *
+     * @param resource $resource
+     */
+    public function writeStream(string $path, mixed $resource, array $options = []): bool
+    {
+        if (! is_resource($resource)) {
+            return false;
+        }
+
+        return $this->put($path, $resource, $options);
+    }
+
+    public function mimeType(string $path): ?string
+    {
+        $full = $this->fullPath($path);
+
+        if (! is_file($full) || ! function_exists('finfo_open')) {
+            return null;
+        }
+
+        $info = finfo_open(FILEINFO_MIME_TYPE);
+
+        if ($info === false) {
+            return null;
+        }
+
+        $type = finfo_file($info, $full);
+
+        return $type === false ? null : $type;
+    }
+
+    /**
+     * A hash of the file's contents.
+     *
+     * @param array{checksum_algo?: string} $options
+     */
+    public function checksum(string $path, array $options = []): ?string
+    {
+        $full = $this->fullPath($path);
+
+        if (! is_file($full)) {
+            return null;
+        }
+
+        $hash = hash_file($options['checksum_algo'] ?? 'md5', $full);
+
+        return $hash === false ? null : $hash;
+    }
+
+    /**
+     * Whether the file is world-readable.
+     *
+     * A disk's notion of visibility is two states, so the permission bits are
+     * read back as whichever of the two they match. Windows has no such bits —
+     * access is an ACL there and chmod moves only the read-only flag — so the
+     * answer on Windows is not to be relied on.
+     */
+    public function getVisibility(string $path): ?string
+    {
+        $full = $this->fullPath($path);
+
+        if (! file_exists($full)) {
+            return null;
+        }
+
+        $mode = fileperms($full) & 0777;
+
+        return ($mode & 0044) !== 0 ? 'public' : 'private';
+    }
+
+    public function setVisibility(string $path, string $visibility): bool
+    {
+        $full = $this->fullPath($path);
+
+        if (! file_exists($full)) {
+            return false;
+        }
+
+        return chmod($full, $this->permissions($visibility, is_dir($full)));
     }
 
     public function makeDirectory(string $path): bool

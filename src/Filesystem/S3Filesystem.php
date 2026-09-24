@@ -2,6 +2,7 @@
 
 namespace Nitro\Filesystem;
 
+use Nitro\Filesystem\Concerns\InteractsWithDisk;
 use Nitro\Filesystem\Contracts\Filesystem;
 use Nitro\Filesystem\Signers\AwsSignatureV4;
 use Nitro\Http\Client\Factory as HttpFactory;
@@ -28,8 +29,13 @@ use RuntimeException;
  */
 class S3Filesystem implements Filesystem
 {
+    use InteractsWithDisk;
+
     protected AwsSignatureV4 $signer;
     protected HttpFactory $http;
+
+    /** @var array<string, mixed> */
+    protected array $config;
 
     protected string $bucket;
     protected string $endpoint;
@@ -67,6 +73,14 @@ class S3Filesystem implements Filesystem
             (string) ($config['endpoint'] ?? "https://s3.{$region}.amazonaws.com"),
             '/',
         );
+
+        $this->config = $config;
+    }
+
+    /** @return array<string, mixed> */
+    public function getConfig(): array
+    {
+        return $this->config;
     }
 
     // ─── Reading ──────────────────────────────────────────
@@ -79,6 +93,30 @@ class S3Filesystem implements Filesystem
     public function missing(string $path): bool
     {
         return ! $this->exists($path);
+    }
+
+    /**
+     * Whether an object is at the key.
+     *
+     * The same question as exists() here: an object store has objects and no
+     * directories, so nothing can be at a key but an object.
+     */
+    public function fileExists(string $path): bool
+    {
+        return $this->exists($path);
+    }
+
+    /**
+     * Whether anything is stored under the prefix.
+     *
+     * A directory is not a thing that exists in a bucket — it is a shared
+     * prefix of some keys — so the only meaningful answer is whether the
+     * prefix has anything under it.
+     */
+    public function directoryExists(string $directory): bool
+    {
+        return $this->files($directory, recursive: true) !== []
+            || $this->directories($directory) !== [];
     }
 
     public function get(string $path): ?string
@@ -112,6 +150,95 @@ class S3Filesystem implements Filesystem
         $modified = $response->header('Last-Modified');
 
         return $modified === null ? null : (strtotime($modified) ?: null);
+    }
+
+    /** The type the object was stored with, which is metadata rather than a guess. */
+    public function mimeType(string $path): ?string
+    {
+        $response = $this->request('HEAD', $this->key($path));
+
+        return $response->successful() ? $response->header('Content-Type') : null;
+    }
+
+    /**
+     * The object's checksum, taken from its ETag.
+     *
+     * For an object uploaded in one part the ETag is its MD5. For a multipart
+     * upload it is a digest of the parts and ends in '-N', which is not a hash
+     * of the contents and so is not returned as one.
+     */
+    public function checksum(string $path, array $options = []): ?string
+    {
+        $response = $this->request('HEAD', $this->key($path));
+
+        if (! $response->successful()) {
+            return null;
+        }
+
+        $etag = trim((string) $response->header('ETag'), '"');
+
+        return $etag === '' || str_contains($etag, '-') ? null : $etag;
+    }
+
+    /**
+     * A read handle on the object.
+     *
+     * The body is buffered into a temporary stream that spills to disk past a
+     * few megabytes, so a large object is not held in memory.
+     *
+     * @return resource|null
+     */
+    public function readStream(string $path)
+    {
+        $contents = $this->get($path);
+
+        if ($contents === null) {
+            return null;
+        }
+
+        $stream = fopen('php://temp/maxmemory:' . (4 * 1024 * 1024), 'w+b');
+
+        if ($stream === false) {
+            return null;
+        }
+
+        fwrite($stream, $contents);
+        rewind($stream);
+
+        return $stream;
+    }
+
+    /**
+     * Upload from a read handle.
+     *
+     * @param resource $resource
+     */
+    public function writeStream(string $path, mixed $resource, array $options = []): bool
+    {
+        return is_resource($resource) && $this->put($path, $resource, $options);
+    }
+
+    /** 'public' or 'private', read from the object's ACL. */
+    public function getVisibility(string $path): ?string
+    {
+        $response = $this->request('GET', $this->key($path), query: ['acl' => '']);
+
+        if (! $response->successful()) {
+            return null;
+        }
+
+        // A grant of READ to the all-users group is what public means here.
+        return str_contains($response->body(), 'AllUsers') ? 'public' : 'private';
+    }
+
+    public function setVisibility(string $path, string $visibility): bool
+    {
+        return $this->request(
+            'PUT',
+            $this->key($path),
+            headers: ['x-amz-acl' => $visibility === 'public' ? 'public-read' : 'private'],
+            query: ['acl' => ''],
+        )->successful();
     }
 
     // ─── Writing ──────────────────────────────────────────
@@ -215,6 +342,11 @@ class S3Filesystem implements Filesystem
     }
 
     /** @return array<int, string> */
+    public function allDirectories(?string $directory = null): array
+    {
+        return $this->directories($directory, true);
+    }
+
     public function directories(?string $directory = null, bool $recursive = false): array
     {
         return $this->list($directory, $recursive)['directories'];
@@ -264,9 +396,47 @@ class S3Filesystem implements Filesystem
      * This is how a private object reaches a browser without the request
      * passing through the application.
      */
-    public function temporaryUrl(string $path, int $seconds = 3600): string
+    public function temporaryUrl(string $path, int $seconds = 3600, array $options = []): string
     {
-        return $this->signer->presign('GET', $this->endpointFor($this->key($path)), $seconds);
+        // A builder set by the application wins — the signature has to land on
+        // whichever host will actually serve the object.
+        if ($this->temporaryUrlBuilder !== null) {
+            return ($this->temporaryUrlBuilder)($path, $seconds, $options);
+        }
+
+        return $this->signer->presign(
+            $options['method'] ?? 'GET',
+            $this->endpointFor($this->key($path)),
+            $seconds,
+        );
+    }
+
+    /**
+     * A URL a browser can upload one object to, without the bytes passing
+     * through the application at all.
+     *
+     * @return array{url: string, headers: array<string, string>}
+     */
+    public function temporaryUploadUrl(string $path, int $seconds = 3600, array $options = []): array
+    {
+        if ($this->temporaryUploadUrlBuilder !== null) {
+            return ($this->temporaryUploadUrlBuilder)($path, $seconds, $options);
+        }
+
+        return [
+            'url' => $this->temporaryUrl($path, $seconds, ['method' => 'PUT'] + $options),
+            'headers' => [],
+        ];
+    }
+
+    public function providesTemporaryUrls(): bool
+    {
+        return true;
+    }
+
+    public function providesTemporaryUploadUrls(): bool
+    {
+        return true;
     }
 
     // ─── Internals ────────────────────────────────────────
