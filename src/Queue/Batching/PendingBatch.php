@@ -6,6 +6,7 @@ use Closure;
 use InvalidArgumentException;
 use Nitro\Http\Kernel;
 use Nitro\Queue\Batchable;
+use Nitro\Queue\Events\BatchDispatched;
 use Nitro\Queue\Job;
 use Nitro\Queue\QueueManager;
 
@@ -223,7 +224,11 @@ class PendingBatch
             );
         }
 
-        return $batch->fresh() ?? $batch;
+        $batch = $batch->fresh() ?? $batch;
+
+        $this->queue->raise(new BatchDispatched($batch));
+
+        return $batch;
     }
 
     /** Dispatch only when the condition holds. */

@@ -296,9 +296,61 @@ class Worker
             return false;
         }
 
+        if ($this->isPaused($connectionName, $queue)) {
+            return false;
+        }
+
         $looping = new Events\Looping($connectionName, $queue, $options);
 
         return $this->until($looping) !== false;
+    }
+
+    /**
+     * Whether this queue has been paused.
+     *
+     * Read from the cache each turn, like the restart signal, so pausing
+     * reaches workers that are already running. A paused worker keeps its
+     * process and its reservations — it simply stops taking new work, which
+     * is what makes it different from stopping one.
+     */
+    private function isPaused(?string $connectionName, string $queue): bool
+    {
+        if ($this->cache === null) {
+            return false;
+        }
+
+        foreach (self::pauseKeys($connectionName, $queue) as $key) {
+            if ($this->cache->get($key)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * The keys that would pause this queue, widest first.
+     *
+     * Everything, then one connection, then one queue on it — so a blanket
+     * pause during a deploy does not need to name every queue.
+     *
+     * @return array<int, string>
+     */
+    public static function pauseKeys(?string $connectionName, ?string $queue = null): array
+    {
+        $keys = ['queue:paused'];
+
+        if ($connectionName !== null) {
+            $keys[] = 'queue:paused:' . $connectionName;
+
+            if ($queue !== null) {
+                foreach (explode(',', $queue) as $name) {
+                    $keys[] = 'queue:paused:' . $connectionName . ':' . trim($name);
+                }
+            }
+        }
+
+        return $keys;
     }
 
     /**
@@ -458,6 +510,10 @@ class Worker
 
             if (! $this->isReleased($job) && ! $this->hasFailed($job)) {
                 $this->recordBatchSuccess($job, $envelope);
+
+                // Only now, and only here: the next job in a chain exists on
+                // no queue until the one before it has actually succeeded.
+                $job->dispatchNextJobInChain();
             }
 
             if ($this->isReleased($job)) {
@@ -678,6 +734,14 @@ class Worker
             $job->failed($exception);
         } catch (Throwable $hookError) {
             error_log('[queue] failed() hook threw: ' . $hookError->getMessage());
+        }
+
+        // The rest of the chain will now never run, so whatever was watching
+        // for that is told. The jobs themselves were never queued.
+        try {
+            $job->invokeChainCatchCallbacks($exception);
+        } catch (Throwable $hookError) {
+            error_log('[queue] chain catch callback threw: ' . $hookError->getMessage());
         }
 
         $this->recordBatchFailure($job, $envelope, $exception);

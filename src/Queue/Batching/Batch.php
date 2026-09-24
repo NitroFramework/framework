@@ -3,6 +3,9 @@
 namespace Nitro\Queue\Batching;
 
 use JsonSerializable;
+use Nitro\Queue\Events\BatchCanceled;
+use Nitro\Queue\Events\BatchFinished;
+use Nitro\Queue\Events\BatchStarted;
 use Nitro\Queue\Job;
 use Nitro\Queue\QueueManager;
 use Nitro\Support\CarbonImmutable;
@@ -94,9 +97,26 @@ class Batch implements JsonSerializable
     {
         $counts = $this->decrementPendingJobs($jobId);
 
+        if ($this->isFirstJobProcessed($counts)) {
+            $this->queue->raise(new BatchStarted($this));
+        }
+
         if ($counts->pendingJobs === 0) {
             $this->repository->markAsFinished($this->id);
+
+            $this->queue->raise(new BatchFinished($this));
         }
+    }
+
+    /**
+     * Whether these counts are the ones left after the batch's first job.
+     *
+     * One fewer pending than the batch has jobs, which is true exactly once —
+     * the point at which the batch stopped waiting and started moving.
+     */
+    protected function isFirstJobProcessed(UpdatedBatchJobCounts $counts): bool
+    {
+        return $counts->pendingJobs === $this->totalJobs - 1;
     }
 
     public function decrementPendingJobs(string $jobId): UpdatedBatchJobCounts
@@ -109,12 +129,18 @@ class Batch implements JsonSerializable
     {
         $counts = $this->incrementFailedJobs($jobId);
 
+        if ($this->isFirstJobProcessed($counts)) {
+            $this->queue->raise(new BatchStarted($this));
+        }
+
         if ($counts->failedJobs > 0 && ! $this->allowsFailures()) {
-            $this->cancel();
+            $this->cancel($exception);
         }
 
         if ($counts->pendingJobs === 0) {
             $this->repository->markAsFinished($this->id);
+
+            $this->queue->raise(new BatchFinished($this));
         }
     }
 
@@ -168,6 +194,8 @@ class Batch implements JsonSerializable
     public function cancel(?Throwable $exception = null): void
     {
         $this->repository->cancel($this->id);
+
+        $this->queue->raise(new BatchCanceled($this, $exception));
     }
 
     public function cancelled(): bool

@@ -22,6 +22,10 @@ use Nitro\Queue\Worker;
  *   queue:forget    Drop one failed entry.
  *   queue:flush     Drop every failed entry.
  *   queue:restart   Signal running workers to gracefully exit.
+ *   queue:pause     Stop workers taking new work, without stopping them.
+ *   queue:resume    Let them take work again.
+ *   queue:monitor   Report queue sizes, and say which are over a threshold.
+ *   queue:clear     Delete every job waiting on a queue.
  */
 class QueueCommands implements CommandInterface
 {
@@ -43,6 +47,10 @@ class QueueCommands implements CommandInterface
             'queue:forget'  => 'Drop a failed job by id',
             'queue:flush'   => 'Drop all failed jobs',
             'queue:restart' => 'Signal running workers to gracefully exit',
+            'queue:pause'   => 'Stop workers taking new work, without stopping them',
+            'queue:resume'  => 'Let paused workers take work again',
+            'queue:monitor' => 'Report queue sizes, flagging any over --max',
+            'queue:clear'   => 'Delete every job waiting on a queue',
         ];
 
     public function getCommands(): array
@@ -59,6 +67,10 @@ class QueueCommands implements CommandInterface
             'queue:forget'  => $this->forget($arguments),
             'queue:flush'   => $this->flush(),
             'queue:restart' => $this->restart(),
+            'queue:pause'   => $this->pause($arguments, true),
+            'queue:resume'  => $this->pause($arguments, false),
+            'queue:monitor' => $this->monitor($arguments),
+            'queue:clear'   => $this->clear($arguments),
             default         => $this->invalidSignature("Unknown queue command: {$command}"),
         };
     }
@@ -262,6 +274,171 @@ class QueueCommands implements CommandInterface
         return is_array($decoded) ? ($decoded['class'] ?? 'unknown') : 'unknown';
     }
     /** Report an unrecognised signature and fail the invocation. */
+    // ── queue:pause / queue:resume ────────────────────────────────────
+
+    /**
+     * Hold workers back, or let them go again.
+     *
+     * A paused worker keeps its process and anything it has already reserved;
+     * it only stops taking new work. That is what makes this usable during a
+     * migration, where stopping the workers would drop the reservations and
+     * restarting them is the supervisor's business, not the deployer's.
+     *
+     * The flag lives in the cache because that is what a running worker can
+     * read — the same way queue:restart reaches one.
+     */
+    private function pause(array $arguments, bool $paused): int
+    {
+        if (! $this->container->has(CacheManager::class)) {
+            $this->output->error(
+                'Pausing a queue needs the cache layer. Configure a cache driver in config/cache.php.'
+            );
+
+            return ExitCode::FAILURE;
+        }
+
+        $connection = $this->valueOf($arguments, '--connection');
+        $queue = $this->valueOf($arguments, '--queue');
+
+        if ($connection === null && $queue !== null) {
+            return $this->invalidSignature('--queue names a queue on a connection, so --connection is needed too.');
+        }
+
+        $keys = Worker::pauseKeys($connection, $queue);
+        $key = end($keys);
+
+        $cache = $this->container->resolve(CacheManager::class);
+
+        if ($paused) {
+            $cache->put($key, time(), 86400);
+        } else {
+            // Every wider key too, or a blanket pause would keep holding a
+            // queue that was just resumed by name.
+            foreach ($keys as $each) {
+                $cache->forget($each);
+            }
+        }
+
+        $target = $connection === null
+            ? 'every queue'
+            : ($queue === null ? "connection [{$connection}]" : "[{$queue}] on [{$connection}]");
+
+        $this->raise($paused
+            ? new \Nitro\Queue\Events\QueuePaused($connection, $queue)
+            : new \Nitro\Queue\Events\QueueResumed($connection, $queue));
+
+        $this->output->success($paused
+            ? "Paused {$target}. Workers keep running and stop taking new jobs."
+            : "Resumed {$target}.");
+
+        return ExitCode::SUCCESS;
+    }
+
+    // ── queue:monitor ─────────────────────────────────────────────────
+
+    /**
+     * Report how much is waiting, and say so loudly past a threshold.
+     *
+     * For a scheduled check: a queue growing faster than it drains is the
+     * symptom that shows up long before anything actually fails.
+     */
+    private function monitor(array $arguments): int
+    {
+        $queues = $this->valueOf($arguments, '--queue') ?? 'default';
+        $connection = $this->valueOf($arguments, '--connection');
+        $max = (int) ($this->valueOf($arguments, '--max') ?? 0);
+
+        $driver = $this->container->resolve(QueueManager::class)->connection($connection);
+
+        $over = false;
+
+        foreach (array_map('trim', explode(',', $queues)) as $queue) {
+            $size = $driver->size($queue);
+
+            $line = sprintf('  %-24s %d', $queue, $size);
+
+            if ($max > 0 && $size > $max) {
+                $over = true;
+                $this->output->warning(trim($line) . " — over the limit of {$max}");
+            } else {
+                $this->output->writeln($line);
+            }
+        }
+
+        // Non-zero so a scheduler or a monitor can act on it.
+        return $over ? ExitCode::FAILURE : ExitCode::SUCCESS;
+    }
+
+    // ── queue:clear ───────────────────────────────────────────────────
+
+    /**
+     * Delete everything waiting on a queue.
+     *
+     * Destructive and not undoable, so it asks unless told not to.
+     */
+    private function clear(array $arguments): int
+    {
+        $queue = $this->valueOf($arguments, '--queue') ?? 'default';
+        $connection = $this->valueOf($arguments, '--connection');
+        $force = in_array('--force', $arguments, true);
+
+        $driver = $this->container->resolve(QueueManager::class)->connection($connection);
+
+        $size = $driver->size($queue);
+
+        if ($size === 0) {
+            $this->output->info("Nothing is waiting on [{$queue}].");
+
+            return ExitCode::SUCCESS;
+        }
+
+        if (! $force) {
+            $this->output->warning(
+                "This would delete {$size} job(s) from [{$queue}] and cannot be undone. "
+                . 'Re-run with --force.'
+            );
+
+            return ExitCode::FAILURE;
+        }
+
+        $cleared = 0;
+
+        while (($envelope = $driver->pop($queue)) !== null) {
+            $driver->delete($envelope);
+            $cleared++;
+        }
+
+        $this->output->success("Deleted {$cleared} job(s) from [{$queue}].");
+
+        return ExitCode::SUCCESS;
+    }
+
+    /** Announce something, when there is a dispatcher to announce it on. */
+    private function raise(object $event): void
+    {
+        if ($this->container->has(QueueManager::class)) {
+            $this->container->resolve(QueueManager::class)->raise($event);
+        }
+    }
+
+    /**
+     * The value of a --name=value argument, or null.
+     *
+     * @param array<int, string> $arguments
+     */
+    private function valueOf(array $arguments, string $name): ?string
+    {
+        foreach ($arguments as $argument) {
+            if (str_starts_with($argument, $name . '=')) {
+                $value = substr($argument, strlen($name) + 1);
+
+                return $value === '' ? null : $value;
+            }
+        }
+
+        return null;
+    }
+
     private function invalidSignature(string $message): int
     {
         $this->output->error($message);
