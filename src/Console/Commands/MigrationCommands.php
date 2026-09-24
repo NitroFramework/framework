@@ -95,6 +95,13 @@ class MigrationCommands implements CommandInterface
             return ExitCode::SUCCESS;
         }
 
+        // Checked before anything touches the database: a signature this class
+        // does not answer to should say so, not open a connection and create a
+        // migrations table on the way to finding out.
+        if (! array_key_exists($command, self::COMMANDS)) {
+            return $this->invalidSignature("Unknown migration command: {$command}");
+        }
+
         // Migrations mutate the schema, so the optimize-time schema cache must
         // not be trusted here: read live during the command (so e.g. the
         // migrations-table check sees reality, not a stale cache), and drop the
