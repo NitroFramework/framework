@@ -182,6 +182,344 @@ class TestResponse
     }
 
     /**
+     * Assert one value, addressed with dots.
+     *
+     * The one to reach for on a nested payload: assertJson() compares top-level
+     * keys, so checking data.user.name with it means writing out the whole
+     * enclosing structure.
+     */
+    public function assertJsonPath(string $path, mixed $expected): static
+    {
+        Assert::assertSame($expected, $this->json($path), "The JSON at [{$path}] does not match.");
+
+        return $this;
+    }
+
+    /** Assert how many entries are at a path, or at the root. */
+    public function assertJsonCount(int $expected, ?string $path = null): static
+    {
+        $value = $path === null ? $this->json() : $this->json($path);
+
+        Assert::assertIsArray($value, 'The JSON at [' . ($path ?? 'root') . '] is not a list.');
+        Assert::assertCount($expected, $value, 'The JSON at [' . ($path ?? 'root') . '] has the wrong number of entries.');
+
+        return $this;
+    }
+
+    /**
+     * Assert the shape, without caring about the values.
+     *
+     * A list is described by its first entry: ['data' => [['id', 'name']]]
+     * checks every entry of data has an id and a name.
+     *
+     * @param array<mixed> $structure
+     * @param array<mixed>|null $actual
+     */
+    public function assertJsonStructure(array $structure, ?array $actual = null): static
+    {
+        $actual ??= $this->json();
+
+        foreach ($structure as $key => $value) {
+            if ($key === '*' || (is_int($key) && $value === '*')) {
+                Assert::assertIsArray($actual, 'Expected a list.');
+
+                continue;
+            }
+
+            if (is_int($key)) {
+                Assert::assertArrayHasKey($value, $actual, "The JSON has no key [{$value}].");
+
+                continue;
+            }
+
+            Assert::assertArrayHasKey($key, $actual, "The JSON has no key [{$key}].");
+
+            // A list is described once and checked against every entry.
+            if (is_array($value) && array_is_list($value) && count($value) === 1 && is_array($value[0])) {
+                foreach ($actual[$key] as $entry) {
+                    $this->assertJsonStructure($value[0], $entry);
+                }
+
+                continue;
+            }
+
+            if (is_array($value)) {
+                $this->assertJsonStructure($value, $actual[$key]);
+            }
+        }
+
+        return $this;
+    }
+
+    /** Assert the JSON does not carry these values at the top level. */
+    public function assertJsonMissing(array $unexpected): static
+    {
+        $actual = $this->json();
+
+        foreach ($unexpected as $key => $value) {
+            if (! array_key_exists($key, $actual)) {
+                continue;
+            }
+
+            Assert::assertNotSame($value, $actual[$key], "The JSON key [{$key}] was not expected to match.");
+        }
+
+        return $this;
+    }
+
+    // ─── Headers ──────────────────────────────────────────
+
+    public function assertHeader(string $name, ?string $expected = null): static
+    {
+        $actual = $this->header($name);
+
+        Assert::assertNotNull($actual, "The response has no [{$name}] header.");
+
+        if ($expected !== null) {
+            Assert::assertSame($expected, $actual, "The [{$name}] header does not match.");
+        }
+
+        return $this;
+    }
+
+    public function assertHeaderMissing(string $name): static
+    {
+        Assert::assertNull($this->header($name), "The response carries an unexpected [{$name}] header.");
+
+        return $this;
+    }
+
+    /** Assert where a redirect points, without asserting the status. */
+    public function assertLocation(string $expected): static
+    {
+        Assert::assertSame($expected, $this->header('Location'), 'The response points somewhere else.');
+
+        return $this;
+    }
+
+    /**
+     * Assert the response offers a file to save.
+     *
+     * @param string|null $filename The name it is offered under, when it matters.
+     */
+    public function assertDownload(?string $filename = null): static
+    {
+        $disposition = (string) $this->header('Content-Disposition');
+
+        Assert::assertStringContainsString(
+            'attachment',
+            $disposition,
+            'The response is not a download.' . $this->bodyHint()
+        );
+
+        if ($filename !== null) {
+            Assert::assertStringContainsString(
+                $filename,
+                $disposition,
+                "The download is not named [{$filename}]."
+            );
+        }
+
+        return $this;
+    }
+
+    // ─── Cookies ──────────────────────────────────────────
+
+    public function assertCookie(string $name, ?string $expected = null): static
+    {
+        $cookie = $this->cookie($name);
+
+        Assert::assertNotNull($cookie, "The response does not set a [{$name}] cookie.");
+
+        if ($expected !== null) {
+            Assert::assertSame($expected, $cookie, "The [{$name}] cookie does not match.");
+        }
+
+        return $this;
+    }
+
+    public function assertCookieMissing(string $name): static
+    {
+        Assert::assertNull($this->cookie($name), "The response sets an unexpected [{$name}] cookie.");
+
+        return $this;
+    }
+
+    /** The value of a cookie the response sets, or null. */
+    public function cookie(string $name): ?string
+    {
+        foreach ($this->baseResponse->cookies() as $cookie) {
+            $cookieName = is_object($cookie) && property_exists($cookie, 'name')
+                ? $cookie->name
+                : (is_object($cookie) && method_exists($cookie, 'getName') ? $cookie->getName() : null);
+
+            if ($cookieName !== $name) {
+                continue;
+            }
+
+            return is_object($cookie) && method_exists($cookie, 'getValue')
+                ? (string) $cookie->getValue()
+                : (string) ($cookie->value ?? '');
+        }
+
+        return null;
+    }
+
+    // ─── Session ──────────────────────────────────────────
+
+    /**
+     * Assert the session holds a value.
+     *
+     * The usual reason: a form posted, redirected, and put something in the
+     * session on the way — which the response body cannot show, because the
+     * body is a redirect.
+     *
+     * @param array<string, mixed>|string $key A map asserts several at once.
+     */
+    public function assertSessionHas(array|string $key, mixed $expected = null): static
+    {
+        $session = $this->session();
+
+        foreach (is_array($key) ? $key : [$key => $expected] as $name => $value) {
+            if (is_int($name)) {
+                $name = $value;
+                $value = null;
+            }
+
+            Assert::assertTrue($session->has($name), "The session has no [{$name}].");
+
+            if ($value !== null) {
+                Assert::assertSame($value, $session->get($name), "The session value for [{$name}] does not match.");
+            }
+        }
+
+        return $this;
+    }
+
+    public function assertSessionMissing(string $key): static
+    {
+        Assert::assertFalse($this->session()->has($key), "The session unexpectedly holds [{$key}].");
+
+        return $this;
+    }
+
+    /**
+     * Assert validation failed, optionally for particular fields.
+     *
+     * @param array<int, string>|string $keys
+     */
+    public function assertSessionHasErrors(array|string $keys = []): static
+    {
+        $errors = (array) $this->session()->get('errors', []);
+
+        Assert::assertNotEmpty($errors, 'The session holds no validation errors.');
+
+        foreach ((array) $keys as $key) {
+            Assert::assertArrayHasKey($key, $errors, "The session holds no error for [{$key}].");
+        }
+
+        return $this;
+    }
+
+    public function assertSessionHasNoErrors(): static
+    {
+        $errors = (array) $this->session()->get('errors', []);
+
+        Assert::assertEmpty(
+            $errors,
+            'The session holds validation errors: ' . implode(', ', array_keys($errors)) . '.'
+        );
+
+        return $this;
+    }
+
+    /** The application's session store. */
+    protected function session(): object
+    {
+        $container = \Nitro\Container\Container::getInstance();
+
+        Assert::assertTrue(
+            $container->has('session'),
+            'This application has no session, so there is nothing to assert about one.'
+        );
+
+        return $container->resolve('session');
+    }
+
+    // ─── Views ────────────────────────────────────────────
+
+    /**
+     * Assert which view rendered the response.
+     *
+     * The outermost one — a page renders partials inside itself, and the
+     * question being asked is which page this is.
+     */
+    public function assertViewIs(string $expected): static
+    {
+        $rendered = $this->renderedViews();
+
+        Assert::assertNotEmpty($rendered, 'The response did not render a view.');
+        Assert::assertSame($expected, $rendered[0]['name'], 'A different view rendered this response.');
+
+        return $this;
+    }
+
+    /**
+     * Assert the view was given a value.
+     *
+     * @param array<string, mixed>|string $key A map asserts several at once.
+     */
+    public function assertViewHas(array|string $key, mixed $expected = null): static
+    {
+        $rendered = $this->renderedViews();
+
+        Assert::assertNotEmpty($rendered, 'The response did not render a view.');
+
+        $data = $rendered[0]['data'];
+
+        foreach (is_array($key) ? $key : [$key => $expected] as $name => $value) {
+            if (is_int($name)) {
+                $name = $value;
+                $value = null;
+            }
+
+            Assert::assertArrayHasKey($name, $data, "The view was not given [{$name}].");
+
+            if ($value !== null) {
+                Assert::assertEquals($value, $data[$name], "The view's [{$name}] does not match.");
+            }
+        }
+
+        return $this;
+    }
+
+    public function assertViewMissing(string $key): static
+    {
+        $rendered = $this->renderedViews();
+
+        Assert::assertNotEmpty($rendered, 'The response did not render a view.');
+        Assert::assertArrayNotHasKey($key, $rendered[0]['data'], "The view was unexpectedly given [{$key}].");
+
+        return $this;
+    }
+
+    /**
+     * What the view factory rendered for this request, outermost first.
+     *
+     * @return array<int, array{name: string, data: array<string, mixed>}>
+     */
+    protected function renderedViews(): array
+    {
+        $container = \Nitro\Container\Container::getInstance();
+
+        if (! $container->has(\Nitro\View\Factory::class)) {
+            return [];
+        }
+
+        return $container->resolve(\Nitro\View\Factory::class)->rendered();
+    }
+
+    /**
      * The first 500 characters of the body, for a failure message. Worth the
      * noise: an unexpected 500 is nearly always explained by its own output.
      */

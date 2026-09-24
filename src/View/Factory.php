@@ -21,6 +21,16 @@ class Factory implements FactoryContract
      */
     private array $shared = [];
 
+    /** Whether to keep a note of what renders. {@see recordRenders()}. */
+    private bool $recording = false;
+
+    /**
+     * What has rendered, when recording.
+     *
+     * @var array<int, array{name: string, data: array<string, mixed>}>
+     */
+    private array $rendered = [];
+
     /**
      * @param Engine           $renderer         Resolves and renders templates.
      * @param ClassResolver        $resolver         Builds composers named by class.
@@ -101,10 +111,51 @@ class Factory implements FactoryContract
     {
         $this->composerResolver->fire($view, $this->resolver);
 
-        return $this->renderer->render(
-            $view->name(),
-            array_merge($this->shared, $view->getData())
-        );
+        $data = array_merge($this->shared, $view->getData());
+
+        if ($this->recording) {
+            $this->rendered[] = ['name' => $view->name(), 'data' => $data];
+        }
+
+        return $this->renderer->render($view->name(), $data);
+    }
+
+    /**
+     * Keep a note of what renders, for a test to assert on.
+     *
+     * Off by default and checked with a boolean, because a request has no use
+     * for the record and building one would mean holding every view's data for
+     * the life of the request.
+     */
+    public function recordRenders(bool $record = true): static
+    {
+        $this->recording = $record;
+
+        if (! $record) {
+            $this->rendered = [];
+        }
+
+        return $this;
+    }
+
+    /**
+     * What has rendered since the record was last cleared, outermost first.
+     *
+     * A page renders its partials from inside itself, so the first entry is
+     * the view the request chose and the rest are what it pulled in.
+     *
+     * @return array<int, array{name: string, data: array<string, mixed>}>
+     */
+    public function rendered(): array
+    {
+        return $this->rendered;
+    }
+
+    public function flushRendered(): static
+    {
+        $this->rendered = [];
+
+        return $this;
     }
 
     /**

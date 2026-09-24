@@ -374,6 +374,15 @@ abstract class TestCase extends BaseTestCase
         $container->instance('request', $request);
         $container->instance(Request::class, $request);
 
+        // Note what renders, so assertViewIs() and assertViewHas() have
+        // something to read. Cleared per request, or a second call in the same
+        // test would assert against the first one's views.
+        if ($container->has(\Nitro\View\Factory::class)) {
+            $container->resolve(\Nitro\View\Factory::class)
+                ->recordRenders()
+                ->flushRendered();
+        }
+
         $kernel = $this->make(Kernel::class);
         $response = $kernel->handle($request);
 
