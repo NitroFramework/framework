@@ -9,7 +9,7 @@ namespace Nitro\Redis\Connections;
  *
  * @mixin \Redis
  */
-class PhpRedisConnection
+class PhpRedisConnection implements \Nitro\Redis\Contracts\Connection
 {
     public function __construct(
         protected \Redis $client
