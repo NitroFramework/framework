@@ -5,9 +5,7 @@
 import { build } from 'esbuild';
 
 const targets = [
-  { in: 'js/livewire.js',        out: 'src/Livewire/Http/dist/livewire.js' },
-  { in: 'js/hx-component.js',    out: 'src/Htmx/dist/hx-component.js' },
-  { in: 'js/nitro-nprogress.js', out: 'src/Htmx/dist/nitro-nprogress.js' },
+  { in: 'js/livewire.js', out: 'src/Livewire/Http/dist/livewire.js' },
 ];
 
 await Promise.all(targets.map((t) =>

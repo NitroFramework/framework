@@ -24,8 +24,6 @@ class SessionSeamGuardTest extends TestCase
         'src/Session/NativeSession.php',         // the native store IS $_SESSION
         'src/Support/Helpers/security.php',      // CLI/bootstrap fallback in csrf_token()
         'src/View/Blade.php',                    // CLI fallback in getCsrfToken()
-        'src/Htmx/Support/RequestGuard.php',     // CLI fallback in verifyCsrf()
-        'src/Htmx/State/SessionStateStore.php',  // CLI/test-harness fallback
         'src/Exceptions/ExceptionHandler.php',   // read-only debug dump
     ];
 

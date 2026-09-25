@@ -1,6 +1,6 @@
 {
   "name": "nitro-framework-js",
-  "description": "Build pipeline for the framework's bundled runtimes (Livewire + HTMX + NProgress glue).",
+  "description": "Build pipeline for the framework's bundled runtimes (Livewire).",
   "private": true,
   "type": "module",
   "scripts": {
