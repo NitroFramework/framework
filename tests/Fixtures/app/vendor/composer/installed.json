@@ -1,0 +1,35 @@
+{
+    "packages": [
+        {
+            "name": "acme/nitro-package",
+            "version": "1.0.0",
+            "type": "library",
+            "extra": {
+                "laravel": {
+                    "providers": [
+                        "Nitro\\Tests\\Fixtures\\Package\\AcmeServiceProvider",
+                        "Nitro\\Tests\\Fixtures\\Package\\AcmeDeferredProvider",
+                        "Nitro\\Tests\\Fixtures\\Package\\AcmeWhenProvider"
+                    ],
+                    "aliases": {
+                        "Acme": "Nitro\\Tests\\Fixtures\\Package\\Acme"
+                    }
+                }
+            }
+        },
+        {
+            "name": "ignored/package",
+            "version": "1.0.0",
+            "extra": {
+                "laravel": {
+                    "providers": ["Ignored\\DoesNotExistProvider"]
+                }
+            }
+        },
+        {
+            "name": "plain/library",
+            "version": "1.0.0"
+        }
+    ],
+    "dev": true
+}

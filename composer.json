@@ -1,6 +1,6 @@
 {
     "name": "nitro/framework",
-    "description": "NitroPHP — a lean, fast, Laravel-shaped PHP framework.",
+    "description": "NitroPHP — Laravel with a compiled, lean request path. 100% Laravel API.",
     "type": "library",
     "license": "MIT",
     "homepage": "https://github.com/NitroFramework/framework",
@@ -16,26 +16,36 @@
         "source": "https://github.com/NitroFramework/framework"
     },
     "require": {
-        "php": "^8.2",
-        "illuminate/container": "12.0",
-        "laravel/serializable-closure": "^2.1"
+        "php": "^8.3",
+        "laravel/framework": "^13.33"
     },
     "require-dev": {
+        "fakerphp/faker": "^1.23",
         "phpstan/phpstan": "^2.2",
-        "phpunit/phpunit": "^11.5"
+        "phpunit/phpunit": "^12.0",
+        "symfony/cache": "^7.4|^8.0"
+    },
+    "suggest": {
+        "fakerphp/faker": "Required for model factories and the fake() helper (as in Laravel).",
+        "symfony/cache": "Required for the PSR-6 cache adapter, cache.psr6 (as in Laravel)."
     },
     "autoload": {
         "psr-4": {
             "Nitro\\": "src/"
-        },
-        "files": [
-            "src/Support/helpers.php"
-        ]
+        }
     },
     "autoload-dev": {
         "psr-4": {
-            "Tests\\": "tests/"
+            "Nitro\\Tests\\": "tests/"
         }
+    },
+    "scripts": {
+        "test": "@php vendor/phpunit/phpunit/phpunit --colors=always",
+        "analyse": "@php vendor/bin/phpstan analyse --memory-limit=1G"
+    },
+    "scripts-descriptions": {
+        "test": "Run the test suite.",
+        "analyse": "Run static analysis."
     },
     "config": {
         "optimize-autoloader": true,
@@ -43,19 +53,5 @@
         "sort-packages": true
     },
     "minimum-stability": "stable",
-    "prefer-stable": true,
-    "scripts": {
-        "test": "@php vendor/phpunit/phpunit/phpunit --testdox --colors=always",
-        "analyse": "@php vendor/phpstan/phpstan/phpstan analyse --no-progress",
-        "helpers": "Nitro\\Support\\HelperBundle::write",
-        "check": [
-            "@analyse",
-            "@test"
-        ]
-    },
-    "scripts-descriptions": {
-        "test": "Run the test suite.",
-        "analyse": "Static analysis over src/.",
-        "check": "Everything CI runs: analyse, then test."
-    }
+    "prefer-stable": true
 }

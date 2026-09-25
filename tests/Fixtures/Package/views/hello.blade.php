@@ -1,0 +1,1 @@
+Acme view: {{ $name }}
