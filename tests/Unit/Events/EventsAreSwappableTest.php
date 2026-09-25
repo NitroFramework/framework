@@ -36,15 +36,15 @@ class EventsAreSwappableTest extends TestCase
     ];
 
     /**
-     * The composition root, which picks the default implementation.
+     * Files outside the Events layer allowed to name the concrete dispatcher.
      *
      * Somewhere has to name a concrete class or the application has no
      * dispatcher at all — the same way RoutingServiceProvider names Router.
-     * That place may also call construction-time methods the contract does not
-     * promise, such as setContainer(). The point of the exemption is that it is
-     * one file and it is listed here, rather than four files and a comment.
+     * That used to be Application, which made it the one exemption. The
+     * choice now lives in the layer's own EventServiceProvider, so nothing
+     * outside the layer needs one.
      */
-    private const COMPOSITION_ROOT = ['Foundation/Application.php'];
+    private const COMPOSITION_ROOT = [];
 
     public function test_the_events_layer_publishes_a_contract(): void
     {
@@ -104,15 +104,19 @@ class EventsAreSwappableTest extends TestCase
         $this->assertSame([], $offenders, 'these depend on the concrete dispatcher instead of the contract');
     }
 
-    /** And the exemption stays one file, so it cannot quietly become the rule. */
-    public function test_only_the_composition_root_is_exempt(): void
+    /**
+     * The default dispatcher is chosen inside the Events layer, so no file
+     * outside it is exempt — and an exemption added later has to be argued for
+     * here rather than slipped into the list.
+     */
+    public function test_the_default_dispatcher_is_chosen_inside_the_layer(): void
     {
-        $this->assertCount(1, self::COMPOSITION_ROOT);
+        $this->assertSame([], self::COMPOSITION_ROOT);
 
-        $this->assertMatchesRegularExpression(
-            '/^use\s+Nitro\\\\Events\\\\Dispatcher(\s+as\s+\w+)?;/m',
-            $this->sourceFiles()[self::COMPOSITION_ROOT[0]],
-            'the exemption is listed for a file that does not use it — drop it',
+        $this->assertStringContainsString(
+            'new Dispatcher()',
+            $this->sourceFiles()['Events/EventServiceProvider.php'],
+            'the Events layer should build its own default dispatcher',
         );
     }
 
