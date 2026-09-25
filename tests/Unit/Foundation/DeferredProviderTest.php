@@ -33,9 +33,24 @@ class DeferredProviderTest extends TestCase
 
         $this->assertFalse(DeferredProviderTracker::$registered);
         $this->assertFalse(DeferredProviderTracker::$booted);
-        // The service is not yet bound; container probe must fail until
-        // somebody resolves it.
-        $this->assertFalse($app->getContainer()->has('cache.deferred'));
+    }
+
+    /**
+     * has() answers for a service a deferred provider will supply, without
+     * loading the provider to find out.
+     *
+     * It used to answer false until something resolved the service, so code
+     * that checks before resolving, such as the broadcast hook on the event
+     * dispatcher, treated every deferred service as absent.
+     */
+    public function test_a_deferred_service_is_reported_as_bound_without_loading_it(): void
+    {
+        $app = $this->app();
+        $app->register(DeferredCacheProvider::class);
+
+        $this->assertTrue($app->getContainer()->has('cache.deferred'));
+        $this->assertFalse(DeferredProviderTracker::$registered);
+        $this->assertFalse($app->getContainer()->has('nothing.provides.this'));
     }
 
     public function test_resolving_provided_service_triggers_registration_and_boot(): void

@@ -14,6 +14,15 @@ use Nitro\Foundation\Providers\ServiceProvider;
  */
 class EncryptionServiceProvider extends ServiceProvider
 {
+    /** Deferred: only cookies and explicit encrypt() calls need the encrypter. */
+    protected bool $defer = true;
+
+    /** @return array<int, string> */
+    public function provides(): array
+    {
+        return ['encrypter', Encrypter::class, EncrypterContract::class];
+    }
+
     public function register(): void
     {
         $this->container->singleton('encrypter', function ($container) {

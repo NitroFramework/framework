@@ -39,6 +39,9 @@ class Container extends IlluminateContainer implements ContainerInterface
     /** Resolver given a chance to register a name nothing has bound yet. */
     private ?Closure $deferredResolver = null;
 
+    /** Answers whether a service is provided by a provider still waiting to register. */
+    private ?Closure $deferredChecker = null;
+
     /** Called with ($name, $object) for every object the container hands out. */
     private ?Closure $resolutionObserver = null;
 
@@ -257,9 +260,32 @@ class Container extends IlluminateContainer implements ContainerInterface
      * Register a resolver that gets a chance to register a service on demand
      * when resolution can't find one. Used by the deferred-provider path.
      */
-    public function setDeferredResolver(Closure $resolver): void
+    public function setDeferredResolver(Closure $resolver, ?Closure $isDeferred = null): void
     {
         $this->deferredResolver = $resolver;
+        $this->deferredChecker = $isDeferred;
+    }
+
+    /**
+     * Whether $abstract can be resolved: bound already, or provided by a
+     * deferred provider that has not registered yet.
+     *
+     * Counting the deferred ones is what lets `has()` answer true for a
+     * service before first use. Without it, code that asks has() before
+     * resolving, such as an optional integration, treats every deferred
+     * service as absent until something else happens to resolve it.
+     */
+    public function bound($abstract)
+    {
+        if (parent::bound($abstract)) {
+            return true;
+        }
+
+        if ($this->deferredChecker === null) {
+            return false;
+        }
+
+        return ($this->deferredChecker)($this->getAlias($abstract)) || ($this->deferredChecker)($abstract);
     }
 
     // ============================================

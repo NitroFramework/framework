@@ -15,6 +15,15 @@ use Nitro\Foundation\Providers\ServiceProvider;
  */
 class LogServiceProvider extends ServiceProvider
 {
+    /** Deferred: a request that logs nothing never builds the manager. */
+    protected bool $defer = true;
+
+    /** @return array<int, string> */
+    public function provides(): array
+    {
+        return [LogManager::class, 'log'];
+    }
+
     public function register(): void
     {
         $this->container->singleton(LogManager::class, function ($container) {

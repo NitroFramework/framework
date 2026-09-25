@@ -12,6 +12,15 @@ use Nitro\Foundation\Providers\ServiceProvider;
  */
 class CookieServiceProvider extends ServiceProvider
 {
+    /** Deferred: a stateless API request never queues a cookie. */
+    protected bool $defer = true;
+
+    /** @return array<int, string> */
+    public function provides(): array
+    {
+        return ['cookie', CookieJar::class];
+    }
+
     public function register(): void
     {
         $this->container->scoped('cookie', function ($container) {

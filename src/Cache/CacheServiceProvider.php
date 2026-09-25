@@ -17,6 +17,22 @@ use Nitro\Foundation\Providers\ServiceProvider;
  */
 class CacheServiceProvider extends ServiceProvider
 {
+    /** Deferred: the cache layer loads when something first caches. */
+    protected bool $defer = true;
+
+    /** @return array<int, string> */
+    public function provides(): array
+    {
+        return [
+            CacheManager::class,
+            'cache',
+            'cache.store',
+            StoreInterface::class,
+            Repository::class,
+            RateLimiter::class,
+        ];
+    }
+
     public function register(): void
     {
         $this->registerManager();
