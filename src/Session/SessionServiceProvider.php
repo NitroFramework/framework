@@ -166,9 +166,9 @@ class SessionServiceProvider extends ServiceProvider
         // a fresh id every request and never persisted. responseReady runs
         // pre-send (and on the error path too).
         $kernel->responseReady(function (Request $request, Response $response) use ($config): void {
-            $session = $this->container->resolve('session');
+            $session = $this->sessionInUse();
 
-            if ($session->isStarted() && ! $session instanceof NativeSession) {
+            if ($session !== null && $session->isStarted() && ! $session instanceof NativeSession) {
                 $response->header(
                     'Set-Cookie',
                     $this->sessionCookieHeader($session->getName(), $session->getId(), $request, $config)
@@ -177,11 +177,11 @@ class SessionServiceProvider extends ServiceProvider
         });
 
         $kernel->terminating(function (Request $request, Response $response) use ($config): void {
-            $session = $this->container->resolve('session');
+            $session = $this->sessionInUse();
 
             // Untouched by StartSession => this route has no session; nothing
             // to flush and nothing to sweep.
-            if (! $session->isStarted()) {
+            if ($session === null || ! $session->isStarted()) {
                 return;
             }
 
@@ -190,6 +190,22 @@ class SessionServiceProvider extends ServiceProvider
 
             $this->sweepExpiredSessions($session, $config);
         });
+    }
+
+    /**
+     * The session this request built, or null when it built none.
+     *
+     * Read from what the container already holds rather than resolved: both
+     * hooks run on every request, and resolving 'session' to ask whether it
+     * was started built the manager and a store for requests that never had a
+     * session at all, such as every JSON route. Only StartSession builds one,
+     * so a request it did not run on has nothing here.
+     */
+    protected function sessionInUse(): ?Session
+    {
+        $session = $this->container->getResolvedInstances()['session'] ?? null;
+
+        return $session instanceof Session ? $session : null;
     }
 
     /**
