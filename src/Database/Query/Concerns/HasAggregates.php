@@ -41,7 +41,7 @@ trait HasAggregates
     {
         return $this->cacheResult("agg:{$function}:{$column}", function () use ($function, $column) {
             $sql = $this->grammar->compileAggregate($this, $function, $column);
-            $result = $this->connection->selectOne($sql, $this->getBindings());
+            $result = $this->connection->selectOne($sql, $this->getBindings(), ! $this->useWritePdo);
             return $result ? $result->aggregate : null;
         });
     }

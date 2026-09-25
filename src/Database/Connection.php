@@ -3,6 +3,8 @@
 namespace Nitro\Database;
 
 use Closure;
+use Nitro\Database\Connectors\ConnectionFactory;
+use Nitro\Database\Connectors\ConnectorInterface;
 use Nitro\Database\Events\DatabaseEvents;
 use Nitro\Database\Events\QueryEvent;
 use Nitro\Events\Concerns\DispatchesEvents;
@@ -10,6 +12,7 @@ use Nitro\Events\Contracts\ReceivesDispatcher;
 use PDO;
 use PDOStatement;
 use PDOException;
+use Generator;
 
 /**
  * A database connection — wraps PDO and runs queries, statements and transactions.
@@ -22,6 +25,28 @@ class Connection implements ReceivesDispatcher
     protected array $config;
     private array $log = [];
     private bool $logging = false;
+
+    /**
+     * The connection selects run on, when reads and writes are split: the
+     * open PDO, or the closure that opens it on the first read.
+     */
+    private PDO|Closure|null $readPdo = null;
+
+    /** What {@see disconnect()} puts back, so a read reconnects on demand. */
+    private PDO|Closure|null $readPdoResolver = null;
+
+    /** @var array<string, mixed> The read connection's config. */
+    private array $readPdoConfig = [];
+
+    /**
+     * Whether this connection has written anything since it was last told to
+     * forget. With 'sticky' on, a read after a write goes to the write
+     * connection, so a request sees its own changes before replication does.
+     */
+    protected bool $recordsModified = false;
+
+    /** Whether selects are sent to the write connection regardless. */
+    protected bool $readOnWriteConnection = false;
 
     /**
      * Prepared-statement cache keyed by SQL text. Same query repeated in a
@@ -74,7 +99,14 @@ class Connection implements ReceivesDispatcher
         return $this->pretending;
     }
 
-    public function __construct(array $config)
+    /**
+     * @param array<string, mixed> $config
+     * @param (Closure(): PDO)|null $pdoResolver Opens the PDO on first use, as
+     *                                           {@see ConnectionFactory} supplies it.
+     *                                           Without one, the connection opens
+     *                                           its own through the driver's connector.
+     */
+    public function __construct(array $config, private ?Closure $pdoResolver = null)
     {
         $this->config = $config;
     }
@@ -87,6 +119,96 @@ class Connection implements ReceivesDispatcher
         return $this->pdo;
     }
 
+    // ─── Read and write connections ───────────────────────
+
+    /**
+     * The PDO a select runs on.
+     *
+     * The write connection when there is no read one, inside a transaction
+     * (a read replica cannot see uncommitted rows), when told to read from the
+     * write side, or when 'sticky' is on and this connection has written.
+     */
+    public function getReadPdo(): PDO
+    {
+        if ($this->pdo !== null && $this->pdo->inTransaction()) {
+            return $this->pdo;
+        }
+
+        if ($this->readOnWriteConnection || ($this->recordsModified && ($this->config['sticky'] ?? false))) {
+            return $this->getPdo();
+        }
+
+        if ($this->readPdo instanceof Closure) {
+            return $this->readPdo = ($this->readPdo)();
+        }
+
+        return $this->readPdo ?? $this->getPdo();
+    }
+
+    /**
+     * Send selects to another connection: an open PDO, or a closure that
+     * opens one on the first read.
+     */
+    public function setReadPdo(PDO|Closure|null $pdo): static
+    {
+        $this->readPdo = $pdo;
+        $this->readPdoResolver = $pdo;
+
+        return $this;
+    }
+
+    /** @param array<string, mixed> $config */
+    public function setReadPdoConfig(array $config): static
+    {
+        $this->readPdoConfig = $config;
+
+        return $this;
+    }
+
+    /** @return array<string, mixed> */
+    public function getReadPdoConfig(): array
+    {
+        return $this->readPdoConfig;
+    }
+
+    /** Send selects to the write connection until told otherwise. */
+    public function useWriteConnectionWhenReading(bool $value = true): static
+    {
+        $this->readOnWriteConnection = $value;
+
+        return $this;
+    }
+
+    /** Note that this connection has written, for 'sticky' reads. */
+    public function recordsHaveBeenModified(bool $value = true): void
+    {
+        if (! $this->recordsModified) {
+            $this->recordsModified = $value;
+        }
+    }
+
+    public function setRecordModificationState(bool $value): static
+    {
+        $this->recordsModified = $value;
+
+        return $this;
+    }
+
+    /**
+     * Forget that this connection has written, so reads go back to the read
+     * connection. Between requests in a worker, since the connection outlives
+     * the request that wrote.
+     */
+    public function forgetRecordModificationState(): void
+    {
+        $this->recordsModified = false;
+    }
+
+    public function hasModifiedRecords(): bool
+    {
+        return $this->recordsModified;
+    }
+
     public function getConfig(): array
     {
         return $this->config;
@@ -94,138 +216,61 @@ class Connection implements ReceivesDispatcher
 
     private function connect(): void
     {
-        $dsn = $this->buildDsn($this->config);
-        $username = $this->config['username'] ?? 'root';
-        $password = $this->config['password'] ?? '';
+        if ($this->pdoResolver !== null) {
+            $this->pdo = ($this->pdoResolver)();
 
-        $this->pdo = new PDO($dsn, $username, $password, $this->getDefaultOptions());
+            return;
+        }
+
+        $connector = $this->connector();
+
+        $this->pdo = $connector->createConnection(
+            $this->buildDsn($this->config),
+            $this->config,
+            $connector->getOptions($this->config),
+        );
 
         $this->afterConnect($this->pdo);
     }
 
+    /**
+     * The connector for this connection's driver, MySQL when none is named.
+     */
+    protected function connector(): ConnectorInterface
+    {
+        return (new ConnectionFactory())->createConnector($this->config + ['driver' => 'mysql']);
+    }
+
     // ─── Override these per driver ────────────────────────
 
+    /**
+     * The DSN to open, as the driver's connector builds it.
+     *
+     * A seam for a subclass that needs another one, such as a test pointing
+     * at an in-memory database.
+     *
+     * @param array<string, mixed> $config
+     */
     protected function buildDsn(array $config): string
     {
-        $driver   = $config['driver'] ?? 'mysql';
-
-        // SQLite is a single file (or an in-memory database) — no host/port/charset.
-        if ($driver === 'sqlite') {
-            $database = (string) ($config['database'] ?? '');
-            return $database === ':memory:' ? 'sqlite::memory:' : "sqlite:{$database}";
-        }
-
-        $database = $config['database'] ?? '';
-
-        // Postgres takes neither charset nor collation in the DSN; the client
-        // encoding is set once the connection is open, and sslmode belongs here
-        // because libpq reads it while connecting.
-        if ($driver === 'pgsql') {
-            $host = $config['host'] ?? '127.0.0.1';
-            $port = $config['port'] ?? 5432;
-
-            $dsn = "pgsql:host={$host};port={$port};dbname={$database}";
-
-            if (isset($config['sslmode'])) {
-                $dsn .= ";sslmode={$config['sslmode']}";
-            }
-
-            return $dsn;
-        }
-
-        $host     = $config['host'] ?? '127.0.0.1';
-        $port     = $config['port'] ?? 3306;
-        $charset  = $config['charset'] ?? 'utf8mb4';
-
-        return "{$driver}:host={$host};port={$port};dbname={$database};charset={$charset}";
+        return $this->connector()->getDsn($config);
     }
 
+    /**
+     * Set up a freshly opened connection, as the driver's connector does.
+     */
     protected function afterConnect(PDO $pdo): void
     {
-        $driver = $this->config['driver'] ?? 'mysql';
-
-        // SQLite has no SET NAMES; enforce foreign keys, which it leaves off by default.
-        if ($driver === 'sqlite') {
-            $pdo->exec('PRAGMA foreign_keys = ON');
-            return;
-        }
-
-        // Postgres spells these differently and has no COLLATE on the session:
-        // a collation belongs to a column or a comparison, not a connection.
-        if ($driver === 'pgsql') {
-            $charset = $this->config['charset'] ?? 'utf8';
-
-            $this->assertSafeCharsetAndCollation($charset, 'utf8');
-
-            $pdo->exec("SET NAMES '{$charset}'");
-
-            if (isset($this->config['schema'])) {
-                $pdo->exec('SET search_path TO ' . $this->quoteSearchPath($this->config['schema']));
-            }
-
-            if (isset($this->config['timezone'])) {
-                $pdo->exec("SET time zone '" . str_replace("'", "''", $this->config['timezone']) . "'");
-            }
-
-            return;
-        }
-
-        $charset   = $this->config['charset'] ?? 'utf8mb4';
-        $collation = $this->config['collation'] ?? 'utf8mb4_unicode_ci';
-
-        $this->assertSafeCharsetAndCollation($charset, $collation);
-
-        $pdo->exec("SET NAMES '{$charset}' COLLATE '{$collation}'");
-    }
-
-    /**
-     * Quote a search path, which may name more than one schema.
-     *
-     * The value reaches SET as an identifier rather than a bound parameter,
-     * so each name is checked against the identifier shape before it is used.
-     *
-     * @param string|array<int, string> $schema
-     */
-    protected function quoteSearchPath(string|array $schema): string
-    {
-        $names = is_array($schema) ? $schema : explode(',', $schema);
-
-        return implode(', ', array_map(static function (string $name): string {
-            $name = trim($name);
-
-            if (!preg_match('/^[A-Za-z_][A-Za-z0-9_$]*$/', $name)) {
-                throw new \InvalidArgumentException("Invalid schema name in search path: {$name}");
-            }
-
-            return '"' . $name . '"';
-        }, $names));
-    }
-
-    /**
-     * Validate that charset and collation only contain identifier-safe
-     * characters before interpolation into SET NAMES. Extracted from
-     * afterConnect() so it can be unit-tested without a real PDO instance.
-     */
-    protected function assertSafeCharsetAndCollation(string $charset, string $collation): void
-    {
-        if (!preg_match('/^[A-Za-z0-9_]+$/', $charset)
-            || !preg_match('/^[A-Za-z0-9_]+$/', $collation)) {
-            throw new \InvalidArgumentException('Invalid charset or collation in database config.');
-        }
-    }
-
-    protected function getDefaultOptions(): array
-    {
-        return [
-            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_OBJ,
-            PDO::ATTR_EMULATE_PREPARES => false,
-        ];
+        $this->connector()->configureConnection($pdo, $this->config);
     }
 
     // ─── Query Execution ──────────────────────────────────
 
-    public function select(string $sql, array $bindings = []): array
+    /**
+     * @param bool $useReadPdo False to read from the write connection, for a
+     *                         select that must see what was just written.
+     */
+    public function select(string $sql, array $bindings = [], bool $useReadPdo = true): array
     {
         return $this->run($sql, $bindings, static function (PDOStatement $stmt) {
             $rows = $stmt->fetchAll();
@@ -233,10 +278,10 @@ class Connection implements ReceivesDispatcher
             // SQLite refuses DDL (DROP/ALTER) while any cursor is still open.
             $stmt->closeCursor();
             return $rows;
-        });
+        }, $this->pdoForSelect($useReadPdo));
     }
 
-    public function selectOne(string $sql, array $bindings = []): ?object
+    public function selectOne(string $sql, array $bindings = [], bool $useReadPdo = true): ?object
     {
         return $this->run($sql, $bindings, static function (PDOStatement $stmt) {
             $row = $stmt->fetch() ?: null;
@@ -244,7 +289,23 @@ class Connection implements ReceivesDispatcher
             // the cursor so a later DDL statement isn't blocked (SQLite lock).
             $stmt->closeCursor();
             return $row;
-        });
+        }, $this->pdoForSelect($useReadPdo));
+    }
+
+    /**
+     * Select from the write connection, whatever the read settings say.
+     *
+     * @param array<int, mixed> $bindings
+     */
+    public function selectFromWriteConnection(string $sql, array $bindings = []): array
+    {
+        return $this->select($sql, $bindings, false);
+    }
+
+    /** The PDO a select should run on. */
+    protected function pdoForSelect(bool $useReadPdo = true): PDO
+    {
+        return $useReadPdo ? $this->getReadPdo() : $this->getPdo();
     }
 
     /**
@@ -256,9 +317,9 @@ class Connection implements ReceivesDispatcher
      * under this loop.
      *
      * @param  array<int, mixed> $bindings
-     * @return \Generator<int, object>
+     * @return Generator<int, object>
      */
-    public function cursor(string $sql, array $bindings = []): \Generator
+    public function cursor(string $sql, array $bindings = [], bool $useReadPdo = true): Generator
     {
         if ($this->pretending) {
             $this->capturePretend($sql, $bindings);
@@ -272,7 +333,7 @@ class Connection implements ReceivesDispatcher
             $bindings = $this->prepareBindings($bindings);
         }
 
-        $statement = $this->getPdo()->prepare($sql);
+        $statement = $this->pdoForSelect($useReadPdo)->prepare($sql);
 
         try {
             $this->bindAndExecute($statement, $bindings);
@@ -302,7 +363,9 @@ class Connection implements ReceivesDispatcher
     public function insert(string $sql, array $bindings = []): bool
     {
         if ($this->pretending) { $this->capturePretend($sql, $bindings); return true; }
-        return $this->run($sql, $bindings, static function () {
+        return $this->run($sql, $bindings, function () {
+            $this->recordsHaveBeenModified();
+
             return true;
         });
     }
@@ -311,6 +374,8 @@ class Connection implements ReceivesDispatcher
     {
         if ($this->pretending) { $this->capturePretend($sql, $bindings); return 0; }
         return $this->run($sql, $bindings, function () {
+            $this->recordsHaveBeenModified();
+
             return (int) $this->getPdo()->lastInsertId();
         });
     }
@@ -318,24 +383,39 @@ class Connection implements ReceivesDispatcher
     public function update(string $sql, array $bindings = []): int
     {
         if ($this->pretending) { $this->capturePretend($sql, $bindings); return 0; }
-        return $this->run($sql, $bindings, static function (PDOStatement $stmt) {
-            return $stmt->rowCount();
-        });
+        return $this->affectingStatement($sql, $bindings);
     }
 
     public function delete(string $sql, array $bindings = []): int
     {
         if ($this->pretending) { $this->capturePretend($sql, $bindings); return 0; }
-        return $this->run($sql, $bindings, static function (PDOStatement $stmt) {
-            return $stmt->rowCount();
-        });
+        return $this->affectingStatement($sql, $bindings);
     }
 
     public function statement(string $sql, array $bindings = []): bool
     {
         if ($this->pretending) { $this->capturePretend($sql, $bindings); return true; }
-        return $this->run($sql, $bindings, static function () {
+        return $this->run($sql, $bindings, function () {
+            $this->recordsHaveBeenModified();
+
             return true;
+        });
+    }
+
+    /**
+     * Run a statement and return how many rows it changed, noting a write
+     * only when it changed any.
+     *
+     * @param array<int, mixed> $bindings
+     */
+    private function affectingStatement(string $sql, array $bindings): int
+    {
+        return $this->run($sql, $bindings, function (PDOStatement $stmt): int {
+            $count = $stmt->rowCount();
+
+            $this->recordsHaveBeenModified($count > 0);
+
+            return $count;
         });
     }
 
@@ -345,8 +425,13 @@ class Connection implements ReceivesDispatcher
         $this->pretendLog[] = ['sql' => $sql, 'bindings' => $bindings];
     }
 
-    private function run(string $sql, array $bindings, callable $callback): mixed
+    /**
+     * @param PDO|null $pdo The connection to run on; the write one when null.
+     */
+    private function run(string $sql, array $bindings, callable $callback, ?PDO $pdo = null): mixed
     {
+        $pdo ??= $this->getPdo();
+
         /*
          * One clock read, shared by the query log and query.executed, and
          * taken only if one of them will use it. This is the hottest path in
@@ -374,12 +459,12 @@ class Connection implements ReceivesDispatcher
         );
 
         try {
-            $stmt = $this->prepareCached($sql);
+            $stmt = $this->prepareCached($sql, $pdo);
             $this->bindAndExecute($stmt, $bindings);
             $result = $callback($stmt);
         } catch (PDOException $exception) {
             // Drop the cached statement — it may be in an unusable state.
-            unset($this->statementCache[$sql]);
+            unset($this->statementCache[$this->statementCacheKey($sql, $pdo)]);
             throw new PDOException(
                 $exception->getMessage() . " (SQL: {$sql}) (Bindings: " . self::formatBindings($bindings) . ")",
                 (int) $exception->getCode(),
@@ -448,25 +533,37 @@ class Connection implements ReceivesDispatcher
      * Pretend mode bypasses the cache — pretending queries don't execute,
      * so caching the prepare round-trip there has no value.
      */
-    private function prepareCached(string $sql): PDOStatement
+    private function prepareCached(string $sql, PDO $pdo): PDOStatement
     {
-        if (isset($this->statementCache[$sql])) {
-            $stmt = $this->statementCache[$sql];
+        $key = $this->statementCacheKey($sql, $pdo);
+
+        if (isset($this->statementCache[$key])) {
+            $stmt = $this->statementCache[$key];
             // Refresh LRU position.
-            unset($this->statementCache[$sql]);
-            $this->statementCache[$sql] = $stmt;
+            unset($this->statementCache[$key]);
+            $this->statementCache[$key] = $stmt;
             return $stmt;
         }
 
-        $stmt = $this->getPdo()->prepare($sql);
+        $stmt = $pdo->prepare($sql);
 
         if (count($this->statementCache) >= $this->statementCacheLimit) {
             // Drop the oldest entry.
             array_shift($this->statementCache);
         }
-        $this->statementCache[$sql] = $stmt;
+        $this->statementCache[$key] = $stmt;
 
         return $stmt;
+    }
+
+    /**
+     * A statement belongs to the PDO that prepared it, so with reads and
+     * writes split the same SQL is cached once per connection. The write
+     * connection keeps the bare SQL as its key.
+     */
+    private function statementCacheKey(string $sql, PDO $pdo): string
+    {
+        return $pdo === $this->pdo ? $sql : 'read:' . $sql;
     }
 
     /**
@@ -607,5 +704,6 @@ class Connection implements ReceivesDispatcher
     {
         $this->statementCache = [];
         $this->pdo = null;
+        $this->readPdo = $this->readPdoResolver instanceof Closure ? $this->readPdoResolver : null;
     }
 }

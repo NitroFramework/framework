@@ -25,7 +25,7 @@ class QueryDateClausesTest extends TestCase
             {
             }
 
-            public function select(string $sql, array $bindings = []): array
+            public function select(string $sql, array $bindings = [], bool $useReadPdo = true): array
             {
                 return [];
             }

@@ -74,7 +74,10 @@ class DB
             $default = $config['default'] ?? 'mysql';
             $resolved = $config['connections'][$default] ?? $config;
 
-            static::$connection = new Connection($resolved);
+            static::$connection = (new Connectors\ConnectionFactory())->make(
+                $resolved,
+                isset($config['connections']) ? $default : null,
+            );
 
             if (static::$dispatcher !== null) {
                 static::$connection->setDispatcher(static::$dispatcher);
@@ -130,14 +133,29 @@ class DB
     // ─── Raw Queries ──────────────────────────────────────
     // forward raw query methods to the connection for convenience
 
-    public static function select(string $sql, array $bindings = []): array
+    public static function select(string $sql, array $bindings = [], bool $useReadPdo = true): array
     {
-        return static::connection()->select($sql, $bindings);
+        return static::connection()->select($sql, $bindings, $useReadPdo);
     }
 
-    public static function selectOne(string $sql, array $bindings = []): ?object
+    public static function selectOne(string $sql, array $bindings = [], bool $useReadPdo = true): ?object
     {
-        return static::connection()->selectOne($sql, $bindings);
+        return static::connection()->selectOne($sql, $bindings, $useReadPdo);
+    }
+
+    /** Select from the write connection, where reads and writes are split. */
+    public static function selectFromWriteConnection(string $sql, array $bindings = []): array
+    {
+        return static::connection()->selectFromWriteConnection($sql, $bindings);
+    }
+
+    /**
+     * Forget that the connection has written, so 'sticky' reads go back to
+     * the read connection. Nothing to forget when no connection was built.
+     */
+    public static function forgetRecordModificationState(): void
+    {
+        static::$connection?->forgetRecordModificationState();
     }
 
     public static function insert(string $sql, array $bindings = []): bool

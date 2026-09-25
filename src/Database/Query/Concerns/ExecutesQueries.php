@@ -19,7 +19,7 @@ trait ExecutesQueries
     {
         return $this->cacheResult('get', function () {
             $sql = $this->grammar->compileSelect($this);
-            $results = $this->connection->select($sql, $this->getBindings());
+            $results = $this->connection->select($sql, $this->getBindings(), ! $this->useWritePdo);
             return new Collection($results);
         });
     }
@@ -133,7 +133,7 @@ trait ExecutesQueries
         $clone->bindings['select'] = [];
 
         $sql = $clone->grammar->compileSelect($clone);
-        $results = $clone->connection->select($sql, $clone->getBindings());
+        $results = $clone->connection->select($sql, $clone->getBindings(), ! $clone->useWritePdo);
 
         // Strip table-qualifier when present so we read the right property.
         $colKey = str_contains($column, '.') ? substr($column, strrpos($column, '.') + 1) : $column;
@@ -162,7 +162,7 @@ trait ExecutesQueries
     public function exists(): bool
     {
         $sql = $this->grammar->compileExists($this);
-        $result = $this->connection->selectOne($sql, $this->getBindings());
+        $result = $this->connection->selectOne($sql, $this->getBindings(), ! $this->useWritePdo);
         return $result !== null && (bool) ($result->exists ?? false);
     }
 
@@ -581,7 +581,8 @@ trait ExecutesQueries
     {
         return $this->connection->cursor(
             $this->grammar->compileSelect($this),
-            $this->getBindings()
+            $this->getBindings(),
+            ! $this->useWritePdo,
         );
     }
 

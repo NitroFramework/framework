@@ -2,31 +2,30 @@
 
 namespace Tests\Unit\Database;
 
-use Nitro\Database\Connection;
+use Nitro\Database\Connectors\Connector;
+use Nitro\Database\Connectors\MySqlConnector;
 use PHPUnit\Framework\TestCase;
 use ReflectionMethod;
 
 /**
- * Verifies the charset/collation guard added to Connection rejects values
- * containing anything other than identifier-safe characters before they reach
- * SET NAMES interpolation.
+ * Verifies the charset/collation guard rejects values containing anything
+ * other than identifier-safe characters before they reach SET NAMES
+ * interpolation. It lives on the connector, which is what runs SET NAMES.
  */
 class ConnectionCharsetTest extends TestCase
 {
     protected function assertSafe(string $charset, string $collation): void
     {
-        $conn = new Connection([]);
-        $m = new ReflectionMethod(Connection::class, 'assertSafeCharsetAndCollation');
-        $m->invoke($conn, $charset, $collation);
+        $m = new ReflectionMethod(Connector::class, 'assertSafeCharsetAndCollation');
+        $m->invoke(new MySqlConnector(), $charset, $collation);
         $this->addToAssertionCount(1);
     }
 
     protected function expectUnsafe(string $charset, string $collation): void
     {
-        $conn = new Connection([]);
-        $m = new ReflectionMethod(Connection::class, 'assertSafeCharsetAndCollation');
+        $m = new ReflectionMethod(Connector::class, 'assertSafeCharsetAndCollation');
         $this->expectException(\InvalidArgumentException::class);
-        $m->invoke($conn, $charset, $collation);
+        $m->invoke(new MySqlConnector(), $charset, $collation);
     }
 
     public function test_default_values_pass(): void

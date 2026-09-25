@@ -96,6 +96,9 @@ class QueryBuilder
 
     /** Row-lock mode for SELECT: 'update', 'share', or none. */
     protected ?string $lock = null;
+
+    /** Whether selects go to the write connection. {@see useWritePdo()}. */
+    public bool $useWritePdo = false;
     protected ?int $offsetValue = null;
 
     public function __construct(Connection $connection, Grammar $grammar)
@@ -439,21 +442,39 @@ class QueryBuilder
      */
     public function lockForUpdate(): static
     {
-        $this->lock = 'update';
-        return $this;
+        return $this->lock('update');
     }
 
     /** A shared (read) lock, for the same reasons. */
     public function sharedLock(): static
     {
-        $this->lock = 'share';
-        return $this;
+        return $this->lock('share');
     }
 
-    /** Set the lock mode directly: 'update', 'share', or none. */
+    /**
+     * Set the lock mode directly: 'update', 'share', or none.
+     *
+     * A locking read goes to the write connection: a lock taken on a read
+     * replica protects nothing the write server is about to change.
+     */
     public function lock(?string $mode = 'update'): static
     {
         $this->lock = $mode;
+
+        if ($mode !== null) {
+            $this->useWritePdo();
+        }
+
+        return $this;
+    }
+
+    /**
+     * Run this query's selects on the write connection, where reads and
+     * writes are split: for a read that must see what was just written.
+     */
+    public function useWritePdo(): static
+    {
+        $this->useWritePdo = true;
 
         return $this;
     }
