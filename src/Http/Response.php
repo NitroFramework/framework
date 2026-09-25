@@ -16,32 +16,6 @@ class Response
     protected array $headers;
     /** @var array<int, Cookie> Cookies to emit as Set-Cookie headers. */
     protected array $cookies = [];
-    protected ?string $layout = null;
-    protected string $section = 'content';
-    protected ?string $pendingView = null;
-    protected array $pendingData = [];
-    protected $viewRenderer = null;
-
-    public function layout(string $layout): self
-    {
-        $this->layout = $layout;
-        return $this;
-    }
-
-    public function section(string $section): self
-    {
-        $this->section = $section;
-        return $this;
-    }
-
-    /** Defer layout wrapping until send(). */
-    public function withViewContext(string $view, array $data, $renderer): self
-    {
-        $this->pendingView = $view;
-        $this->pendingData = $data;
-        $this->viewRenderer = $renderer;
-        return $this;
-    }
 
     /**
      * HTTP status codes
