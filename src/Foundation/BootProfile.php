@@ -2,35 +2,27 @@
 
 namespace Nitro\Foundation;
 
+use Nitro\Debug\Timeline;
+
 /**
- * Timing marks across a single php-fpm request.
+ * Time the stages of one request, from when PHP received it.
  *
- * fpm pays for the whole boot on every request, so the question a profile has
- * to answer is which half the time is in — getting ready to serve, or serving.
- * Marks are taken at the points that split those: after each bootstrapper,
- * after the route is matched, and after the bytes have gone out.
- *
- * The baseline is `$_SERVER['REQUEST_TIME_FLOAT']`, set by PHP before any
- * application code runs, so autoloading and compilation are inside the first
- * measurement rather than invisible ahead of it.
- *
- * Off unless NITRO_PROFILE is set, and when off {@see mark()} is a bool test
- * and a return — a profiler that cost anything would change what it measures.
+ * Off unless NITRO_PROFILE is set in the environment. Each request appends one line to the profile log.
  */
 final class BootProfile
 {
     /** @var array<int, array{name: string, at: float}> */
     private static array $marks = [];
 
+    /** @var array<string, int> */
+    private static array $counts = [];
+
     private static ?bool $enabled = null;
 
     private static ?float $baseline = null;
 
     /**
-     * Whether profiling is on for this process.
-     *
-     * Read from the environment directly rather than from config: the first
-     * mark is taken before configuration is loaded.
+     * Determine whether profiling is on, read from the environment since it starts before configuration loads.
      */
     public static function enabled(): bool
     {
@@ -44,27 +36,14 @@ final class BootProfile
         return self::$enabled;
     }
 
-    /** Turn profiling on or off explicitly, and drop any marks taken so far. */
-    public static function enable(bool $enabled = true): void
-    {
-        self::$enabled = $enabled;
-        self::$marks = [];
-        self::$baseline = null;
-    }
-
-    /** Record the moment a named stage finished. */
     /**
+     * Record the moment a named stage finished, and pass it to the request timeline.
+     *
      * @param ?string $detail The particulars, for a timeline that shows them.
      */
     public static function mark(string $name, ?string $detail = null): void
     {
-        /*
-         * Offered to the timeline before this profile's own gate, and under
-         * its own: the two are asked for separately, and boot is the part a
-         * request timeline cannot reach on its own — it happens before the
-         * kernel exists to record anything.
-         */
-        \Nitro\Debug\Timeline::mark($name, $detail);
+        Timeline::mark($name, $detail);
 
         if (! self::enabled()) {
             return;
@@ -73,17 +52,7 @@ final class BootProfile
         self::$marks[] = ['name' => $name, 'at' => microtime(true)];
     }
 
-    /** @var array<string, int> */
-    private static array $counts = [];
-
-    /**
-     * Tally something that happens many times a request.
-     *
-     * A stage's duration says where the time went; a count says what was done
-     * to spend it. Container resolutions are the case this exists for: the
-     * number is the thing worth arguing about, and it is cheaper to count
-     * them than to time each one.
-     */
+    /** Count something that happens many times a request, such as container resolutions. */
     public static function count(string $name, int $times = 1): void
     {
         if (! self::enabled()) {
@@ -93,15 +62,7 @@ final class BootProfile
         self::$counts[$name] = (self::$counts[$name] ?? 0) + $times;
     }
 
-    /** @return array<string, int> */
-    public static function counts(): array
-    {
-        return self::$counts;
-    }
-
-    /**
-     * When the request began, as PHP saw it — before the autoloader ran.
-     */
+    /** Get when the request began, as PHP recorded it. */
     public static function baseline(): float
     {
         if (self::$baseline === null) {
@@ -114,8 +75,7 @@ final class BootProfile
     }
 
     /**
-     * The marks, each with its total elapsed time and the time since the mark
-     * before it.
+     * Get the marks, each with its elapsed time and the time since the mark before it, in milliseconds.
      *
      * @return array<int, array{name: string, elapsed: float, delta: float}>
      */
@@ -138,13 +98,7 @@ final class BootProfile
         return $out;
     }
 
-    /**
-     * One line naming each stage and what it cost, in order.
-     *
-     * Reads as "stage=delta" with the running total last, so a tail of the log
-     * shows which stage moved between two runs rather than only that the total
-     * did.
-     */
+    /** Format the profile as one line: each stage's time, the counts, then the total. */
     public static function line(string $method = '', string $path = ''): string
     {
         $marks = self::marks();
@@ -174,13 +128,7 @@ final class BootProfile
         );
     }
 
-    /**
-     * Append the profile for this request to a log file.
-     *
-     * Appended with LOCK_EX because php-fpm serves requests in parallel
-     * processes, and a profile that interleaves two requests is worse than no
-     * profile.
-     */
+    /** Append this request's profile line to a log file, locked against parallel requests. */
     public static function write(string $file, string $method = '', string $path = ''): void
     {
         if (! self::enabled()) {
@@ -200,13 +148,5 @@ final class BootProfile
         }
 
         @file_put_contents($file, $line . PHP_EOL, FILE_APPEND | LOCK_EX);
-    }
-
-    /** Forget every mark, for a process that serves more than one request. */
-    public static function reset(): void
-    {
-        self::$marks = [];
-        self::$counts = [];
-        self::$baseline = null;
     }
 }

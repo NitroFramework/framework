@@ -39,10 +39,15 @@ final class Timeline
             return self::$enabled;
         }
 
+        return self::$enabled = self::requestedByEnvironment() || isset($_GET['timeline']);
+    }
+
+    /** Whether NITRO_TIMELINE is set, which an operator does on purpose. */
+    private static function requestedByEnvironment(): bool
+    {
         $fromEnv = getenv('NITRO_TIMELINE');
 
-        return self::$enabled = ($fromEnv !== false && $fromEnv !== '' && $fromEnv !== '0')
-            || isset($_GET['timeline']);
+        return $fromEnv !== false && $fromEnv !== '' && $fromEnv !== '0';
     }
 
     public static function enable(bool $enabled = true): void
@@ -142,10 +147,20 @@ final class Timeline
      * Registered rather than called, because the point is to record the
      * steps that happen after everything else has finished — the
      * response going out, terminate(), and the shutdown itself.
+     *
+     * @param bool $debug Whether the application runs in debug mode.
      */
-    public static function printAtShutdown(): void
+    public static function printAtShutdown(bool $debug = false): void
     {
         if (! self::enabled() || self::$printing) {
+            return;
+        }
+
+        // ?timeline is something any visitor can add to any URL, and the
+        // timeline names the application's routes, middleware and providers.
+        // So the query string prints only in debug; the environment variable,
+        // which only the operator can set, prints anywhere.
+        if (! $debug && ! self::requestedByEnvironment()) {
             return;
         }
 

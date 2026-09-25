@@ -152,8 +152,10 @@ class Kernel implements ReceivesDispatcher
         $this->container->instance('request', $request);
         $this->container->instance(Request::class, $request);
 
-        Timeline::printAtShutdown();
-        BootProfile::mark('capture', $request->method() . ' ' . $request->path());
+        if (NITRO_PROFILE) {
+            Timeline::printAtShutdown($this->app->isDebug());
+            BootProfile::mark('capture', $request->method() . ' ' . $request->path());
+        }
 
         $response = $this->handle($request);
 
@@ -178,11 +180,15 @@ class Kernel implements ReceivesDispatcher
             ),
         );
 
-        BootProfile::mark('responseReady', (string) $response->getStatusCode());
+        if (NITRO_PROFILE) {
+            BootProfile::mark('responseReady', (string) $response->getStatusCode());
+        }
 
         $response->send();
 
-        Timeline::mark('response sent', strlen((string) $response->getContent()) . ' bytes');
+        if (NITRO_PROFILE) {
+            Timeline::mark('response sent', strlen((string) $response->getContent()) . ' bytes');
+        }
 
         /**
          * Emit point — response.sent
@@ -207,7 +213,7 @@ class Kernel implements ReceivesDispatcher
          * process down next, and a profile that is never flushed measures
          * nothing.
          */
-        if (BootProfile::enabled()) {
+        if (NITRO_PROFILE && BootProfile::enabled()) {
             BootProfile::mark('send');
             BootProfile::write(
                 $this->container->resolve(PathRegistry::class)->storage('logs/profile.log'),
@@ -358,11 +364,15 @@ class Kernel implements ReceivesDispatcher
                  * cookie decryption among it — and that is separate work from
                  * finding the route.
                  */
-                BootProfile::mark('globalMiddleware');
+                if (NITRO_PROFILE) {
+                    BootProfile::mark('globalMiddleware');
+                }
 
                 $resolvedRoute = $this->router->findMatchingRoute($request);
 
-                BootProfile::mark('match', $resolvedRoute?->getName() ?? $request->path());
+                if (NITRO_PROFILE) {
+                    BootProfile::mark('match', $resolvedRoute?->getName() ?? $request->path());
+                }
 
                 if (! $resolvedRoute) {
                     return $this->createUnmatchedResponse($request);
@@ -372,7 +382,9 @@ class Kernel implements ReceivesDispatcher
 
                 $request->setRouteResolver(static fn () => $resolvedRoute);
 
-                BootProfile::mark('bindings');
+                if (NITRO_PROFILE) {
+                    BootProfile::mark('bindings');
+                }
 
                 return $this->pipeline(
                     $this->gatherMiddleware($resolvedRoute),
@@ -417,7 +429,7 @@ class Kernel implements ReceivesDispatcher
 
             // Wrapped only when the timeline is recording, so an ordinary
             // request carries the middleware and nothing around it.
-            $stages[] = Timeline::enabled()
+            $stages[] = NITRO_PROFILE && Timeline::enabled()
                 ? static fn (Request $request, callable $next): Response => Timeline::measure(
                     (new \ReflectionClass($middleware))->getShortName(),
                     static fn (): Response => $middleware->handle($request, $next, ...$parameters),
@@ -787,7 +799,9 @@ class Kernel implements ReceivesDispatcher
          * rendered yet, so this separates the application's own work from the
          * view engine's — the two things a slow response is usually made of.
          */
-        BootProfile::mark('handler');
+        if (NITRO_PROFILE) {
+            BootProfile::mark('handler');
+        }
 
         /**
          * Emit point — route.dispatched
@@ -814,7 +828,9 @@ class Kernel implements ReceivesDispatcher
             $renderer = $this->container->resolve(Engine::class);
             $html = $renderer->render($result->template, $result->data);
 
-            BootProfile::mark('render');
+            if (NITRO_PROFILE) {
+                BootProfile::mark('render');
+            }
 
             return Response::html($html);
         }
@@ -965,13 +981,17 @@ class Kernel implements ReceivesDispatcher
      */
     public function terminate(Request $request, Response $response): void
     {
-        Timeline::mark('terminate');
+        if (NITRO_PROFILE) {
+            Timeline::mark('terminate');
+        }
 
         foreach ($this->terminableMiddleware as $middleware) {
             $this->safely(fn () => $middleware->terminate($request, $response));
         }
 
-        Timeline::mark('terminable middleware done');
+        if (NITRO_PROFILE) {
+            Timeline::mark('terminable middleware done');
+        }
 
         $this->terminableMiddleware = [];
 
@@ -981,7 +1001,9 @@ class Kernel implements ReceivesDispatcher
 
         $this->safely(fn () => $this->app->terminate());
 
-        Timeline::mark('terminate done');
+        if (NITRO_PROFILE) {
+            Timeline::mark('terminate done');
+        }
     }
 
     /**
