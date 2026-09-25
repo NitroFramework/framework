@@ -1,12 +1,13 @@
-# Keep design/dev docs in the repo but out of the Composer dist archive
-# (so they don't ship into every app's vendor/nitro/framework).
-src/Fusion/DESIGN.md export-ignore
+# Blade templates and test fixtures are compared byte-for-byte by the tests:
+# keep them LF on every OS (core.autocrlf would otherwise turn them into CRLF).
+*.blade.php text eol=lf
+tests/Fixtures/** text eol=lf
 
-# Maintainer-only release tooling and docs — not needed inside an app.
+# Maintainer-only files: keep them in the repo, out of the Composer dist
+# archive (so they don't ship into every app's vendor/nitro/framework).
 ReleaseWorkflow.md export-ignore
 release-check.php export-ignore
-VARIABLE-CLEANUP.md export-ignore
-PACKAGE-SDK.md export-ignore
-
-# Maintainer-only benchmark harness — not needed inside an app.
+phpstan.neon export-ignore
+phpunit.xml export-ignore
+tests/ export-ignore
 benchmarks/ export-ignore
