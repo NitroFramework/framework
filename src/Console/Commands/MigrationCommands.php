@@ -10,8 +10,10 @@ use Nitro\Database\DB;
 use Nitro\Database\Migration\MigrationPathRegistry;
 use Nitro\Database\Schema\SchemaBuilder;
 use Nitro\Database\Schema\SchemaCache;
+use Nitro\Database\SQLiteDatabaseDoesNotExistException;
 use Nitro\Foundation\Contracts\ConfigRepository;
 use Nitro\Foundation\Contracts\PathRegistry;
+use RuntimeException;
 
 /**
  * Migration command bundle, Laravel-ish surface.
@@ -82,9 +84,66 @@ class MigrationCommands implements CommandInterface
             'migrate:mark-ran'  => 'Record migration(s) as ran without executing them',
         ];
 
+    /**
+     * The commands that may create a missing SQLite file: those whose point is
+     * to build the schema. A read like migrate:status reports it missing.
+     *
+     * @var array<int, string>
+     */
+    private const CREATES_DATABASE = ['migrate', 'migrate:run', 'migrate:install', 'migrate:fresh', 'migrate:refresh'];
+
     public function getCommands(): array
     {
         return self::COMMANDS;
+    }
+
+    /**
+     * Offer to create the SQLite file the configuration names.
+     *
+     * With --force it is created without asking. With --no-interaction, or no
+     * terminal to ask at, it is not, and the missing file is reported. Declining
+     * aborts the migration.
+     *
+     * @param array<int, string> $arguments
+     * @return bool Whether the file now exists.
+     */
+    private function createMissingSqliteDatabase(string $path, array $arguments): bool
+    {
+        if ($this->flag($arguments, '--force')) {
+            return touch($path);
+        }
+
+        if ($this->flag($arguments, '--no-interaction') || ! $this->canAsk()) {
+            return false;
+        }
+
+        $this->output->warning('The SQLite database configured for this application does not exist: ' . $path);
+
+        fwrite(STDOUT, ' Would you like to create it? (yes/no) [yes]: ');
+
+        $answer = strtolower(trim((string) fgets(STDIN)));
+
+        if ($answer !== '' && ! in_array($answer, ['y', 'yes'], true)) {
+            $this->output->info('Operation cancelled. No database was created.');
+
+            throw new RuntimeException('Database was not created. Aborting migration.');
+        }
+
+        return touch($path);
+    }
+
+    /** Whether there is a terminal on STDIN to answer a question. */
+    private function canAsk(): bool
+    {
+        if (! defined('STDIN')) {
+            return false;
+        }
+
+        if (function_exists('stream_isatty')) {
+            return @stream_isatty(STDIN);
+        }
+
+        return function_exists('posix_isatty') && @posix_isatty(STDIN);
     }
 
     public function handle(string $command, array $arguments = []): int
@@ -109,7 +168,16 @@ class MigrationCommands implements CommandInterface
         SchemaCache::bypass(true);
 
         try {
-            $this->ensureMigrationsTableExists();
+            try {
+                $this->ensureMigrationsTableExists();
+            } catch (SQLiteDatabaseDoesNotExistException $missing) {
+                if (! in_array($command, self::CREATES_DATABASE, true)
+                    || ! $this->createMissingSqliteDatabase($missing->path, $arguments)) {
+                    throw $missing;
+                }
+
+                $this->ensureMigrationsTableExists();
+            }
 
             $code = match ($command) {
                 'migrate:install'   => $this->reportMigrationsTableReady(),
