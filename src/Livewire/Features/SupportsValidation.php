@@ -41,7 +41,7 @@ class SupportsValidation extends ComponentHook
      */
     public function validate(?array $rules = null): array
     {
-        $validator = new Validator($this->component->all(), $rules ?? $this->rules());
+        $validator = validator($this->component->all(), $rules ?? $this->rules());
 
         if ($validator->fails()) {
             $this->errors = $validator->errors()->all();
@@ -59,7 +59,7 @@ class SupportsValidation extends ComponentHook
         $rules = $rules ?? $this->rules();
         $subset = isset($rules[$field]) ? [$field => $rules[$field]] : [];
 
-        $validator = new Validator($this->component->all(), $subset);
+        $validator = validator($this->component->all(), $subset);
 
         if ($validator->fails()) {
             foreach ($validator->errors()->all() as $field => $messages) {

@@ -99,7 +99,7 @@ abstract class Action
         $rules = $this->rules();
         if ($rules !== []) {
             $data      = $request->all();
-            $validator = new Validator($data, $rules, $this->messages());
+            $validator = validator($data, $rules, $this->messages());
 
             if (! $validator->validate()) {
                 throw new ValidationException($validator->errors());

@@ -61,7 +61,7 @@ abstract class FormRequest implements ValidatesWhenResolved
         $request = $this->request();
         $data    = $request->all();
 
-        $validator = new Validator($data, $this->rules(), $this->messages());
+        $validator = validator($data, $this->rules(), $this->messages());
 
         if (!$validator->validate()) {
             throw new ValidationException($validator->errors());

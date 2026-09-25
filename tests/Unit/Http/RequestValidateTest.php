@@ -35,7 +35,7 @@ class RequestValidateTest extends TestCase
         $container->instance('request', $request);
         $container->instance(Request::class, $request);
 
-        (new ValidationServiceProvider($container))->boot();
+        (new ValidationServiceProvider($container))->register();
 
         return $session;
     }

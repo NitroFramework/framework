@@ -52,7 +52,7 @@ class FormRequestTest extends TestCase
         $c->instance('request', $request);
         $c->instance(Request::class, $request);
 
-        (new ValidationServiceProvider($c))->boot();
+        (new ValidationServiceProvider($c))->register();
 
         return $session;
     }

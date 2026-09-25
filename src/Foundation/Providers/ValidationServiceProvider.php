@@ -2,46 +2,32 @@
 
 namespace Nitro\Foundation\Providers;
 
-use Nitro\Http\Request;
-use Nitro\Validation\ValidationException;
-use Nitro\Validation\Validator;
+use Nitro\Container\Contracts\ClassResolver;
+use Nitro\Validation\Factory;
 
 /**
- * Wires the Validation layer into the HTTP request via a macro, so a developer
- * writes exactly what they'd write in Laravel:
- *
- *   $data = request()->validate([
- *       'email'    => 'required|email',
- *       'password' => 'required',
- *   ]);
- *
- * On success it returns the validated subset. On failure it throws a pure
- * {@see ValidationException} — the exception-handling layer converts that into a
- * redirect-back (web) or 422 JSON (AJAX) response, so neither the macro nor the
- * Validation layer touches Http responses.
- *
- * Registered as a macro (not a method on Request) to keep the Http core free of
- * any dependency on the Validation layer.
+ * Register the validator factory.
  */
 class ValidationServiceProvider extends ServiceProvider
 {
-    public function boot(): void
+    protected bool $defer = true;
+
+    /** @return array<int, string> */
+    public function provides(): array
     {
-        Request::macro('validate', function (array $rules, array $messages = []) {
-            /** @var Request $this */
-            $data = $this->all();
+        return [Factory::class, 'validator'];
+    }
 
-            $validator = new Validator($data, $rules, $messages);
+    /**
+     * Register one factory for the application, so a rule added with Validator::extend() reaches every validator.
+     */
+    public function register(): void
+    {
+        $this->container->singleton(
+            Factory::class,
+            fn ($container): Factory => new Factory($container->resolve(ClassResolver::class)),
+        );
 
-            // validate() runs the rules and returns false on failure (fails()
-            // alone only inspects the not-yet-populated error bag).
-            if (!$validator->validate()) {
-                throw new ValidationException($validator->errors());
-            }
-
-            // Return only the fields that were actually validated (Laravel's
-            // $request->validate() contract).
-            return array_intersect_key($data, $rules);
-        });
+        $this->container->alias(Factory::class, 'validator');
     }
 }

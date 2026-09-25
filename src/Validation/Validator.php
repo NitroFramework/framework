@@ -79,6 +79,53 @@ class Validator
      */
     protected array $failedRules = [];
 
+    /**
+     * Rules added by name through {@see Factory::extend()}, as
+     * [rule => fn ($attribute, $value, $parameters, $validator): bool].
+     *
+     * @var array<string, \Closure>
+     */
+    protected array $extensions = [];
+
+    /**
+     * The names among {@see $extensions} that run on an empty field, the way
+     * 'required' does.
+     *
+     * @var array<string, true>
+     */
+    protected array $implicitExtensions = [];
+
+    /**
+     * The names among {@see $extensions} whose parameters name other fields,
+     * with any '*' in them filled from the field being validated.
+     *
+     * @var array<string, true>
+     */
+    protected array $dependentExtensions = [];
+
+    /**
+     * The wildcard pattern each expanded field came from, as
+     * ['items.2.qty' => 'items.*.qty'].
+     *
+     * @var array<string, string>
+     */
+    protected array $wildcardSources = [];
+
+    /**
+     * Callbacks that rewrite a rule's message, by rule name, as
+     * [rule => fn ($message, $attribute, $rule, $parameters, $validator): string].
+     *
+     * @var array<string, \Closure>
+     */
+    protected array $replacers = [];
+
+    /**
+     * What an extension says when it fails and no message was given for it.
+     *
+     * @var array<string, string>
+     */
+    protected array $fallbackMessages = [];
+
     /** Whether validate() has been run (so passes()/fails() can trigger it). */
     protected bool $hasValidated = false;
 
@@ -176,6 +223,7 @@ class Validator
     protected function expandWildcards(array $rules): array
     {
         $expanded = [];
+        $this->wildcardSources = [];
 
         foreach ($rules as $field => $ruleString) {
             if (! str_contains((string) $field, '*')) {
@@ -186,10 +234,53 @@ class Validator
 
             foreach ($this->pathsMatching((string) $field) as $path) {
                 $expanded[$path] = $ruleString;
+                $this->wildcardSources[$path] = (string) $field;
             }
         }
 
         return $expanded;
+    }
+
+    /**
+     * The keys a field's wildcards matched, in order: 'items.2.lines.0.qty'
+     * from 'items.*.lines.*.qty' gives ['2', '0'].
+     *
+     * @return array<int, string>
+     */
+    protected function getExplicitKeys(string $field): array
+    {
+        if (! isset($this->wildcardSources[$field])) {
+            return [];
+        }
+
+        $pattern = str_replace('\*', '([^\.]*)', preg_quote($this->wildcardSources[$field], '/'));
+
+        if (preg_match('/^' . $pattern . '/', $field, $keys)) {
+            array_shift($keys);
+
+            return $keys;
+        }
+
+        return [];
+    }
+
+    /**
+     * Put the keys a field matched into a dependent rule's parameters, so
+     * 'items.*.min' names the same item as the field being validated.
+     *
+     * @param  array<int, string> $parameters
+     * @param  array<int, string> $keys
+     * @return array<int, string>
+     */
+    protected function replaceAsterisksInParameters(array $parameters, array $keys): array
+    {
+        return array_map(static function (string $parameter) use ($keys): string {
+            if (substr_count($parameter, '*') > count($keys)) {
+                return $parameter;
+            }
+
+            return vsprintf(str_replace('*', '%s', $parameter), $keys);
+        }, $parameters);
     }
 
     /**
@@ -273,7 +364,8 @@ class Validator
         // A field carrying an implicit rule (required, …) is still validated so
         // the implicit rule can fail on the empty value.
         $isEmpty = ($value === null || $value === '');
-        $hasImplicit = array_intersect($baseNames, self::IMPLICIT_RULES) !== [];
+        $hasImplicit = array_intersect($baseNames, self::IMPLICIT_RULES) !== []
+            || array_intersect_key(array_flip($baseNames), $this->implicitExtensions) !== [];
 
         if ($isEmpty && (in_array('nullable', $baseNames, true) || !$hasImplicit)) {
             return;
@@ -311,6 +403,27 @@ class Validator
                 continue;
             }
 
+            $parameters = $this->parametersOf($ruleName);
+
+            // A built-in rule of the same name wins, so an extension adds
+            // rules rather than quietly replacing one.
+            if (isset($this->extensions[$baseName]) && ! $this->factory->has($baseName)) {
+                if (isset($this->dependentExtensions[$baseName])) {
+                    $parameters = $this->replaceAsterisksInParameters($parameters, $this->getExplicitKeys($field));
+                }
+
+                if (! ($this->extensions[$baseName])($field, $value, $parameters, $this)) {
+                    $this->errors->add($field, $this->extensionMessage($field, $baseName, $parameters));
+                    $this->failedRules[$field][] = $baseName;
+
+                    if ($bail) {
+                        break;
+                    }
+                }
+
+                continue;
+            }
+
             $rule = $this->factory->create($ruleName);
             $rule->setAttribute($field);
             $rule->setDisplayName($this->displayName($field));
@@ -319,7 +432,7 @@ class Validator
 
             // Run the validation
             if (!$rule->passes()) {
-                $this->errors->add($field, $this->messageFor($field, $baseName, $rule));
+                $this->errors->add($field, $this->messageFor($field, $baseName, $rule, $parameters));
                 $this->failedRules[$field][] = $baseName;
 
                 if ($bail) {
@@ -798,19 +911,173 @@ class Validator
      * application saying anything; an override replaces that sentence, and
      * either way the field is named the way {@see setAttributeNames()} asked.
      */
-    protected function messageFor(string $field, string $rule, Rules\AbstractRule $failed): string
+    protected function messageFor(string $field, string $rule, Rules\AbstractRule $failed, array $parameters = []): string
     {
         $override = $this->messages->resolve($field, $rule);
 
-        if ($override === null) {
-            return $failed->message();
+        $message = $override === null
+            ? $failed->message()
+            : str_replace(['{attribute}', ':attribute'], $this->displayName($field), $override);
+
+        return $this->replace($message, $field, $rule, $parameters);
+    }
+
+    /**
+     * What to say when an extension fails: a message given for it on this
+     * validator, else the one it was registered with, else a plain default.
+     *
+     * @param array<int, string> $parameters
+     */
+    protected function extensionMessage(string $field, string $rule, array $parameters): string
+    {
+        $message = $this->messages->resolve($field, $rule)
+            ?? $this->fallbackMessages[$rule]
+            ?? 'The :attribute field is invalid.';
+
+        $message = str_replace(['{attribute}', ':attribute'], $this->displayName($field), $message);
+
+        return $this->replace($message, $field, $rule, $parameters);
+    }
+
+    /**
+     * Run a rule's message through the replacer registered for that rule.
+     *
+     * @param array<int, string> $parameters
+     */
+    protected function replace(string $message, string $field, string $rule, array $parameters): string
+    {
+        if (! isset($this->replacers[$rule])) {
+            return $message;
         }
 
-        return str_replace(
-            ['{attribute}', ':attribute'],
-            $this->displayName($field),
-            $override
-        );
+        return (string) ($this->replacers[$rule])($message, $field, $rule, $parameters, $this);
+    }
+
+    /**
+     * The parameters written after a rule's colon: 'between:1,10' gives
+     * ['1', '10'].
+     *
+     * @return array<int, string>
+     */
+    protected function parametersOf(string $rule): array
+    {
+        if (! str_contains($rule, ':')) {
+            return [];
+        }
+
+        return explode(',', substr($rule, strpos($rule, ':') + 1));
+    }
+
+    // ─── Extensions ───────────────────────────────────────
+
+    /**
+     * Add rules by name, as [rule => callback].
+     *
+     * @param array<string, \Closure> $extensions
+     */
+    public function addExtensions(array $extensions): static
+    {
+        foreach ($extensions as $rule => $extension) {
+            $this->addExtension($rule, $extension);
+        }
+
+        return $this;
+    }
+
+    /**
+     * Add a rule by name, used in rule strings as 'name' or 'name:a,b'.
+     *
+     * @param \Closure $extension fn ($attribute, $value, $parameters, $validator): bool
+     */
+    public function addExtension(string $rule, \Closure $extension): static
+    {
+        $this->extensions[strtolower($rule)] = $extension;
+
+        return $this->reset();
+    }
+
+    /**
+     * Add rules that run even when the field is empty.
+     *
+     * @param array<string, \Closure> $extensions
+     */
+    public function addImplicitExtensions(array $extensions): static
+    {
+        foreach ($extensions as $rule => $extension) {
+            $this->addImplicitExtension($rule, $extension);
+        }
+
+        return $this;
+    }
+
+    public function addImplicitExtension(string $rule, \Closure $extension): static
+    {
+        $this->implicitExtensions[strtolower($rule)] = true;
+
+        return $this->addExtension($rule, $extension);
+    }
+
+    /**
+     * Add rules whose parameters name other fields.
+     *
+     * @param array<string, \Closure> $extensions
+     */
+    public function addDependentExtensions(array $extensions): static
+    {
+        foreach ($extensions as $rule => $extension) {
+            $this->addDependentExtension($rule, $extension);
+        }
+
+        return $this;
+    }
+
+    /**
+     * Add a rule whose parameters name other fields: on a wildcard field, each
+     * '*' in them becomes the key that field matched.
+     */
+    public function addDependentExtension(string $rule, \Closure $extension): static
+    {
+        $this->dependentExtensions[strtolower($rule)] = true;
+
+        return $this->addExtension($rule, $extension);
+    }
+
+    /**
+     * Add message replacers, as [rule => callback].
+     *
+     * @param array<string, \Closure> $replacers
+     */
+    public function addReplacers(array $replacers): static
+    {
+        foreach ($replacers as $rule => $replacer) {
+            $this->addReplacer($rule, $replacer);
+        }
+
+        return $this;
+    }
+
+    /**
+     * Rewrite a rule's message when it fails.
+     *
+     * @param \Closure $replacer fn ($message, $attribute, $rule, $parameters, $validator): string
+     */
+    public function addReplacer(string $rule, \Closure $replacer): static
+    {
+        $this->replacers[strtolower($rule)] = $replacer;
+
+        return $this->reset();
+    }
+
+    /**
+     * The messages extensions fall back to, by rule name.
+     *
+     * @param array<string, string> $messages
+     */
+    public function setFallbackMessages(array $messages): static
+    {
+        $this->fallbackMessages = array_change_key_case($messages, CASE_LOWER);
+
+        return $this->reset();
     }
 
     /**

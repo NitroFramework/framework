@@ -275,7 +275,7 @@ trait InteractsWithInput
     public function validate(array $rules, array $messages = []): array
     {
         $data = $this->all();
-        $validator = new Validator($data, $rules, $messages);
+        $validator = validator($data, $rules, $messages);
 
         if (! $validator->validate()) {
             throw new ValidationException($validator->errors());

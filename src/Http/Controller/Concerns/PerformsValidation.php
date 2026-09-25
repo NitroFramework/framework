@@ -51,6 +51,6 @@ trait PerformsValidation
      */
     protected function makeValidator(array $data, array $rules, array $messages = []): Validator
     {
-        return new Validator($data, $rules, $messages);
+        return validator($data, $rules, $messages);
     }
 }
