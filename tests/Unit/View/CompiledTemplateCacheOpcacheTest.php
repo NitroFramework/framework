@@ -4,18 +4,14 @@ namespace Tests\Unit\View;
 
 use Nitro\Foundation\Config;
 use Nitro\Foundation\Contracts\PathRegistry;
+use Nitro\Support\Opcache;
 use Nitro\View\Compiler\CompiledTemplateCache;
 use Nitro\View\Contracts\TemplateCompiler;
 use PHPUnit\Framework\TestCase;
 use ReflectionProperty;
 
 /**
- * Whether compiled views are primed into opcache is decided by the environment
- * unless an application says otherwise.
- *
- * Priming belongs on in production and off in debug, and leaving that to a flag
- * every application has to remember means most of them ship with it off. Null —
- * the shipped default — means "decide"; an explicit true or false still wins.
+ * Compiled views are primed into opcache when the config asks for it and opcache is available.
  */
 class CompiledTemplateCacheOpcacheTest extends TestCase
 {
@@ -37,7 +33,7 @@ class CompiledTemplateCacheOpcacheTest extends TestCase
         @rmdir($this->tmp);
     }
 
-    private function cache(mixed $useOpcache, bool $debug): CompiledTemplateCache
+    private function cache(bool $useOpcache): CompiledTemplateCache
     {
         $paths = $this->createMock(PathRegistry::class);
         $paths->method('cache')->willReturn($this->tmp . '/views');
@@ -48,7 +44,7 @@ class CompiledTemplateCacheOpcacheTest extends TestCase
             'view.cache.expiry'      => 0,
             'view.cache.use_opcache' => $useOpcache,
             'view.cache.use_locks'   => false,
-            'app.debug'              => $debug,
+            'app.debug'              => false,
             default                  => $default,
         });
 
@@ -57,30 +53,25 @@ class CompiledTemplateCacheOpcacheTest extends TestCase
 
     private function useOpCache(CompiledTemplateCache $cache): bool
     {
-        $property = new ReflectionProperty($cache, 'useOpCache');
-        $property->setAccessible(true);
-
-        return $property->getValue($cache);
+        return (new ReflectionProperty($cache, 'useOpCache'))->getValue($cache);
     }
 
-    public function test_it_primes_opcache_in_production_by_default(): void
+    public function test_it_primes_opcache_when_asked_and_available(): void
     {
-        $this->assertTrue($this->useOpCache($this->cache(null, debug: false)));
+        $this->assertSame(Opcache::available(), $this->useOpCache($this->cache(true)));
     }
 
-    /** In debug, invalidating a template the developer just edited is what matters. */
-    public function test_it_leaves_opcache_alone_in_debug_by_default(): void
+    public function test_an_application_may_turn_it_off(): void
     {
-        $this->assertFalse($this->useOpCache($this->cache(null, debug: true)));
+        $this->assertFalse($this->useOpCache($this->cache(false)));
     }
 
-    public function test_an_application_may_force_it_off_in_production(): void
+    public function test_availability_follows_the_running_sapi(): void
     {
-        $this->assertFalse($this->useOpCache($this->cache(false, debug: false)));
-    }
+        $setting = PHP_SAPI === 'cli' ? 'opcache.enable_cli' : 'opcache.enable';
+        $expected = function_exists('opcache_compile_file')
+            && filter_var(ini_get($setting), FILTER_VALIDATE_BOOL);
 
-    public function test_an_application_may_force_it_on_in_debug(): void
-    {
-        $this->assertTrue($this->useOpCache($this->cache(true, debug: true)));
+        $this->assertSame($expected, Opcache::available());
     }
 }

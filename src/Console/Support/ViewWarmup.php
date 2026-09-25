@@ -5,6 +5,7 @@ namespace Nitro\Console\Support;
 use Nitro\Console\OutputFormatter;
 use Nitro\Foundation\Contracts\ConfigRepository;
 use Nitro\Foundation\Contracts\PathRegistry;
+use Nitro\Support\Opcache;
 use Nitro\View\Blade;
 use Nitro\View\Support\ViewExtensions;
 use Nitro\View\Support\ViewManifest;
@@ -169,7 +170,9 @@ class ViewWarmup
 // request primes opcache for all of them in one shot. Once primed, each
 // entry costs one in-memory opcache_is_script_cached() check and nothing else.
 
-if (!function_exists('opcache_compile_file') || !function_exists('opcache_is_script_cached')) {
+use Nitro\Support\Opcache;
+
+if (!Opcache::available()) {
     return;
 }
 
@@ -180,8 +183,8 @@ if (!function_exists('opcache_compile_file') || !function_exists('opcache_is_scr
 // per view on every request for nothing. Only a view that is NOT already cached
 // pays for the existence check, which happens once per worker or deploy.
 foreach (\$__nitroViewFiles as \$__f) {
-    if (!@opcache_is_script_cached(\$__f) && is_file(\$__f)) {
-        @opcache_compile_file(\$__f);
+    if (!Opcache::isCached(\$__f) && is_file(\$__f)) {
+        Opcache::compile(\$__f);
     }
 }
 
@@ -210,8 +213,8 @@ PHP;
             return false;
         }
 
-        if ($this->canLintCompiledViewsInProcess()) {
-            return (bool) @opcache_compile_file($path);
+        if (Opcache::available()) {
+            return Opcache::compile($path);
         }
 
         $contents = @file_get_contents($path);
@@ -231,22 +234,6 @@ PHP;
         } catch (\ParseError) {
             return false;
         }
-    }
-
-    /** Whether compiled views can be opcache-lint-checked in this process. */
-    private function canLintCompiledViewsInProcess(): bool
-    {
-        if (!function_exists('opcache_compile_file')) {
-            return false;
-        }
-
-        if (PHP_SAPI !== 'cli') {
-            return true;
-        }
-
-        $enabled = ini_get('opcache.enable_cli');
-
-        return $enabled === '1' || strtolower((string) $enabled) === 'on';
     }
 
     /**

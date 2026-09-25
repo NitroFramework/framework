@@ -3,18 +3,9 @@
 /**
  * Framework configuration defaults.
  *
- * Loaded by Config as the BASE layer; the application's config/*.php is then
- * recursively merged on top, so the app always wins and any key it omits still
- * resolves to a sane framework value. This is the single source of truth for the
- * defaults framework internals rely on — internals read config('key') WITHOUT an
- * inline fallback, because the key is guaranteed to exist.
- *
- * Only keys that have a meaningful framework-level default live here. App-specific
- * values (database credentials, app key, filesystem paths) intentionally have no
- * default — the application must provide them.
- *
- * Values mirror the shipped config/*.php; where inline fallbacks had drifted
- * (app.debug, view.cache.expiry, view.cache.use_*), the config/*.php value wins.
+ * The application's config/*.php is merged over these, so every key the framework
+ * reads resolves. Application-specific values, such as credentials and the app key,
+ * have no default here.
  */
 
 return [
@@ -23,17 +14,10 @@ return [
         'env'                   => 'production',
         'debug'                 => false,
         'url'                   => 'http://localhost',
-        // Prefix applied to a controller named as a bare string in a route
-        // ("PostController@index"). Only that form consults it — a route giving
-        // the class itself resolves without it — so an application keeping
-        // controllers elsewhere overrides this and nothing else changes.
+        /** Namespace for a controller named as a bare string, such as "PostController@index". */
         'controllers_namespace' => 'App\\Http\\Controllers\\',
         'providers'             => [],
-        // IPs of proxies/load balancers whose X-Forwarded-* headers may be
-        // trusted (an array of exact REMOTE_ADDR values, or '*' to trust all —
-        // only safe when the app is reachable ONLY through a known proxy).
-        // Empty = trust nothing, so Request::ip()/secure() ignore forwarded
-        // headers and a client can't spoof its IP or scheme.
+        /** Proxy addresses whose X-Forwarded-* headers are trusted, or '*' for all; empty trusts none. */
         'trusted_proxies'       => [],
     ],
 
@@ -48,15 +32,11 @@ return [
     ],
 
     'logging' => [
-        // The channel used when none is named. A channel that is not listed
-        // below raises rather than falling back, so a platform injecting a
-        // channel this application does not have fails loudly instead of
-        // writing somewhere nobody reads.
+        /** The channel used when none is named; an unlisted channel throws rather than falling back. */
         'default' => 'stack',
 
         'channels' => [
-            // Both a file and the process's own output. A container platform
-            // collects the latter; a file inside a container goes away with it.
+            /** A file, and the process's standard error for platforms that collect it. */
             'stack' => [
                 'driver'            => 'stack',
                 'channels'          => ['single', 'stderr'],
@@ -100,7 +80,6 @@ return [
         ],
     ],
 
-    // No config/mail.php ships, so this is the sole source of the mail default.
     'mail' => [
         'driver' => 'log',
     ],
@@ -120,42 +99,37 @@ return [
         'lifetime' => 120,
         'cookie'   => 'nitro_session',
         'files'    => null,
-        // Used by the 'redis' driver: the connection under database.redis to
-        // write to, and the prefix its keys carry. Null takes the default one.
+        /** The redis driver's connection under database.redis, null for the default, and its key prefix. */
         'connection' => null,
         'prefix'     => 'nitro:session:',
-        // Used by the 'database' driver.
+        /** The database driver's table. */
         'table'      => 'sessions',
-        // Odds that a request sweeps expired sessions once its response has
-        // been sent: 2 in 100. Set the first number to 0 to never sweep.
+        /** Odds that a request sweeps expired sessions after its response; [0, 100] never sweeps. */
         'lottery'  => [2, 100],
-        // Files one sweep may delete. Bounded so the cost does not grow with
-        // the backlog and a worker is never held up reading a large directory.
+        /** Most expired sessions one sweep deletes. */
         'sweep_limit' => 100,
     ],
 
     'view' => [
-        // Tried in order within each views directory; the first match wins.
+        /** Template extensions, tried in order within each views directory. */
         'extensions'   => ['blade.php', 'md'],
         'debug_render' => false,
         'markdown' => [
-            // Raw HTML in a document is escaped unless it is turned on here.
+            /** Whether raw HTML in a document is kept rather than escaped. */
             'allow_html'  => false,
             'hard_breaks' => false,
-            // Added to links that stay in the application, so following one
-            // inside a document does not drop out of client-side navigation.
+            /** Attributes added to links that stay in the application. */
             'link_attributes' => ['wire:navigate' => true],
-            // An absolute URL counts as internal only when it matches this.
+            /** The URL an absolute link must match to count as internal. */
             'base_url'        => null,
-            // Whether a link to a place on the same page counts as internal.
+            /** Whether a link to a place on the same page counts as internal. */
             'fragments'       => false,
         ],
         'cache' => [
             'enabled'     => true,
             'expiry'      => 0,
-            // Null decides from the environment — on in production, off in
-            // debug. Set true or false to override.
-            'use_opcache' => null,
+            /** Prime compiled views into opcache; takes effect only where opcache is available. */
+            'use_opcache' => true,
             'use_locks'   => false,
         ],
     ],

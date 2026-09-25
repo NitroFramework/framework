@@ -6,6 +6,7 @@ use Closure;
 use Nitro\Foundation\Contracts\ConfigRepository;
 use Nitro\Foundation\Contracts\ResetsBetweenRequests;
 use Nitro\Foundation\Contracts\PathRegistry;
+use Nitro\Support\Opcache;
 use Nitro\View\Contracts\TemplateCache;
 use Nitro\View\Contracts\TemplateCompiler;
 use RuntimeException;
@@ -30,7 +31,7 @@ class CompiledTemplateCache implements TemplateCache, ResetsBetweenRequests
      */
     private int $cacheExpiry;
 
-    /** Whether compiled templates are primed into opcache as they are written. */
+    /** Whether compiled templates are primed into opcache: wanted by config, and opcache is available. */
     private bool $useOpCache;
 
     /**
@@ -38,9 +39,6 @@ class CompiledTemplateCache implements TemplateCache, ResetsBetweenRequests
      * processes may compile the same template at once.
      */
     private bool $useFileLocks;
-
-    /** Whether opcache priming is both wanted and actually available. */
-    private bool $opcacheAvailable;
 
     /** Whether the application is in debug, which changes what may be memoized. */
     private bool $debug;
@@ -61,10 +59,7 @@ class CompiledTemplateCache implements TemplateCache, ResetsBetweenRequests
     private array $freshnessCache = [];
 
     /**
-     * A null `view.cache.use_opcache` means decide from the environment: prime
-     * compiled views into opcache in production, and leave it alone in debug,
-     * where invalidating a template just edited is what matters. An explicit
-     * true or false still wins.
+     * Opcache priming follows `view.cache.use_opcache`, and is off wherever opcache is unavailable.
      */
     public function __construct(
         private Closure|TemplateCompiler $compiler,
@@ -78,11 +73,7 @@ class CompiledTemplateCache implements TemplateCache, ResetsBetweenRequests
         $this->useFileLocks = (bool) $config->get('view.cache.use_locks');
         $this->debug        = (bool) $config->get('app.debug', false);
 
-        $configured = $config->get('view.cache.use_opcache');
-
-        $this->useOpCache = $configured === null ? ! $this->debug : (bool) $configured;
-
-        $this->opcacheAvailable = $this->useOpCache && function_exists('opcache_is_script_cached');
+        $this->useOpCache   = (bool) $config->get('view.cache.use_opcache', true) && Opcache::available();
 
         if ($this->cacheEnabled) {
             $this->ensureCacheDirectoryExists();
@@ -198,7 +189,7 @@ class CompiledTemplateCache implements TemplateCache, ResetsBetweenRequests
                 'files'                => 0,
                 'total_size'           => 0,
                 'total_size_formatted' => '0 B',
-                'opcache_enabled'      => $this->opcacheAvailable,
+                'opcache_enabled'      => $this->useOpCache,
                 'opcache_cached'       => 0,
             ];
         }
@@ -221,7 +212,7 @@ class CompiledTemplateCache implements TemplateCache, ResetsBetweenRequests
             'files'                => count($files),
             'total_size'           => $totalSize,
             'total_size_formatted' => $this->formatBytes($totalSize),
-            'opcache_enabled'      => $this->opcacheAvailable,
+            'opcache_enabled'      => $this->useOpCache,
             'opcache_cached'       => $opcacheCached,
         ];
     }
@@ -472,7 +463,7 @@ class CompiledTemplateCache implements TemplateCache, ResetsBetweenRequests
      */
     private function isLoadedInOpcache(string $cacheFile): bool
     {
-        return $this->opcacheAvailable && (bool) @opcache_is_script_cached($cacheFile);
+        return $this->useOpCache && Opcache::isCached($cacheFile);
     }
 
     /**
@@ -481,8 +472,8 @@ class CompiledTemplateCache implements TemplateCache, ResetsBetweenRequests
      */
     private function primeOpcache(string $cacheFile): void
     {
-        if ($this->opcacheAvailable && function_exists('opcache_compile_file')) {
-            @opcache_compile_file($cacheFile);
+        if ($this->useOpCache) {
+            Opcache::compile($cacheFile);
         }
     }
 
@@ -492,8 +483,8 @@ class CompiledTemplateCache implements TemplateCache, ResetsBetweenRequests
      */
     private function removeFromOpcache(string $cacheFile): void
     {
-        if ($this->opcacheAvailable && function_exists('opcache_invalidate')) {
-            @opcache_invalidate($cacheFile, true);
+        if ($this->useOpCache) {
+            Opcache::invalidate($cacheFile);
         }
     }
 

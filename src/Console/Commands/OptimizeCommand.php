@@ -16,6 +16,7 @@ use Nitro\Foundation\Config;
 use Nitro\Foundation\Contracts\PathRegistry;
 use Nitro\Routing\Contracts\RouterInterface;
 use Nitro\Routing\RouteLoader;
+use Nitro\Support\Opcache;
 use Nitro\View\Blade;
 
 /**
@@ -454,10 +455,11 @@ class OptimizeCommand implements CommandInterface
             $content .= "// Enable in php.ini (production):  opcache.preload={$preloadPath}\n";
             $content .= "// Compiles the framework + app classes into shared memory once at engine start,\n";
             $content .= "// so every request/worker skips autoloading and compiling them.\n\n";
-            $content .= "if (! function_exists('opcache_compile_file') || ! ini_get('opcache.enable')) {\n    return;\n}\n\n";
+            $content .= "use Nitro\\Support\\Opcache;\n\n";
             $content .= 'require_once ' . var_export($autoload, true) . ";\n\n";
+            $content .= "if (! Opcache::available()) {\n    return;\n}\n\n";
             $content .= "\$files = [\n{$list}];\n\n";
-            $content .= "foreach (\$files as \$file) {\n    @opcache_compile_file(\$file);\n}\n";
+            $content .= "foreach (\$files as \$file) {\n    Opcache::compile(\$file);\n}\n";
 
             file_put_contents($preloadPath, $content);
 
@@ -506,7 +508,7 @@ class OptimizeCommand implements CommandInterface
      */
     protected function resetOpcache(): void
     {
-        if (function_exists('opcache_reset') && @opcache_reset()) {
+        if (Opcache::reset()) {
             $this->output->writeln($this->output->color("  ✓ Reset opcache (CLI process)", 'green'));
         }
 
