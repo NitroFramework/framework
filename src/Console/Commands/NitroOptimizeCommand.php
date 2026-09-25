@@ -4,6 +4,7 @@ namespace Nitro\Console\Commands;
 
 use Illuminate\Console\Command;
 use Illuminate\Support\Composer;
+use Illuminate\Support\ServiceProvider;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Throwable;
 
@@ -88,7 +89,7 @@ class NitroOptimizeCommand extends Command
     {
         $ok = true;
 
-        foreach (\Illuminate\Support\ServiceProvider::$optimizeCommands as $command) {
+        foreach (ServiceProvider::$optimizeCommands as $command) {
             $ok = $this->artisan($command) && $ok;
         }
 

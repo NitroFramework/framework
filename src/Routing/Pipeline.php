@@ -3,6 +3,7 @@
 namespace Nitro\Routing;
 
 use Closure;
+use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Contracts\Support\Responsable;
 use Illuminate\Http\Request;
@@ -20,7 +21,7 @@ final class Pipeline
     /** @var list<object> Middleware instances used, for terminate(). */
     public array $used = [];
 
-    public function __construct(private readonly \Illuminate\Contracts\Container\Container $container)
+    public function __construct(private readonly Container $container)
     {
     }
 

@@ -3,12 +3,16 @@
 namespace Nitro\Foundation;
 
 use Illuminate\Contracts\Foundation\Application as ApplicationContract;
+use Illuminate\Contracts\Http\Kernel;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Bootstrap\BootProviders;
 use Illuminate\Foundation\Bootstrap\HandleExceptions;
 use Illuminate\Foundation\Bootstrap\LoadConfiguration;
 use Illuminate\Foundation\Bootstrap\LoadEnvironmentVariables;
 use Illuminate\Foundation\Bootstrap\RegisterFacades;
 use Illuminate\Foundation\Bootstrap\RegisterProviders;
+use Illuminate\Foundation\Bootstrap\SetRequestForConsole;
+use Laravel\SerializableClosure\SerializableClosure;
 use Nitro\Components\Core;
 use Nitro\Components\Database;
 
@@ -33,7 +37,7 @@ final class Bootstrap
             LoadConfiguration::class,
             HandleExceptions::class,
             RegisterFacades::class,
-            $console ? \Illuminate\Foundation\Bootstrap\SetRequestForConsole::class : null,
+            $console ? SetRequestForConsole::class : null,
             self::class,
             RegisterProviders::class,
             BootProviders::class,
@@ -48,12 +52,12 @@ final class Bootstrap
             $app->setCompiledFactories($factories, $map);
         }
 
-        // Laravel does both of these eagerly; here they happen when the class is first used.
+        /** Laravel does both of these eagerly; here they happen when the class is first used. */
         $appConfig = $app['config']->get('app', []);
-        ClassLoadHooks::after(\Laravel\SerializableClosure\SerializableClosure::class, static fn () => Core::configureSerializableClosure($appConfig));
-        ClassLoadHooks::after(\Illuminate\Database\Eloquent\Model::class, static fn () => Database::bootEloquent($app));
+        ClassLoadHooks::after(SerializableClosure::class, static fn () => Core::configureSerializableClosure($appConfig));
+        ClassLoadHooks::after(Model::class, static fn () => Database::bootEloquent($app));
 
-        $kernel = $app->make(\Illuminate\Contracts\Http\Kernel::class);
+        $kernel = $app->make(Kernel::class);
 
         if (method_exists($kernel, 'syncMiddlewareToRouter')) {
             $kernel->syncMiddlewareToRouter();

@@ -4,7 +4,9 @@ namespace Nitro\Routing;
 
 use ArrayIterator;
 use Countable;
+use Illuminate\Container\Container;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\Routing\Route as BaseRoute;
 use Illuminate\Routing\RouteCollection;
 use Illuminate\Routing\RouteCollectionInterface;
@@ -71,7 +73,7 @@ class CompiledRoutes implements RouteCollectionInterface, IteratorAggregate, Cou
     public static function cached(array $table): array
     {
         if (! static::$loading) {
-            $router = \Illuminate\Container\Container::getInstance()->make('router');
+            $router = Container::getInstance()->make('router');
 
             if ($router instanceof Router && ! $router->getRoutes() instanceof self) {
                 $router->useCompiledRoutes(new static($table, $router));
@@ -85,7 +87,7 @@ class CompiledRoutes implements RouteCollectionInterface, IteratorAggregate, Cou
     {
         $compiled = new static(RouteCompiler::compile($routes, $router), $router);
 
-        // In-memory compile: reuse the registered Route objects as prototypes.
+        /** In-memory compile: reuse the registered Route objects as prototypes. */
         foreach (array_values($routes->getRoutes()) as $index => $route) {
             if ($route instanceof Route) {
                 $route->nitroIndex = $index;
@@ -124,8 +126,10 @@ class CompiledRoutes implements RouteCollectionInterface, IteratorAggregate, Cou
 
         $match = $this->matchMethod($method, $path, $request);
 
-        // Like CompiledRouteCollection: runtime-added routes are tried when the compiled table
-        // has no match, and win over a compiled fallback route.
+        /**
+         * Like CompiledRouteCollection: runtime-added routes are tried when the compiled table
+         * has no match, and win over a compiled fallback route.
+         */
         if ($this->extra !== null && ($match === null || $this->table['routes'][$match[0]]['fallback'])
             && ($extra = $this->extraCompiled()->matchMethod($method, $path, $request)) !== null
             && ($match === null || ! $this->extraCompiled()->entry($extra[0])['fallback'])) {
@@ -152,8 +156,8 @@ class CompiledRoutes implements RouteCollectionInterface, IteratorAggregate, Cou
         }
 
         if ($method === 'OPTIONS') {
-            return [(new Route('OPTIONS', $request->path(), fn () => new \Illuminate\Http\Response('', 200, ['Allow' => implode(',', $others)])))
-                ->setRouter($this->router)->setContainer(\Illuminate\Container\Container::getInstance())
+            return [(new Route('OPTIONS', $request->path(), fn () => new Response('', 200, ['Allow' => implode(',', $others)])))
+                ->setRouter($this->router)->setContainer(Container::getInstance())
                 ->setMatchedParameters([]), null];
         }
 
@@ -284,7 +288,7 @@ class CompiledRoutes implements RouteCollectionInterface, IteratorAggregate, Cou
         if (empty($a['action']['prefix'] ?? '')) {
             $uri = $a['uri'];
         } else {
-            // Route::prefix() is re-applied by the constructor; strip it (CompiledRouteCollection::newRoute).
+            /** Route::prefix() is re-applied by the constructor; strip it (CompiledRouteCollection::newRoute). */
             $prefix = trim($a['action']['prefix'], '/');
             $uri = trim(implode('/', array_slice(
                 explode('/', trim($a['uri'], '/')),
@@ -310,8 +314,6 @@ class CompiledRoutes implements RouteCollectionInterface, IteratorAggregate, Cou
         return $this->extraCompiled ??= static::fromCollection($this->extra, $this->router);
     }
 
-
-    // --- RouteCollectionInterface -------------------------------------------------------
 
     public function add(BaseRoute $route)
     {

@@ -47,7 +47,7 @@ final class View
             $config->get('view.relative_hash', false) ? $app->basePath() : '',
             $config->get('view.cache', true),
             $config->get('view.compiled_extension', 'php'),
-            // After `artisan view:warm` in production, skip per-render source mtime checks.
+            /** After `artisan view:warm` in production, skip per-render source mtime checks. */
             $config->get('view.check_cache_timestamps', true) && ! $app->viewsAreWarm(),
         );
 

@@ -2,7 +2,14 @@
 
 namespace Nitro\Console;
 
-use Illuminate\Foundation\Console\Kernel as LaravelKernel;
+use Illuminate\Foundation\Console\Kernel as BaseKernel;
+use Nitro\Console\Commands\NitroClearCommand;
+use Nitro\Console\Commands\NitroOptimizeCommand;
+use Nitro\Console\Commands\OptimizeClearCommand;
+use Nitro\Console\Commands\OptimizeCommand;
+use Nitro\Console\Commands\RouteCacheCommand;
+use Nitro\Console\Commands\RouteClearCommand;
+use Nitro\Console\Commands\ViewWarmCommand;
 use Nitro\Foundation\Bootstrap;
 
 /**
@@ -12,16 +19,16 @@ use Nitro\Foundation\Bootstrap;
  * Nitro swaps in its bootstrap and its own `optimize` / `optimize:clear` / `route:cache`, which
  * build Nitro's compiled caches (routes, container factories).
  */
-class Kernel extends LaravelKernel
+class Kernel extends BaseKernel
 {
     protected $commands = [
-        Commands\OptimizeCommand::class,
-        Commands\OptimizeClearCommand::class,
-        Commands\RouteCacheCommand::class,
-        Commands\RouteClearCommand::class,
-        Commands\ViewWarmCommand::class,
-        Commands\NitroOptimizeCommand::class,
-        Commands\NitroClearCommand::class,
+        OptimizeCommand::class,
+        OptimizeClearCommand::class,
+        RouteCacheCommand::class,
+        RouteClearCommand::class,
+        ViewWarmCommand::class,
+        NitroOptimizeCommand::class,
+        NitroClearCommand::class,
     ];
 
     protected function bootstrappers()

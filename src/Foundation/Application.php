@@ -2,42 +2,24 @@
 
 namespace Nitro\Foundation;
 
-use Illuminate\Foundation\Application as LaravelApplication;
+use Illuminate\Container\Container;
+use Illuminate\Foundation\Application as BaseApplication;
 use Illuminate\Support\ServiceProvider;
 use Nitro\Components\Registry;
+use Nitro\Foundation\Configuration\ApplicationBuilder;
 
 /**
- * Laravel's Application, with Nitro's request path.
+ * The Nitro application.
  *
- * Everything public is Laravel's (it *is* an Illuminate\Foundation\Application), so apps and
- * packages see 100% of the Laravel API. What changes:
- *
- *  - Core services come from a static factory table (Components\Registry) instead of framework
- *    service providers registering bindings on every request; unused services cost nothing.
- *  - Framework providers replaced by that table are skipped when registering configured
- *    providers; every other provider (packages, app, remaining framework ones) loads normally.
- *  - Compiled autowiring factories (bootstrap/cache/factories.php) replace reflection.
+ * Core services are built on demand from the component registry instead of being registered
+ * by service providers on every request, and autowiring runs through compiled factories
+ * (bootstrap/cache/factories.php) instead of reflection. Component providers, providers whose
+ * services are components (Registry::PROVIDERS), are skipped; package and app providers load
+ * as usual.
  */
-class Application extends LaravelApplication
+class Application extends BaseApplication
 {
-    protected static string $applicationBuilder = Configuration\ApplicationBuilder::class;
-
-    /**
-     * Framework providers whose services the component table provides. Laravel registers these
-     * eagerly on every request; Nitro builds the same services lazily instead.
-     */
-    public const REPLACED_PROVIDERS = [
-        \Illuminate\Auth\AuthServiceProvider::class,
-        \Illuminate\Cache\CacheServiceProvider::class,
-        \Illuminate\Cookie\CookieServiceProvider::class,
-        \Illuminate\Database\DatabaseServiceProvider::class,
-        \Illuminate\Encryption\EncryptionServiceProvider::class,
-        \Illuminate\Hashing\HashServiceProvider::class,
-        \Illuminate\Session\SessionServiceProvider::class,
-        \Illuminate\Translation\TranslationServiceProvider::class,
-        \Illuminate\Validation\ValidationServiceProvider::class,
-        \Illuminate\View\ViewServiceProvider::class,
-    ];
+    protected static string $applicationBuilder = ApplicationBuilder::class;
 
     /** @var array<string, array{0: class-string, 1: string, 2: bool}> */
     protected array $components = Registry::MAP;
@@ -58,14 +40,15 @@ class Application extends LaravelApplication
             $this->setBasePath($basePath);
         }
 
-        // Laravel's registerBaseBindings() / registerBaseServiceProviders() /
-        // registerCoreContainerAliases(), minus the providers: events, log, context and routing
-        // are components now.
+        /**
+         * Base bindings and core aliases. No base providers: events, log, context and routing
+         * are components.
+         */
         static::setInstance($this);
         $this->instances['app'] = $this;
-        $this->instances[\Illuminate\Container\Container::class] = $this;
+        $this->instances[Container::class] = $this;
 
-        // Laravel's own alias list (computed once per process, copied per app).
+        /** The core alias list, computed once per process and copied per app. */
         [$aliases, $abstractAliases] = Registry::aliasTables(function () {
             $this->registerCoreContainerAliases();
 
@@ -83,10 +66,6 @@ class Application extends LaravelApplication
         $this->registerLaravelCloudServices();
     }
 
-    // -----------------------------------------------------------------------------------
-    // Container: component table + compiled factories
-    // -----------------------------------------------------------------------------------
-
     protected function getConcrete($abstract)
     {
         if (isset($this->bindings[$abstract])) {
@@ -99,7 +78,7 @@ class Application extends LaravelApplication
             return $class::$method(...);
         }
 
-        // Contextual bindings added after `artisan optimize` still win: fall back to reflection.
+        /** Contextual bindings added after `artisan optimize` still win: fall back to reflection. */
         if (isset($this->compiledMap[$abstract]) && ! isset($this->contextual[$abstract])) {
             return $this->compiledFactories->{$this->compiledMap[$abstract]}(...);
         }
@@ -166,17 +145,14 @@ class Application extends LaravelApplication
         $this->compiledMap = [];
     }
 
-    // -----------------------------------------------------------------------------------
-    // Providers
-    // -----------------------------------------------------------------------------------
-
     public function registerConfiguredProviders()
     {
         $config = $this->make('config');
 
+        /** Component providers are skipped: their services are components. */
         $config->set('app.providers', array_values(array_diff(
             (array) $config->get('app.providers', []),
-            self::REPLACED_PROVIDERS
+            Registry::PROVIDERS
         )));
 
         parent::registerConfiguredProviders();
@@ -184,9 +160,11 @@ class Application extends LaravelApplication
 
     public function register($provider, $force = false)
     {
-        // Explicit registration of a replaced framework provider (e.g. from a package) is a no-op:
-        // its services already exist as components.
-        if (in_array(is_string($provider) ? $provider : get_class($provider), self::REPLACED_PROVIDERS, true)) {
+        /**
+         * Registering a component provider explicitly (e.g. from a package) is a no-op: its
+         * services already exist as components.
+         */
+        if (in_array(is_string($provider) ? $provider : get_class($provider), Registry::PROVIDERS, true)) {
             return is_string($provider) ? new $provider($this) : $provider;
         }
 
@@ -226,10 +204,6 @@ class Application extends LaravelApplication
     {
         return $this->providerTimings ?? [];
     }
-
-    // -----------------------------------------------------------------------------------
-    // Caches
-    // -----------------------------------------------------------------------------------
 
     public function configurationIsCached()
     {

@@ -140,12 +140,12 @@ class PackageCompatibilityTest extends TestCase
         }
     }
 
-    public function test_replaced_framework_providers_are_skipped_and_the_rest_load(): void
+    public function test_component_providers_are_skipped_and_the_rest_load(): void
     {
         $app = $this->boot();
 
-        foreach (\Nitro\Foundation\Application::REPLACED_PROVIDERS as $provider) {
-            $this->assertFalse($app->providerIsLoaded($provider), "{$provider} should be replaced by components");
+        foreach (\Nitro\Components\Registry::PROVIDERS as $provider) {
+            $this->assertFalse($app->providerIsLoaded($provider), "{$provider} is a component provider and should be skipped");
         }
 
         $this->assertInstanceOf(\Illuminate\Cache\CacheManager::class, $app->make('cache'));

@@ -3,11 +3,12 @@
 namespace Nitro\Foundation;
 
 use Illuminate\Foundation\Http\Events\RequestHandled;
-use Illuminate\Foundation\Http\Kernel as LaravelKernel;
+use Illuminate\Foundation\Http\Kernel as BaseKernel;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Facade;
 use Nitro\Routing\Pipeline;
+use Nitro\Routing\Router;
 use Throwable;
 
 /**
@@ -20,7 +21,7 @@ use Throwable;
  *  - terminate() calls terminate() on the middleware instances that actually ran, instead of
  *    re-resolving and re-sorting the route's middleware.
  */
-class HttpKernel extends LaravelKernel
+class HttpKernel extends BaseKernel
 {
     /** Parsed global middleware stack, rebuilt when the list changes. */
     protected ?array $globalStack = null;
@@ -70,7 +71,7 @@ class HttpKernel extends LaravelKernel
 
         $this->bootstrap();
 
-        // AuthServiceProvider's request rebinding: $request->user() goes through the auth manager.
+        /** AuthServiceProvider's request rebinding: $request->user() goes through the auth manager. */
         $app = $this->app;
         $request->setUserResolver(static fn ($guard = null) => call_user_func($app['auth']->userResolver(), $guard));
 
@@ -86,7 +87,7 @@ class HttpKernel extends LaravelKernel
             $response = $pipeline->run($this->globalStack, $request, $this->dispatchToRouter());
         }
 
-        if ($this->router instanceof \Nitro\Routing\Router && ($routePipeline = $this->router->nitroDispatcher()->lastPipeline)) {
+        if ($this->router instanceof Router && ($routePipeline = $this->router->nitroDispatcher()->lastPipeline)) {
             $this->pipelines[] = $routePipeline;
             $this->router->nitroDispatcher()->lastPipeline = null;
         }

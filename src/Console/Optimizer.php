@@ -3,7 +3,8 @@
 namespace Nitro\Console;
 
 use Illuminate\Container\Container;
-use Illuminate\Contracts\Console\Kernel as ConsoleKernel;
+use Illuminate\Contracts\Console\Kernel as ConsoleKernelContract;
+use Illuminate\Contracts\Http\Kernel as HttpKernelContract;
 use Illuminate\Filesystem\Filesystem;
 use Illuminate\Support\Facades\Facade;
 use Nitro\Foundation\Application;
@@ -29,7 +30,7 @@ final class Optimizer
             $fresh->enableProviderProfiling();
         }
 
-        $fresh->make(ConsoleKernel::class)->bootstrap();
+        $fresh->make(ConsoleKernelContract::class)->bootstrap();
 
         return $fresh;
     }
@@ -68,7 +69,7 @@ final class Optimizer
     {
         $classes = [];
 
-        foreach ($fresh->make(\Illuminate\Contracts\Http\Kernel::class)->getGlobalMiddleware() as $middleware) {
+        foreach ($fresh->make(HttpKernelContract::class)->getGlobalMiddleware() as $middleware) {
             if (is_string($middleware)) {
                 $classes[explode(':', $middleware, 2)[0]] = true;
             }

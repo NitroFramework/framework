@@ -2,8 +2,10 @@
 
 namespace Nitro\Routing;
 
+use Illuminate\Container\Container;
 use Illuminate\Http\Request;
 use Illuminate\Routing\ImplicitRouteBinding;
+use Illuminate\Routing\Route as BaseRoute;
 use Illuminate\Routing\Router as BaseRouter;
 
 /**
@@ -45,14 +47,14 @@ class Router extends BaseRouter
         return $this->routes;
     }
 
-    public function setCurrentRoute(\Illuminate\Routing\Route $route, Request $request): void
+    public function setCurrentRoute(BaseRoute $route, Request $request): void
     {
         $this->current = $route;
         $this->currentRequest = $request;
     }
 
     /** The container routes are currently resolved from (Octane swaps it per request). */
-    public function container(): \Illuminate\Container\Container
+    public function container(): Container
     {
         return $this->container;
     }

@@ -12,9 +12,11 @@ use Illuminate\Routing\RouteSignatureParameters;
 use Illuminate\Support\Reflector;
 use Illuminate\Support\Str;
 use Laravel\SerializableClosure\SerializableClosure;
+use ReflectionException;
 use ReflectionFunction;
 use ReflectionFunctionAbstract;
 use ReflectionMethod;
+use Throwable;
 use UnitEnum;
 
 /**
@@ -88,7 +90,7 @@ final class RouteCompiler
                 }
             }
 
-            // Fallbacks match last (AbstractRouteCollection::matchAgainstRoutes).
+            /** Fallbacks match last (AbstractRouteCollection::matchAgainstRoutes). */
             foreach ($fallbacks as $index) {
                 $table['routes'][$index]['hostRegex'] !== null
                     ? $table['hosted'][$method][] = $index
@@ -273,7 +275,7 @@ final class RouteCompiler
 
                 return method_exists($class, $method ?? '__invoke') ? new ReflectionMethod($class, $method ?? '__invoke') : null;
             }
-        } catch (\ReflectionException) {
+        } catch (ReflectionException) {
         }
 
         return null;
@@ -338,8 +340,8 @@ final class RouteCompiler
             foreach (RouteSignatureParameters::fromAction($action, ['subClass' => UrlRoutable::class]) as $parameter) {
                 $bindings['models'][] = [$parameter->getName(), Reflector::getParameterClassName($parameter)];
             }
-        } catch (\Throwable) {
-            // Unresolvable action (e.g. missing controller): Laravel fails at dispatch, so do we.
+        } catch (Throwable) {
+            /** Unresolvable action (e.g. missing controller): Laravel fails at dispatch, so do we. */
         }
 
         return $bindings;

@@ -2,91 +2,147 @@
 
 namespace Nitro\Components;
 
+use Faker\Generator;
+use Illuminate\Auth\AuthServiceProvider;
+use Illuminate\Auth\Middleware\RequirePassword;
+use Illuminate\Cache\CacheServiceProvider;
+use Illuminate\Cache\RateLimiter;
+use Illuminate\Contracts\Auth\Access\Gate;
+use Illuminate\Contracts\Auth\Authenticatable;
+use Illuminate\Contracts\Console\Kernel as ConsoleKernelContract;
+use Illuminate\Contracts\Database\ConcurrencyErrorDetector;
+use Illuminate\Contracts\Database\LostConnectionDetector;
+use Illuminate\Contracts\Debug\ExceptionHandler;
+use Illuminate\Contracts\Http\Kernel as HttpKernelContract;
+use Illuminate\Contracts\Log\ContextLogProcessor;
+use Illuminate\Contracts\Queue\EntityResolver;
+use Illuminate\Contracts\Routing\ResponseFactory;
+use Illuminate\Contracts\Validation\UncompromisedVerifier;
+use Illuminate\Cookie\CookieServiceProvider;
+use Illuminate\Database\DatabaseServiceProvider;
+use Illuminate\Encryption\EncryptionServiceProvider;
+use Illuminate\Foundation\Mix;
+use Illuminate\Foundation\PackageManifest;
+use Illuminate\Hashing\HashServiceProvider;
+use Illuminate\Log\Context\Repository;
+use Illuminate\Routing\Contracts\CallableDispatcher;
+use Illuminate\Routing\Contracts\ControllerDispatcher;
+use Illuminate\Session\Middleware\StartSession;
+use Illuminate\Session\SessionServiceProvider;
+use Illuminate\Translation\TranslationServiceProvider;
+use Illuminate\Validation\ValidationServiceProvider;
+use Illuminate\View\ViewServiceProvider;
+use Nitro\Foundation\Application;
+use Nitro\Routing\Router;
+use Psr\Http\Message\ResponseInterface;
+use Psr\Http\Message\ServerRequestInterface;
+
 /**
- * Static factory table for the services Laravel's base and "replaced" framework providers
- * register (Application::REPLACED_PROVIDERS + events, log, routing).
+ * The component registry: the core services, built on demand from static factories.
  *
  * MAP: container key => [factory class, static method, shared]. Nothing here is registered per
  * request; Application::getConcrete() looks keys up on demand, so unused services cost nothing.
  * Any binding registered by the app or a package with the same key wins over the table.
  *
- * Container aliases come from Laravel's own registerCoreContainerAliases(), plus NITRO_ALIASES.
+ * PROVIDERS: the component providers, providers whose services are components. They are skipped
+ * at boot, since the table already builds everything they would register.
+ *
+ * Container aliases are the framework's core aliases, plus NITRO_ALIASES.
  */
 final class Registry
 {
+    /**
+     * Component providers: providers whose services are components.
+     */
+    public const PROVIDERS = [
+        AuthServiceProvider::class,
+        CacheServiceProvider::class,
+        CookieServiceProvider::class,
+        DatabaseServiceProvider::class,
+        EncryptionServiceProvider::class,
+        HashServiceProvider::class,
+        SessionServiceProvider::class,
+        TranslationServiceProvider::class,
+        ValidationServiceProvider::class,
+        ViewServiceProvider::class,
+    ];
+
+    /**
+     * Container key => [factory class, static method, shared].
+     */
     public const MAP = [
-        // Base: EventServiceProvider, LogServiceProvider, ContextServiceProvider (bindings)
+        /** Base: EventServiceProvider, LogServiceProvider, ContextServiceProvider (bindings) */
         'events' => [Core::class, 'events', true],
         'log' => [Core::class, 'log', true],
         'files' => [Core::class, 'files', true],
-        \Illuminate\Log\Context\Repository::class => [Core::class, 'context', true],
-        \Illuminate\Contracts\Log\ContextLogProcessor::class => [Core::class, 'contextProcessor', false],
+        Repository::class => [Core::class, 'context', true],
+        ContextLogProcessor::class => [Core::class, 'contextProcessor', false],
 
-        // Application::registerBaseBindings()
-        \Illuminate\Foundation\PackageManifest::class => [Core::class, 'packageManifest', true],
-        \Illuminate\Foundation\Mix::class => [Core::class, 'mix', true],
+        /** Application::registerBaseBindings() */
+        PackageManifest::class => [Core::class, 'packageManifest', true],
+        Mix::class => [Core::class, 'mix', true],
 
-        // Kernels (ApplicationBuilder::withKernels() binds the same classes)
-        \Illuminate\Contracts\Http\Kernel::class => [Core::class, 'httpKernel', true],
-        \Illuminate\Contracts\Console\Kernel::class => [Core::class, 'consoleKernel', true],
-        \Illuminate\Contracts\Debug\ExceptionHandler::class => [Core::class, 'exceptionHandler', true],
+        /** Kernels (ApplicationBuilder::withKernels() binds the same classes) */
+        HttpKernelContract::class => [Core::class, 'httpKernel', true],
+        ConsoleKernelContract::class => [Core::class, 'consoleKernel', true],
+        ExceptionHandler::class => [Core::class, 'exceptionHandler', true],
 
-        // Encryption, cookies, hashing
+        /** Encryption, cookies, hashing */
         'encrypter' => [Core::class, 'encrypter', true],
         'cookie' => [Core::class, 'cookie', true],
         'hash' => [Core::class, 'hash', true],
         'hash.driver' => [Core::class, 'hashDriver', true],
 
-        // RoutingServiceProvider
+        /** RoutingServiceProvider */
         'router' => [Http::class, 'router', true],
         'url' => [Http::class, 'url', true],
         'redirect' => [Http::class, 'redirect', true],
-        \Illuminate\Contracts\Routing\ResponseFactory::class => [Http::class, 'responseFactory', true],
-        \Illuminate\Routing\Contracts\CallableDispatcher::class => [Http::class, 'callableDispatcher', true],
-        \Illuminate\Routing\Contracts\ControllerDispatcher::class => [Http::class, 'controllerDispatcher', true],
-        \Psr\Http\Message\ServerRequestInterface::class => [Http::class, 'psrRequest', false],
-        \Psr\Http\Message\ResponseInterface::class => [Http::class, 'psrResponse', false],
+        ResponseFactory::class => [Http::class, 'responseFactory', true],
+        CallableDispatcher::class => [Http::class, 'callableDispatcher', true],
+        ControllerDispatcher::class => [Http::class, 'controllerDispatcher', true],
+        ServerRequestInterface::class => [Http::class, 'psrRequest', false],
+        ResponseInterface::class => [Http::class, 'psrResponse', false],
 
-        // SessionServiceProvider
+        /** SessionServiceProvider */
         'session' => [Http::class, 'session', true],
         'session.store' => [Http::class, 'sessionStore', true],
-        \Illuminate\Session\Middleware\StartSession::class => [Http::class, 'startSession', true],
+        StartSession::class => [Http::class, 'startSession', true],
 
-        // AuthServiceProvider
+        /** AuthServiceProvider */
         'auth' => [Http::class, 'auth', true],
         'auth.driver' => [Http::class, 'authDriver', true],
-        \Illuminate\Contracts\Auth\Authenticatable::class => [Http::class, 'user', false],
-        \Illuminate\Contracts\Auth\Access\Gate::class => [Http::class, 'gate', true],
-        \Illuminate\Auth\Middleware\RequirePassword::class => [Http::class, 'requirePassword', false],
+        Authenticatable::class => [Http::class, 'user', false],
+        Gate::class => [Http::class, 'gate', true],
+        RequirePassword::class => [Http::class, 'requirePassword', false],
         'auth.password' => [Http::class, 'passwordBrokerManager', true],
         'auth.password.broker' => [Http::class, 'passwordBroker', false],
 
-        // DatabaseServiceProvider
+        /** DatabaseServiceProvider */
         'db.factory' => [Database::class, 'factory', true],
         'db' => [Database::class, 'manager', true],
         'db.connection' => [Database::class, 'connection', false],
         'db.schema' => [Database::class, 'schema', false],
         'db.transactions' => [Database::class, 'transactions', true],
-        \Illuminate\Contracts\Database\ConcurrencyErrorDetector::class => [Database::class, 'concurrencyDetector', true],
-        \Illuminate\Contracts\Database\LostConnectionDetector::class => [Database::class, 'lostConnectionDetector', true],
-        \Illuminate\Contracts\Queue\EntityResolver::class => [Database::class, 'entityResolver', true],
-        \Faker\Generator::class => [Database::class, 'faker', true],
+        ConcurrencyErrorDetector::class => [Database::class, 'concurrencyDetector', true],
+        LostConnectionDetector::class => [Database::class, 'lostConnectionDetector', true],
+        EntityResolver::class => [Database::class, 'entityResolver', true],
+        Generator::class => [Database::class, 'faker', true],
 
-        // TranslationServiceProvider + ValidationServiceProvider
+        /** TranslationServiceProvider + ValidationServiceProvider */
         'translation.loader' => [Validation::class, 'loader', true],
         'translator' => [Validation::class, 'translator', true],
         'validation.presence' => [Validation::class, 'presence', true],
         'validator' => [Validation::class, 'factory', true],
-        \Illuminate\Contracts\Validation\UncompromisedVerifier::class => [Validation::class, 'uncompromisedVerifier', true],
+        UncompromisedVerifier::class => [Validation::class, 'uncompromisedVerifier', true],
 
-        // CacheServiceProvider
+        /** CacheServiceProvider */
         'cache' => [Cache::class, 'manager', true],
         'cache.store' => [Cache::class, 'store', true],
         'cache.psr6' => [Cache::class, 'psr6', true],
         'memcached.connector' => [Cache::class, 'memcachedConnector', true],
-        \Illuminate\Cache\RateLimiter::class => [Cache::class, 'rateLimiter', true],
+        RateLimiter::class => [Cache::class, 'rateLimiter', true],
 
-        // ViewServiceProvider
+        /** ViewServiceProvider */
         'view' => [View::class, 'factory', true],
         'view.finder' => [View::class, 'finder', false],
         'blade.compiler' => [View::class, 'blade', true],
@@ -95,8 +151,8 @@ final class Registry
 
     /** Aliases for Nitro's own classes, on top of Laravel's core aliases. */
     public const NITRO_ALIASES = [
-        \Nitro\Foundation\Application::class => 'app',
-        \Nitro\Routing\Router::class => 'router',
+        Application::class => 'app',
+        Router::class => 'router',
     ];
 
     /** @var array{0: array<string, string>, 1: array<string, string[]>}|null */

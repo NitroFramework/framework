@@ -10,8 +10,9 @@ use Illuminate\Routing\Contracts\ControllerDispatcher as ControllerDispatcherCon
 use Illuminate\Routing\Events\PreparingResponse;
 use Illuminate\Routing\Events\ResponsePrepared;
 use Illuminate\Routing\Events\RouteMatched;
-use Illuminate\Routing\Router as BaseRouter;
 use Illuminate\Routing\RouteAction;
+use Illuminate\Routing\Router as BaseRouter;
+use Nitro\Foundation\Application;
 
 /**
  * Match + run a route from the compiled table.
@@ -30,8 +31,10 @@ final class Dispatcher
 
     public function dispatch(Request $request): mixed
     {
-        // Always the router's current container: Octane hands the router a fresh sandbox
-        // application per request, and controllers/middleware must resolve from it.
+        /**
+         * Always the router's current container: Octane hands the router a fresh sandbox
+         * application per request, and controllers/middleware must resolve from it.
+         */
         $this->container = $this->router->container();
 
         [$route, $entry] = $this->router->compiledRoutes()->find($request);
@@ -120,8 +123,8 @@ final class Dispatcher
 
     private function customControllerDispatcher(): bool
     {
-        // An explicit binding (not Nitro's component default) means someone replaced the dispatcher.
-        return $this->customControllerDispatcher ??= $this->container instanceof \Nitro\Foundation\Application
+        /** An explicit binding (not Nitro's component default) means someone replaced the dispatcher. */
+        return $this->customControllerDispatcher ??= $this->container instanceof Application
             && $this->container->hasExplicitBinding(ControllerDispatcherContract::class);
     }
 

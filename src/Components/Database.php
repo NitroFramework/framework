@@ -2,13 +2,15 @@
 
 namespace Nitro\Components;
 
-use Illuminate\Database\Connectors\ConnectionFactory;
+use Faker\Factory;
+use Faker\Generator;
 use Illuminate\Database\ConcurrencyErrorDetector;
-use Illuminate\Database\LostConnectionDetector;
+use Illuminate\Database\Connectors\ConnectionFactory;
 use Illuminate\Database\DatabaseManager;
 use Illuminate\Database\DatabaseTransactionsManager;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\QueueEntityResolver;
+use Illuminate\Database\LostConnectionDetector;
 use Illuminate\Database\Migrations\DatabaseMigrationRepository;
 use Illuminate\Database\Migrations\MigrationCreator;
 use Illuminate\Database\Migrations\Migrator;
@@ -79,13 +81,13 @@ final class Database
     /**
      * DatabaseServiceProvider::registerFakerGenerator(): one generator per locale, per process.
      */
-    public static function faker(Application $app, array $parameters = []): \Faker\Generator
+    public static function faker(Application $app, array $parameters = []): Generator
     {
         static $fakers = [];
 
         $locale = $parameters['locale'] ?? $app->make('config')->get('app.faker_locale', 'en_US');
 
-        $fakers[$locale] ??= \Faker\Factory::create($locale);
+        $fakers[$locale] ??= Factory::create($locale);
         $fakers[$locale]->unique(true);
 
         return $fakers[$locale];

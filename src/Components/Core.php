@@ -3,6 +3,7 @@
 namespace Nitro\Components;
 
 use Illuminate\Contracts\Queue\Factory as QueueFactory;
+use Illuminate\Cookie\CookieJar;
 use Illuminate\Encryption\Encrypter;
 use Illuminate\Encryption\MissingAppKeyException;
 use Illuminate\Events\Dispatcher;
@@ -15,7 +16,9 @@ use Illuminate\Log\Context\ContextLogProcessor;
 use Illuminate\Log\Context\Repository as ContextRepository;
 use Illuminate\Log\LogManager;
 use Laravel\SerializableClosure\SerializableClosure;
+use Nitro\Console\Kernel;
 use Nitro\Foundation\Application;
+use Nitro\Foundation\HttpKernel;
 
 /**
  * EventServiceProvider, LogServiceProvider, ContextServiceProvider (bindings),
@@ -60,14 +63,14 @@ final class Core
         return new Mix;
     }
 
-    public static function httpKernel(Application $app): \Nitro\Foundation\HttpKernel
+    public static function httpKernel(Application $app): HttpKernel
     {
-        return new \Nitro\Foundation\HttpKernel($app, $app->make('router'));
+        return new HttpKernel($app, $app->make('router'));
     }
 
-    public static function consoleKernel(Application $app): \Nitro\Console\Kernel
+    public static function consoleKernel(Application $app): Kernel
     {
-        return new \Nitro\Console\Kernel($app, $app->make('events'));
+        return new Kernel($app, $app->make('events'));
     }
 
     public static function exceptionHandler(Application $app): Handler
@@ -103,11 +106,11 @@ final class Core
         return str_starts_with($key, 'base64:') ? base64_decode(substr($key, 7)) : $key;
     }
 
-    public static function cookie(Application $app): \Illuminate\Cookie\CookieJar
+    public static function cookie(Application $app): CookieJar
     {
         $config = $app->make('config')->get('session');
 
-        return (new \Illuminate\Cookie\CookieJar)->setDefaultPathAndDomain(
+        return (new CookieJar)->setDefaultPathAndDomain(
             $config['path'] ?? '/', $config['domain'] ?? null, $config['secure'] ?? null, $config['same_site'] ?? null
         );
     }

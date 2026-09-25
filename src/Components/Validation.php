@@ -2,10 +2,13 @@
 
 namespace Nitro\Components;
 
+use Composer\Autoload\ClassLoader;
+use Illuminate\Http\Client\Factory as ClientFactory;
 use Illuminate\Translation\FileLoader;
 use Illuminate\Translation\Translator;
 use Illuminate\Validation\DatabasePresenceVerifier;
 use Illuminate\Validation\Factory;
+use Illuminate\Validation\NotPwnedVerifier;
 use Nitro\Foundation\Application;
 
 /**
@@ -44,9 +47,9 @@ final class Validation
         return $validator;
     }
 
-    public static function uncompromisedVerifier(Application $app): \Illuminate\Validation\NotPwnedVerifier
+    public static function uncompromisedVerifier(Application $app): NotPwnedVerifier
     {
-        return new \Illuminate\Validation\NotPwnedVerifier($app->make(\Illuminate\Http\Client\Factory::class));
+        return new NotPwnedVerifier($app->make(ClientFactory::class));
     }
 
     /**
@@ -58,7 +61,7 @@ final class Validation
         if (self::$frameworkLangPath === null) {
             $file = null;
 
-            foreach (\Composer\Autoload\ClassLoader::getRegisteredLoaders() as $loader) {
+            foreach (ClassLoader::getRegisteredLoaders() as $loader) {
                 if ($file = $loader->findFile(Translator::class)) {
                     break;
                 }

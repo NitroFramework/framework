@@ -4,9 +4,14 @@ namespace Nitro\Components;
 
 use Illuminate\Auth\Access\Gate;
 use Illuminate\Auth\AuthManager;
+use Illuminate\Auth\Middleware\RequirePassword;
 use Illuminate\Auth\Passwords\PasswordBrokerManager;
 use Illuminate\Contracts\Cache\Factory as CacheFactory;
+use Illuminate\Contracts\Container\BindingResolutionException;
+use Illuminate\Contracts\Routing\ResponseFactory as ResponseFactoryContract;
+use Illuminate\Contracts\Routing\UrlGenerator as UrlGeneratorContract;
 use Illuminate\Contracts\View\Factory as ViewFactory;
+use Illuminate\Http\Response;
 use Illuminate\Routing\CallableDispatcher;
 use Illuminate\Routing\ControllerDispatcher;
 use Illuminate\Routing\Redirector;
@@ -17,6 +22,7 @@ use Illuminate\Session\SessionManager;
 use Nitro\Foundation\Application;
 use Nitro\Routing\CompiledRoutes;
 use Nitro\Routing\Router;
+use Symfony\Bridge\PsrHttpMessage\Factory\PsrHttpFactory;
 
 /**
  * Routing, URL generation, session and auth. Mirrors RoutingServiceProvider,
@@ -92,12 +98,12 @@ final class Http
 
     public static function psrRequest(Application $app): mixed
     {
-        if (! class_exists(\Symfony\Bridge\PsrHttpMessage\Factory\PsrHttpFactory::class)) {
-            throw new \Illuminate\Contracts\Container\BindingResolutionException('Unable to resolve PSR request. Please install the "symfony/psr-http-message-bridge" package.');
+        if (! class_exists(PsrHttpFactory::class)) {
+            throw new BindingResolutionException('Unable to resolve PSR request. Please install the "symfony/psr-http-message-bridge" package.');
         }
 
         $illuminateRequest = $app->make('request');
-        $request = (new \Symfony\Bridge\PsrHttpMessage\Factory\PsrHttpFactory)->createRequest($illuminateRequest);
+        $request = (new PsrHttpFactory)->createRequest($illuminateRequest);
 
         if ($illuminateRequest->getContentTypeFormat() !== 'json' && $illuminateRequest->request->count() === 0) {
             return $request;
@@ -108,18 +114,18 @@ final class Http
 
     public static function psrResponse(): mixed
     {
-        if (! class_exists(\Symfony\Bridge\PsrHttpMessage\Factory\PsrHttpFactory::class)) {
-            throw new \Illuminate\Contracts\Container\BindingResolutionException('Unable to resolve PSR response. Please install the "symfony/psr-http-message-bridge" package.');
+        if (! class_exists(PsrHttpFactory::class)) {
+            throw new BindingResolutionException('Unable to resolve PSR response. Please install the "symfony/psr-http-message-bridge" package.');
         }
 
-        return (new \Symfony\Bridge\PsrHttpMessage\Factory\PsrHttpFactory)->createResponse(new \Illuminate\Http\Response);
+        return (new PsrHttpFactory)->createResponse(new Response);
     }
 
-    public static function requirePassword(Application $app): \Illuminate\Auth\Middleware\RequirePassword
+    public static function requirePassword(Application $app): RequirePassword
     {
-        return new \Illuminate\Auth\Middleware\RequirePassword(
-            $app->make(\Illuminate\Contracts\Routing\ResponseFactory::class),
-            $app->make(\Illuminate\Contracts\Routing\UrlGenerator::class),
+        return new RequirePassword(
+            $app->make(ResponseFactoryContract::class),
+            $app->make(UrlGeneratorContract::class),
             $app->make('config')->get('auth.password_timeout')
         );
     }
@@ -143,7 +149,7 @@ final class Http
     {
         $auth = new AuthManager($app);
 
-        // AuthServiceProvider::registerEventRebindHandler()
+        /** AuthServiceProvider::registerEventRebindHandler() */
         $app->rebinding('events', static function ($app, $dispatcher) {
             if ($app['auth']->hasResolvedGuards() && method_exists($guard = $app['auth']->guard(), 'setDispatcher')) {
                 $guard->setDispatcher($dispatcher);

@@ -2,6 +2,8 @@
 
 namespace Nitro\Support;
 
+use ParseError;
+
 /**
  * Opcache helpers (after Nitro's Support\Opcache): check for opcache and act on it; every
  * method is a no-op where opcache is unavailable for the current SAPI.
@@ -83,7 +85,7 @@ final class Opcache
             token_get_all((string) file_get_contents($path), TOKEN_PARSE);
 
             return true;
-        } catch (\ParseError) {
+        } catch (ParseError) {
             return false;
         }
     }

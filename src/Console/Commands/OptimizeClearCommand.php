@@ -2,14 +2,14 @@
 
 namespace Nitro\Console\Commands;
 
-use Illuminate\Foundation\Console\OptimizeClearCommand as LaravelOptimizeClearCommand;
+use Illuminate\Foundation\Console\OptimizeClearCommand as BaseOptimizeClearCommand;
 use Symfony\Component\Console\Attribute\AsCommand;
 
 /**
  * Laravel's optimize:clear, plus Nitro's compiled container factories.
  */
 #[AsCommand(name: 'optimize:clear')]
-class OptimizeClearCommand extends LaravelOptimizeClearCommand
+class OptimizeClearCommand extends BaseOptimizeClearCommand
 {
     public function handle()
     {

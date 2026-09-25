@@ -2,7 +2,7 @@
 
 namespace Nitro\Console\Commands;
 
-use Illuminate\Foundation\Console\OptimizeCommand as LaravelOptimizeCommand;
+use Illuminate\Foundation\Console\OptimizeCommand as BaseOptimizeCommand;
 use Nitro\Console\Optimizer;
 use Symfony\Component\Console\Attribute\AsCommand;
 
@@ -13,7 +13,7 @@ use Symfony\Component\Console\Attribute\AsCommand;
  *   php artisan optimize --profile   also times every eager service provider
  */
 #[AsCommand(name: 'optimize')]
-class OptimizeCommand extends LaravelOptimizeCommand
+class OptimizeCommand extends BaseOptimizeCommand
 {
     protected $signature = 'optimize
         {--except= : The commands to skip}

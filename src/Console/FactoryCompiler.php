@@ -6,6 +6,7 @@ use Illuminate\Contracts\Container\SelfBuilding;
 use Nitro\Foundation\Application;
 use ReflectionClass;
 use ReflectionNamedType;
+use ReflectionParameter;
 use UnitEnum;
 
 /**
@@ -65,7 +66,7 @@ final class FactoryCompiler
 
         $this->visited[$class] = true;
 
-        // Bound services resolve through their binding; the table must not shadow it.
+        /** Bound services resolve through their binding; the table must not shadow it. */
         if ($this->app->bound($class) || $this->app->isAlias($class) || ! class_exists($class)) {
             return false;
         }
@@ -100,7 +101,7 @@ final class FactoryCompiler
         return true;
     }
 
-    private function argument(\ReflectionParameter $parameter): ?string
+    private function argument(ReflectionParameter $parameter): ?string
     {
         if ($parameter->isVariadic() || $parameter->getAttributes() !== []) {
             return null;
@@ -116,7 +117,7 @@ final class FactoryCompiler
             }
 
             if ($parameter->isDefaultValueAvailable()) {
-                // Container::resolveClass(): default wins unless the type is bound.
+                /** Container::resolveClass(): default wins unless the type is bound. */
                 return self::exportable($default = $parameter->getDefaultValue())
                     ? "(\$app->bound(\\{$name}::class) ? \$app->make(\\{$name}::class) : ".var_export($default, true).')'
                     : null;
