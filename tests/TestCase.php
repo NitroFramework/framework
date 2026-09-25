@@ -5,8 +5,12 @@ namespace Nitro\Tests;
 use Illuminate\Container\Container;
 use Illuminate\Contracts\Console\Kernel as ConsoleKernel;
 use Illuminate\Contracts\Http\Kernel as HttpKernel;
+use Illuminate\Foundation\Application as LaravelApplication;
 use Illuminate\Foundation\Bootstrap\HandleExceptions;
+use Illuminate\Foundation\Configuration\Exceptions;
+use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
+use Illuminate\Queue\Queue;
 use Illuminate\Support\Facades\Facade;
 use Nitro\Foundation\Application;
 use Nitro\Tests\Fixtures\Package\AcmeDeferredProvider;
@@ -82,7 +86,7 @@ abstract class TestCase extends BaseTestCase
         }
 
         $app = $this->app = require self::APP.'/bootstrap/app.php';
-        $app->setRunningInConsole(false);
+        static::runningInConsole($app, false);
         $app->make(HttpKernel::class)->bootstrap();
 
         return $app;
@@ -91,10 +95,77 @@ abstract class TestCase extends BaseTestCase
     protected function bootConsole(): Application
     {
         $app = $this->app = require self::APP.'/bootstrap/app.php';
-        $app->setRunningInConsole(true);
+        static::runningInConsole($app, true);
         $app->make(ConsoleKernel::class)->bootstrap();
 
         return $app;
+    }
+
+    /**
+     * A booted stock Laravel application (Illuminate\Foundation\Application, Laravel's own
+     * kernels and providers) over the same fixture app: the reference for parity tests.
+     */
+    protected function bootLaravel(): LaravelApplication
+    {
+        $app = LaravelApplication::configure(basePath: self::APP)
+            ->withRouting(web: self::APP.'/routes/web.php', api: self::APP.'/routes/api.php')
+            ->withMiddleware(static function (Middleware $middleware): void {})
+            ->withExceptions(static function (Exceptions $exceptions): void {})
+            ->create();
+
+        /** Its own bootstrap cache: Laravel's provider list differs, so its services.php does too. */
+        $app->useBootstrapPath(self::laravelBootstrapPath());
+        $app->make(ConsoleKernel::class)->bootstrap();
+
+        return $app;
+    }
+
+    /**
+     * Run one scenario against stock Laravel, then against Nitro. The scenario receives a
+     * booter (call it for each application it needs) and returns what it observed.
+     *
+     * @return array{laravel: mixed, nitro: mixed}
+     */
+    protected function parity(callable $scenario): array
+    {
+        static::flushFrameworkStatics();
+        $laravel = $scenario(fn () => $this->bootLaravel());
+        $this->flushGlobalState();
+
+        /** What stock Laravel registered process-wide must not answer for Nitro. */
+        static::flushFrameworkStatics();
+        $nitro = $scenario(fn () => $this->bootConsole());
+        $this->flushGlobalState();
+
+        return ['laravel' => $laravel, 'nitro' => $nitro];
+    }
+
+    /**
+     * Process-wide hooks that providers register statically (e.g. ContextServiceProvider's
+     * queue payload callback).
+     */
+    protected static function flushFrameworkStatics(): void
+    {
+        Queue::createPayloadUsing(null);
+    }
+
+    protected static function laravelBootstrapPath(): string
+    {
+        $path = sys_get_temp_dir().DIRECTORY_SEPARATOR.'nitro-tests-laravel-bootstrap';
+
+        if (! is_dir($path.DIRECTORY_SEPARATOR.'cache')) {
+            mkdir($path.DIRECTORY_SEPARATOR.'cache', 0777, true);
+        }
+
+        return $path;
+    }
+
+    /**
+     * Set console detection directly; the application has no public setter for it.
+     */
+    protected static function runningInConsole(LaravelApplication $app, bool $console): void
+    {
+        (fn () => $this->isRunningInConsole = $console)->call($app);
     }
 
     protected function optimize(): void

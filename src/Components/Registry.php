@@ -47,6 +47,9 @@ use Psr\Http\Message\ServerRequestInterface;
  * PROVIDERS: the component providers, providers whose services are components. They are skipped
  * at boot, since the table already builds everything they would register.
  *
+ * SCOPED: shared components that live for one request or job, as the container's scoped()
+ * bindings do; forgetScopedInstances() (queue worker, Octane) drops them.
+ *
  * Container aliases are the framework's core aliases, plus NITRO_ALIASES.
  */
 final class Registry
@@ -65,6 +68,13 @@ final class Registry
         TranslationServiceProvider::class,
         ValidationServiceProvider::class,
         ViewServiceProvider::class,
+    ];
+
+    /**
+     * Scoped components: shared within a request or job, forgotten between them.
+     */
+    public const SCOPED = [
+        Repository::class,
     ];
 
     /**

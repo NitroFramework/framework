@@ -63,6 +63,7 @@ class Application extends BaseApplication
             $this->abstractAliases['app'][] = static::class;
         }
 
+        $this->registerComponentState();
         $this->registerLaravelCloudServices();
     }
 
@@ -143,6 +144,20 @@ class Application extends BaseApplication
         $this->components = Registry::MAP;
         $this->compiledFactories = null;
         $this->compiledMap = [];
+        $this->registerComponentState();
+    }
+
+    /**
+     * Container state the component table implies: scoped components are forgotten between
+     * requests and jobs, and component providers report as loaded, since their services are.
+     */
+    protected function registerComponentState(): void
+    {
+        $this->scopedInstances = Registry::SCOPED;
+
+        foreach (Registry::PROVIDERS as $provider) {
+            $this->loadedProviders[$provider] = true;
+        }
     }
 
     public function registerConfiguredProviders()
@@ -243,13 +258,5 @@ class Application extends BaseApplication
         return ! $this->ignoreCaches
             && ! $this->make('config')->get('app.debug')
             && is_file($this->getCachedViewsManifestPath());
-    }
-
-    /**
-     * Override console detection (e.g. to serve HTTP from a CLI-based process, or in tests).
-     */
-    public function setRunningInConsole(bool $console): void
-    {
-        $this->isRunningInConsole = $console;
     }
 }

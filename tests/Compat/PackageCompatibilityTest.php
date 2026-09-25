@@ -2,10 +2,13 @@
 
 namespace Nitro\Tests\Compat;
 
+use Illuminate\Cache\CacheManager;
+use Illuminate\Cache\CacheServiceProvider;
+use Illuminate\Foundation\PackageManifest;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
+use Nitro\Components\Registry;
 use Nitro\Console\Kernel as ConsoleKernel;
-use Illuminate\Foundation\PackageManifest;
 use Nitro\Tests\Fixtures\Package\Acme;
 use Nitro\Tests\Fixtures\Package\AcmeDeferredProvider;
 use Nitro\Tests\Fixtures\Package\AcmeEvent;
@@ -140,15 +143,26 @@ class PackageCompatibilityTest extends TestCase
         }
     }
 
-    public function test_component_providers_are_skipped_and_the_rest_load(): void
+    public function test_component_providers_are_skipped_but_report_as_loaded(): void
     {
         $app = $this->boot();
 
-        foreach (\Nitro\Components\Registry::PROVIDERS as $provider) {
-            $this->assertFalse($app->providerIsLoaded($provider), "{$provider} is a component provider and should be skipped");
+        foreach (Registry::PROVIDERS as $provider) {
+            $this->assertTrue($app->providerIsLoaded($provider), "{$provider} should report as loaded");
+            $this->assertArrayHasKey($provider, $app->getLoadedProviders());
+            $this->assertNull($app->getProvider($provider), "{$provider} should never be instantiated");
         }
 
-        $this->assertInstanceOf(\Illuminate\Cache\CacheManager::class, $app->make('cache'));
+        /** Registering one explicitly (as a package might) stays a no-op. */
+        $app->register(CacheServiceProvider::class);
+        $this->assertNull($app->getProvider(CacheServiceProvider::class));
+
+        /** The same holds after flush(), which resets the container's provider state. */
+        $app->flush();
+        $this->assertTrue($app->providerIsLoaded(CacheServiceProvider::class));
+
+        $app = $this->boot();
+        $this->assertInstanceOf(CacheManager::class, $app->make('cache'));
         $this->assertTrue($app->providerIsLoaded(\Illuminate\Foundation\Providers\FoundationServiceProvider::class));
         $this->assertTrue($app->providerIsLoaded(\Illuminate\Filesystem\FilesystemServiceProvider::class));
     }

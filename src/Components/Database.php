@@ -39,11 +39,16 @@ final class Database
     }
 
     /**
-     * DatabaseServiceProvider::boot(). The manager is cheap to build (no connection is opened),
-     * so wiring Eloquent at bootstrap costs a couple of object allocations.
+     * Wires Eloquent to this application: runs when the Model class first loads, or at bootstrap
+     * when it is already loaded (a second application in the same process, as in a test suite).
+     *
+     * Booted models are cleared first, so each application boots its models again and their
+     * boot()/booted() listeners and observers attach to this application's event dispatcher.
+     * The manager is cheap to build (no connection is opened).
      */
     public static function bootEloquent(Application $app): void
     {
+        Model::clearBootedModels();
         Model::setConnectionResolver($app->make('db'));
         Model::setEventDispatcher($app->make('events'));
     }

@@ -15,14 +15,18 @@ use Illuminate\Hashing\HashManager;
 use Illuminate\Log\Context\ContextLogProcessor;
 use Illuminate\Log\Context\Repository as ContextRepository;
 use Illuminate\Log\LogManager;
+use Illuminate\Queue\Events\JobProcessing;
+use Illuminate\Queue\Queue;
+use Illuminate\Support\Env;
+use Illuminate\Support\Facades\Context;
 use Laravel\SerializableClosure\SerializableClosure;
 use Nitro\Console\Kernel;
 use Nitro\Foundation\Application;
 use Nitro\Foundation\HttpKernel;
 
 /**
- * EventServiceProvider, LogServiceProvider, ContextServiceProvider (bindings),
- * EncryptionServiceProvider, CookieServiceProvider, HashServiceProvider, base bindings.
+ * EventServiceProvider, LogServiceProvider, ContextServiceProvider, EncryptionServiceProvider,
+ * CookieServiceProvider, HashServiceProvider, base bindings.
  */
 final class Core
 {
@@ -43,9 +47,48 @@ final class Core
         return new LogManager($app);
     }
 
+    /**
+     * The context repository; in console processes started with __LARAVEL_CONTEXT (e.g. by the
+     * Concurrency process driver), it starts hydrated from that payload.
+     */
     public static function context(Application $app): ContextRepository
     {
-        return new ContextRepository($app->make('events'));
+        $repository = new ContextRepository($app->make('events'));
+
+        if ($app->runningInConsole()
+            && ($context = Env::get('__LARAVEL_CONTEXT'))
+            && ($context = json_decode($context, associative: true))) {
+            $repository->hydrate($context);
+        }
+
+        return $repository;
+    }
+
+    /**
+     * Queued job payloads carry the current context. Registered when the queue base class first
+     * loads, so requests that never queue anything never pay for it.
+     */
+    public static function carryContextInPayloads(): void
+    {
+        Queue::createPayloadUsing(static function ($connection, $queue, $payload) {
+            $context = Context::dehydrate();
+
+            return $context === null ? $payload : [
+                ...$payload,
+                'illuminate:log:context' => $context,
+            ];
+        });
+    }
+
+    /**
+     * A job being processed restores the context it was queued with. Registered when the
+     * JobProcessing event class first loads (the sync queue and the worker both construct it).
+     */
+    public static function hydrateContextForJobs(Application $app): void
+    {
+        $app->make('events')->listen(JobProcessing::class, static function (JobProcessing $event) {
+            Context::hydrate($event->job->payload()['illuminate:log:context'] ?? null);
+        });
     }
 
     public static function contextProcessor(): ContextLogProcessor
