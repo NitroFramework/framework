@@ -216,6 +216,32 @@
         return kick(comp);
     }
 
+    // ---- 419: the page outlived its session ----------------------------------
+    //
+    // The CSRF token a page carries belongs to the session it was rendered
+    // for. Once that session expires or is replaced (a login elsewhere), every
+    // request the page sends is refused with 419 and an HTML error page — which
+    // is not a snapshot, and is not JSON. Asked the way Livewire asks: the user
+    // chooses to reload, rather than losing what they were typing to a reload
+    // they did not ask for.
+
+    var PAGE_EXPIRED = {};
+
+    function handlePageExpiry() {
+        if (window.confirm('This page has expired.\nWould you like to refresh the page?')) {
+            window.location.reload();
+        }
+    }
+
+    // The response body as JSON, unless the server said the page has expired.
+    function readJson(response) {
+        if (response.status === 419) {
+            handlePageExpiry();
+            throw PAGE_EXPIRED;
+        }
+        return response.json();
+    }
+
     function kick(comp) {
         if (comp.inflight || !comp.pending) return comp.inflight || Promise.resolve();
 
@@ -248,9 +274,9 @@
             headers: { 'Content-Type': 'application/json', 'X-Livewire': '1', 'X-CSRF-TOKEN': CSRF },
             body: body
         })
-            .then(function (r) { return r.json(); })
+            .then(readJson)
             .then(function (res) { applyResponse(res); })
-            .catch(function (err) { console.error('[Livewire] commit failed', err); })
+            .catch(function (err) { if (err !== PAGE_EXPIRED) console.error('[Livewire] commit failed', err); })
             .then(function () {
                 setLoading(comp, false, targets);
                 clearDirty(comp);
@@ -449,9 +475,12 @@
         var fd = new FormData();
         for (var i = 0; i < fileList.length; i++) fd.append('files[]', fileList[i]);
         fetch(UPLOAD_URI, { method: 'POST', headers: { 'X-CSRF-TOKEN': CSRF }, body: fd })
-            .then(function (r) { return r.json(); })
+            .then(readJson)
             .then(function (res) { done(res.files || []); })
-            .catch(function (err) { console.error('[Livewire] upload failed', err); done([]); });
+            .catch(function (err) {
+                if (err !== PAGE_EXPIRED) console.error('[Livewire] upload failed', err);
+                done([]);
+            });
     }
 
     // ---- wire:<event> delegation (click, submit, keydown, blur, …) ----------
