@@ -247,9 +247,21 @@ class UploadedFile extends SplFileInfo
         return new static($target, $this->originalName, $this->mimeType, UPLOAD_ERR_OK, true);
     }
 
-    /** Build one from a plain path, for tests. */
-    public static function fake(string $path, ?string $originalName = null): static
+    /**
+     * Fake uploads for tests.
+     *
+     *     UploadedFile::fake()->image('avatar.png');        // a factory
+     *     UploadedFile::fake($path, 'notes.txt');           // one file, from a path
+     *
+     * With no path, the factory that makes files from nothing. With one, a
+     * file wrapping it that skips the checks a real upload has to pass.
+     */
+    public static function fake(?string $path = null, ?string $originalName = null): static|Testing\FileFactory
     {
+        if ($path === null) {
+            return new Testing\FileFactory();
+        }
+
         return new static(
             $path,
             $originalName ?? basename($path),
