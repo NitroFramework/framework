@@ -1,0 +1,143 @@
+name: tests
+
+on:
+  push:
+    branches: [main, '0.*']
+  pull_request:
+  schedule:
+    # Nightly, so a new laravel/framework release that breaks Nitro is caught within a day.
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: ${{ matrix.os }} / PHP ${{ matrix.php }} / ${{ matrix.dependencies }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        php: ['8.3', '8.4', '8.5']
+        # lowest: the oldest versions composer.json allows (laravel/framework 13.33.0).
+        # highest: the newest releases.
+        dependencies: [lowest, highest]
+        include:
+          - os: windows-latest
+            php: '8.5'
+            dependencies: highest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: mbstring, fileinfo, pdo_sqlite, sqlite3
+          coverage: none
+          tools: composer:v2
+
+      - name: Validate composer.json
+        run: composer validate --strict
+
+      - name: Install dependencies (lowest)
+        if: matrix.dependencies == 'lowest'
+        run: composer update --prefer-lowest --prefer-stable --no-interaction --no-progress
+
+      - name: Install dependencies (highest)
+        if: matrix.dependencies == 'highest'
+        run: composer update --prefer-stable --no-interaction --no-progress
+
+      - name: Show installed Laravel version
+        run: composer show laravel/framework --no-interaction
+
+      - name: Run tests
+        run: composer test
+
+  static-analysis:
+    name: PHPStan
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          coverage: none
+          tools: composer:v2
+
+      - name: Install dependencies
+        run: composer update --prefer-stable --no-interaction --no-progress
+
+      - name: Run PHPStan
+        run: composer analyse
+
+  skeleton:
+    name: Skeleton app / PHP ${{ matrix.php }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.3', '8.5']
+
+    steps:
+      - name: Check out the framework
+        uses: actions/checkout@v4
+        with:
+          path: framework
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: mbstring, fileinfo, pdo_sqlite, sqlite3
+          coverage: none
+          tools: composer:v2
+
+      - name: Create an app from the nitro/nitro skeleton
+        run: composer create-project nitro/nitro app --no-install --no-scripts --no-interaction
+
+      - name: Use this checkout of nitro/framework
+        working-directory: app
+        run: |
+          composer config repositories.nitro-framework '{"type": "path", "url": "../framework", "options": {"symlink": true}}'
+          composer require "nitro/framework:*@dev" --no-update --no-interaction
+          composer update --prefer-stable --no-interaction --no-progress
+
+      - name: Set up the app
+        working-directory: app
+        run: |
+          cp .env.example .env
+          php artisan key:generate --ansi
+          touch database/database.sqlite
+          php artisan migrate --force --ansi
+
+      - name: Run the app's tests
+        working-directory: app
+        run: php artisan test
+
+      - name: Optimize, then serve requests from the compiled caches
+        working-directory: app
+        run: |
+          php artisan optimize
+          php artisan serve --host=127.0.0.1 --port=8000 > serve.log 2>&1 &
+          for i in $(seq 1 20); do curl -fsS -o /dev/null http://127.0.0.1:8000/up && break; sleep 0.5; done
+          curl -fsS -o /dev/null -w "GET /up %{http_code}\n" http://127.0.0.1:8000/up
+          curl -fsS -o /dev/null -w "GET / %{http_code}\n" http://127.0.0.1:8000/
+
+      - name: Clear the compiled caches
+        working-directory: app
+        run: php artisan optimize:clear
+
+      - name: Server log
+        if: failure()
+        working-directory: app
+        run: cat serve.log storage/logs/*.log 2>/dev/null || true
