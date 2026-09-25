@@ -3,10 +3,10 @@
 namespace Nitro\View;
 
 use InvalidArgumentException;
-use Nitro\Container\Contracts\ClassResolver;
-use Nitro\View\Contracts\ViewComposerResolver;
 use Nitro\View\Contracts\Engine;
 use Nitro\View\Contracts\Factory as FactoryContract;
+use Nitro\View\Contracts\ViewComposerResolver;
+use Closure;
 
 /**
  * The view layer's front door: chooses views, holds the data every view sees,
@@ -32,15 +32,38 @@ class Factory implements FactoryContract
     private array $rendered = [];
 
     /**
-     * @param Engine           $renderer         Resolves and renders templates.
-     * @param ClassResolver        $resolver         Builds composers named by class.
-     * @param ViewComposerResolver $composerResolver Holds and fires those composers.
+     * @param Engine               $renderer  Resolves and renders templates.
+     * @param ViewComposerResolver $composers Holds and fires composers and creators.
      */
     public function __construct(
         private Engine $renderer,
-        private ClassResolver $resolver,
-        private ViewComposerResolver $composerResolver,
+        private ViewComposerResolver $composers,
     ) {
+    }
+
+    /**
+     * A view's data after its creators and composers have run.
+     *
+     * For views rendered without passing through make() and renderView(): a
+     * layout, an include or a component, which the engine renders from inside
+     * the page and hands here through
+     * {@see Engine::prepareNestedViewsWith()}. When nothing listens for the
+     * view, no View object is built for it.
+     *
+     * @param  array<string, mixed> $data
+     * @return array<string, mixed>
+     */
+    public function composed(string $view, array $data): array
+    {
+        if (! $this->composers->hasViewListeners($view)) {
+            return $data;
+        }
+
+        $instance = $this->make($view, $data);
+
+        $this->composers->callComposer($instance);
+
+        return $instance->getData();
     }
 
     // ─── Choosing a view ──────────────────────────────────
@@ -48,12 +71,18 @@ class Factory implements FactoryContract
     /**
      * Choose a view, without rendering it yet.
      *
+     * Its creators run here, before the caller adds anything with with().
+     *
      * @param array<string, mixed> $data
      * @param array<string, mixed> $mergeData Defaults that $data overrides.
      */
     public function make(string $template, array $data = [], array $mergeData = []): View
     {
-        return (new View($template, array_merge($mergeData, $data)))->setFactory($this);
+        $view = (new View($template, array_merge($mergeData, $data)))->setFactory($this);
+
+        $this->composers->callCreator($view);
+
+        return $view;
     }
 
     /**
@@ -109,7 +138,7 @@ class Factory implements FactoryContract
      */
     public function renderView(View $view): string
     {
-        $this->composerResolver->fire($view, $this->resolver);
+        $this->composers->callComposer($view);
 
         $data = array_merge($this->shared, $view->getData());
 
@@ -189,7 +218,7 @@ class Factory implements FactoryContract
      */
     public function renderPartial(string $view, array $data = []): string
     {
-        return $this->renderer->renderPartial($view, array_merge($this->shared, $data));
+        return $this->renderer->renderPartial($view, $this->composed($view, array_merge($this->shared, $data)));
     }
 
     /**
@@ -199,7 +228,7 @@ class Factory implements FactoryContract
      */
     public function renderFragment(string $view, string $fragment, array $data = []): string
     {
-        return $this->renderer->renderFragment($view, $fragment, array_merge($this->shared, $data));
+        return $this->renderer->renderFragment($view, $fragment, $this->composed($view, array_merge($this->shared, $data)));
     }
 
     /**
@@ -210,17 +239,82 @@ class Factory implements FactoryContract
      */
     public function renderFragments(string $view, array $fragments, array $data = []): string
     {
-        return $this->renderer->renderFragments($view, $fragments, array_merge($this->shared, $data));
+        return $this->renderer->renderFragments($view, $fragments, $this->composed($view, array_merge($this->shared, $data)));
     }
 
-    // ─── Shared data and composers ────────────────────────
+    // ─── Shared data ──────────────────────────────────────
 
     /**
-     * Make a value available to every view rendered from here on.
+     * Make a value, or several given as an array, available to every view
+     * rendered from here on.
+     *
+     * @param array<string, mixed>|string $key
      */
-    public function share(string $key, mixed $value): void
+    public function share(array|string $key, mixed $value = null): mixed
     {
-        $this->shared[$key] = $value;
+        $keys = is_array($key) ? $key : [$key => $value];
+
+        foreach ($keys as $name => $item) {
+            $this->shared[$name] = $item;
+        }
+
+        return is_array($key) ? $key : $value;
+    }
+
+    /**
+     * One shared value, or $default when nothing was shared under that key.
+     */
+    public function shared(string $key, mixed $default = null): mixed
+    {
+        return $this->shared[$key] ?? $default;
+    }
+
+    // ─── Composers and creators ───────────────────────────
+
+    /**
+     * Register a callback to run before the matching views render.
+     *
+     * @param  array<int, string>|string $views    View names or wildcard patterns.
+     * @param  callable|string           $callback A callable, or 'Class' / 'Class@method'.
+     * @return array<int, Closure>
+     */
+    public function composer(array|string $views, callable|string $callback): array
+    {
+        return $this->composers->composer($views, $callback);
+    }
+
+    /**
+     * Register several composers at once, as [callback => views].
+     *
+     * @param  array<string, array<int, string>|string> $composers
+     * @return array<int, Closure>
+     */
+    public function composers(array $composers): array
+    {
+        return $this->composers->composers($composers);
+    }
+
+    /**
+     * Register a callback to run when the matching views are made.
+     *
+     * @param  array<int, string>|string $views
+     * @return array<int, Closure>
+     */
+    public function creator(array|string $views, callable|string $callback): array
+    {
+        return $this->composers->creator($views, $callback);
+    }
+
+    /** Run the composers listening for this view. */
+    public function callComposer(View $view): void
+    {
+        $this->composers->callComposer($view);
+    }
+
+    /** Run the creators listening for this view. */
+    public function callCreator(View $view): void
+    {
+        $this->composers->callCreator($view);
     }
 
     /**
@@ -231,18 +325,6 @@ class Factory implements FactoryContract
     public function getShared(): array
     {
         return $this->shared;
-    }
-
-    /**
-     * Register a composer to run before the matching views render.
-     *
-     * @param string|array<int, string> $templates View names, `prefix.*`, or `*`.
-     * @param callable|string           $composer  A callable, or a class name
-     *                                             built when it fires.
-     */
-    public function composer(string|array $templates, callable|string $composer): void
-    {
-        $this->composerResolver->register($templates, $composer);
     }
 
     // ─── Where views are looked for ───────────────────────

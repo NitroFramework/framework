@@ -2,6 +2,8 @@
 
 namespace Nitro\View\Contracts;
 
+use Closure;
+
 /**
  * Resolves view names to templates, renders them, and owns the state a
  * template accumulates while it runs.
@@ -133,4 +135,16 @@ interface Engine
      * @param array<string, mixed> $data
      */
     public function renderString(string $template, array $data = []): string;
+
+    /**
+     * Pass each view rendered inside another one through this callback first.
+     *
+     * A layout, an include or a component is rendered by the engine, not
+     * chosen through the factory, so this is how its creators and composers
+     * reach it. The callback takes the view name and data, and returns the
+     * data to render with.
+     *
+     * @param (Closure(string, array<string, mixed>): array<string, mixed>)|null $callback
+     */
+    public function prepareNestedViewsWith(?Closure $callback): void;
 }

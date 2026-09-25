@@ -357,20 +357,46 @@ class Blade
     }
 
     /**
-     * Share a value with every view rendered through this instance.
+     * Share a value, or several given as an array, with every view rendered
+     * through this instance.
+     *
+     * @param array<string, mixed>|string $key
      */
-    public function share(string $key, mixed $value): void
+    public function share(array|string $key, mixed $value = null): mixed
     {
-        $this->factory->share($key, $value);
+        return $this->factory->share($key, $value);
     }
 
     /**
-     * Register a composer against one or more view names.
+     * Register a callback to run before the matching views render.
      *
-     * @param string|array<int, string> $views
+     * @param  array<int, string>|string $views View names or wildcard patterns.
+     * @return array<int, \Closure>
      */
-    public function composer(string|array $views, callable|string $composer): void
+    public function composer(array|string $views, callable|string $callback): array
     {
-        $this->factory->composer($views, $composer);
+        return $this->factory->composer($views, $callback);
+    }
+
+    /**
+     * Register several composers at once, as [callback => views].
+     *
+     * @param  array<string, array<int, string>|string> $composers
+     * @return array<int, \Closure>
+     */
+    public function composers(array $composers): array
+    {
+        return $this->factory->composers($composers);
+    }
+
+    /**
+     * Register a callback to run when the matching views are made.
+     *
+     * @param  array<int, string>|string $views
+     * @return array<int, \Closure>
+     */
+    public function creator(array|string $views, callable|string $callback): array
+    {
+        return $this->factory->creator($views, $callback);
     }
 }

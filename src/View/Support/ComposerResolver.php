@@ -2,101 +2,157 @@
 
 namespace Nitro\View\Support;
 
+use Closure;
 use Nitro\Container\Contracts\ClassResolver;
-use Nitro\View\Contracts\ComposerInterface;
+use Nitro\Events\Contracts\Dispatcher;
+use Nitro\Support\Str;
 use Nitro\View\Contracts\ViewComposerResolver;
 use Nitro\View\View;
 
 /**
- * Holds the registered view composers and runs the ones a view matches.
+ * View composers and creators, carried on the event bus.
  *
- * A composer named by class is resolved when it fires, not when registered.
+ *     View::composer('orders.*', OrderComposer::class);
+ *     View::creator('profile', fn (View $view) => $view->with('user', auth()->user()));
+ *
+ * A composer registered for 'orders.show' listens for "composing: orders.show",
+ * and a creator for "creating: orders.show". A creator runs when the view is
+ * made; a composer runs just before it renders, after the caller has had the
+ * chance to add its own data. Because both are ordinary listeners, a pattern
+ * matches the way any wildcard event does ('admin.*', '*.index', '*'), and one
+ * registered straight on the bus with Event::listen() fires the same way.
+ *
+ * A composer named by class is built through the container when it fires, and
+ * its compose() is called; 'Class@method' names another method. A creator's
+ * default method is create().
  */
 class ComposerResolver implements ViewComposerResolver
 {
-    /**
-     * Registered composers, keyed by the pattern they were registered against.
-     *
-     * @var array<string, array<int, callable|string>>
-     */
-    private array $composers = [];
+    public function __construct(
+        private Dispatcher $events,
+        private ClassResolver $resolver,
+    ) {
+    }
 
-    /**
-     * Register a composer against one or more view names or patterns.
-     *
-     * @param string|array<int, string> $templates
-     * @param callable|string           $composer A callable, or the name of a
-     *                                            class resolved when it fires.
-     */
-    public function register(string|array $templates, callable|string $composer): void
+    public function composer(array|string $views, callable|string $callback): array
     {
-        foreach ((array) $templates as $template) {
-            $this->composers[$template][] = $composer;
+        $composers = [];
+
+        foreach ((array) $views as $view) {
+            $composers[] = $this->addViewEvent($view, $callback);
+        }
+
+        return $composers;
+    }
+
+    public function composers(array $composers): array
+    {
+        $registered = [];
+
+        foreach ($composers as $callback => $views) {
+            $registered = array_merge($registered, $this->composer($views, $callback));
+        }
+
+        return $registered;
+    }
+
+    public function creator(array|string $views, callable|string $callback): array
+    {
+        $creators = [];
+
+        foreach ((array) $views as $view) {
+            $creators[] = $this->addViewEvent($view, $callback, 'creating: ');
+        }
+
+        return $creators;
+    }
+
+    public function callComposer(View $view): void
+    {
+        if ($this->events->hasListeners($event = 'composing: ' . $this->normalizeName($view->name()))) {
+            $this->events->dispatch($event, [$view]);
+        }
+    }
+
+    public function callCreator(View $view): void
+    {
+        if ($this->events->hasListeners($event = 'creating: ' . $this->normalizeName($view->name()))) {
+            $this->events->dispatch($event, [$view]);
         }
     }
 
     /**
-     * Run every composer whose pattern matches this view, in registration order.
+     * Asked before a nested view is wrapped in a View object, so a page whose
+     * partials nobody composes builds none.
      */
-    public function fire(View $view, ClassResolver $resolver): void
+    public function hasViewListeners(string $view): bool
     {
-        foreach ($this->composers as $pattern => $composers) {
-            if (! $this->matches($pattern, $view->name())) {
-                continue;
-            }
+        $name = $this->normalizeName($view);
 
-            foreach ($composers as $composer) {
-                $this->resolve($composer, $resolver)->compose($view);
-            }
-        }
+        return $this->events->hasListeners('creating: ' . $name)
+            || $this->events->hasListeners('composing: ' . $name);
     }
 
     /**
-     * Whether a registered pattern covers a view name.
-     *
-     * Three forms are understood: `*` for every view, an exact name, and
-     * `prefix.*` for every view beneath a prefix.
+     * Listen for one view event, as a closure or a class.
      */
-    private function matches(string $pattern, string $template): bool
+    private function addViewEvent(string $view, callable|string $callback, string $prefix = 'composing: '): Closure
     {
-        if ($pattern === '*') {
-            return true;
-        }
+        $view = $this->normalizeName($view);
 
-        if ($pattern === $template) {
-            return true;
-        }
+        $callback = is_string($callback)
+            ? $this->buildClassEventCallback($callback, $prefix)
+            : Closure::fromCallable($callback);
 
-        if (str_ends_with($pattern, '.*')) {
-            return str_starts_with($template, rtrim($pattern, '.*') . '.');
-        }
+        $this->addEventListener($prefix . $view, $callback);
 
-        return false;
+        return $callback;
     }
 
     /**
-     * Turn a registered composer into something with a compose() method.
+     * The closure that builds a composer or creator class and calls it.
      *
-     * A class name goes through the resolver so its dependencies are
-     * injected; a callable is wrapped so both forms are invoked identically.
+     * Built when the event fires rather than when registered, so a composer
+     * for a view that never renders is never constructed.
      */
-    private function resolve(callable|string $composer, ClassResolver $resolver): ComposerInterface
+    private function buildClassEventCallback(string $class, string $prefix): Closure
     {
-        if (is_string($composer)) {
-            return $resolver->resolve($composer);
-        }
+        [$class, $method] = Str::parseCallback($class, str_contains($prefix, 'composing') ? 'compose' : 'create');
 
-        return new class ($composer) implements ComposerInterface {
-            /** @param callable $callable */
-            public function __construct(private $callable)
-            {
-            }
-
-            /** Run every composer registered against a view before it renders. */
-            public function compose(View $view): void
-            {
-                ($this->callable)($view);
-            }
+        return function (...$arguments) use ($class, $method): mixed {
+            return $this->resolver->resolve($class)->{$method}(...$arguments);
         };
+    }
+
+    /**
+     * Register the listener on the bus.
+     *
+     * A wildcard listener is handed the event name and the payload rather than
+     * the payload spread, so it is wrapped to receive the view like any other.
+     */
+    private function addEventListener(string $name, Closure $callback): void
+    {
+        if (str_contains($name, '*')) {
+            $callback = static function (string $name, array $data) use ($callback): mixed {
+                return $callback($data[0]);
+            };
+        }
+
+        $this->events->listen($name, $callback);
+    }
+
+    /**
+     * A view name as its events are keyed: slashes read as dots, and a
+     * namespace kept apart so its '::' is not touched.
+     */
+    private function normalizeName(string $name): string
+    {
+        if (! str_contains($name, '::')) {
+            return str_replace('/', '.', $name);
+        }
+
+        [$namespace, $name] = explode('::', $name, 2);
+
+        return $namespace . '::' . str_replace('/', '.', $name);
     }
 }

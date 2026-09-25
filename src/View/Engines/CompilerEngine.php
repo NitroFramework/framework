@@ -28,6 +28,7 @@ use Nitro\View\Support\ViewExtensions;
 use Nitro\View\Support\ViewManifest;
 use Nitro\View\View;
 use RuntimeException;
+use Closure;
 
 /**
  * Renders Blade templates: resolves a name to a file, executes its compiled
@@ -63,6 +64,14 @@ class CompilerEngine implements EngineContract, ResetsBetweenRequests, ReceivesD
     protected bool $debugRender = false;
 
     /**
+     * What a nested view's data passes through before it renders.
+     * {@see prepareNestedViewsWith()}.
+     *
+     * @var (Closure(string, array<string, mixed>): array<string, mixed>)|null
+     */
+    protected ?Closure $nestedViewPreparer = null;
+
+    /**
      * Whether each view declares `@stream`, remembered for the process rather
      * than the render, since a template's own text cannot change beneath it.
      *
@@ -90,7 +99,7 @@ class CompilerEngine implements EngineContract, ResetsBetweenRequests, ReceivesD
          * behind it reaches it. Given as a closure so an ordinary render — which
          * includes PHP the cache compiled earlier — never builds the compiler.
          */
-        protected \Closure|TemplateCompiler $compiler,
+        protected Closure|TemplateCompiler $compiler,
         protected readonly TagCompiler $tagCompiler,
         PathRegistry $paths,
         ConfigRepository $config,
@@ -281,6 +290,8 @@ class CompilerEngine implements EngineContract, ResetsBetweenRequests, ReceivesD
      */
     public function renderPartial(string $view, array $data = []): string
     {
+        $data = $this->prepareNestedView($view, $data);
+
         $this->context->renderCount++;
 
         try {
@@ -290,6 +301,30 @@ class CompilerEngine implements EngineContract, ResetsBetweenRequests, ReceivesD
         } finally {
             $this->context->renderCount--;
         }
+    }
+
+    public function prepareNestedViewsWith(?Closure $callback): void
+    {
+        $this->nestedViewPreparer = $callback;
+    }
+
+    /**
+     * A view's data after the nested-view callback, when it is nested.
+     *
+     * Only a view rendered from inside another is passed through: the
+     * top-level one was chosen through the factory, which has already created
+     * and composed it.
+     *
+     * @param  array<string, mixed> $data
+     * @return array<string, mixed>
+     */
+    protected function prepareNestedView(string $view, array $data): array
+    {
+        if ($this->nestedViewPreparer === null || $this->context->renderCount === 0) {
+            return $data;
+        }
+
+        return ($this->nestedViewPreparer)($view, $data);
     }
 
     /**
@@ -349,6 +384,8 @@ class CompilerEngine implements EngineContract, ResetsBetweenRequests, ReceivesD
      */
     protected function renderFromFile(string $view, array $data = []): string
     {
+        $data = $this->prepareNestedView($view, $data);
+
         $this->context->renderCount++;
         $previousParentView = $this->context->parentView;
         $this->context->parentView = null;
@@ -693,7 +730,7 @@ class CompilerEngine implements EngineContract, ResetsBetweenRequests, ReceivesD
      */
     public function renderString(string $blade, array $data = []): string
     {
-        if ($this->compiler instanceof \Closure) {
+        if ($this->compiler instanceof Closure) {
             $this->compiler = ($this->compiler)();
         }
 
@@ -969,7 +1006,7 @@ class CompilerEngine implements EngineContract, ResetsBetweenRequests, ReceivesD
                 return (string) ob_get_clean();
             };
 
-            $bound = \Closure::bind($executor, $context, get_class($context));
+            $bound = Closure::bind($executor, $context, get_class($context));
 
             return $bound($compiledFile, $data);
         } finally {

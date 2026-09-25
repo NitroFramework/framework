@@ -2,24 +2,51 @@
 
 namespace Nitro\View\Contracts;
 
-use Nitro\Container\Contracts\ClassResolver;
+use Closure;
 use Nitro\View\View;
 
 /**
- * Registers view composers and runs the ones a view matches.
+ * Registers view composers and creators, and runs the ones a view matches.
  */
 interface ViewComposerResolver
 {
     /**
-     * Register a composer against one or more view names or patterns.
+     * Register a callback to run before the matching views render.
      *
-     * @param string|array<int, string> $templates
-     * @param callable|string           $composer Callable, or a class resolved when it fires.
+     * @param  array<int, string>|string $views View names or wildcard patterns.
+     * @param  callable|string           $callback A callable, or 'Class' / 'Class@method'.
+     * @return array<int, Closure>
      */
-    public function register(string|array $templates, callable|string $composer): void;
+    public function composer(array|string $views, callable|string $callback): array;
 
     /**
-     * Run every composer registered for the given view.
+     * Register several composers at once, as [callback => views].
+     *
+     * @param  array<string, array<int, string>|string> $composers
+     * @return array<int, Closure>
      */
-    public function fire(View $view, ClassResolver $resolver): void;
+    public function composers(array $composers): array;
+
+    /**
+     * Register a callback to run when the matching views are made.
+     *
+     * @param  array<int, string>|string $views
+     * @return array<int, Closure>
+     */
+    public function creator(array|string $views, callable|string $callback): array;
+
+    /**
+     * Run the composers listening for this view.
+     */
+    public function callComposer(View $view): void;
+
+    /**
+     * Run the creators listening for this view.
+     */
+    public function callCreator(View $view): void;
+
+    /**
+     * Whether anything composes or creates this view.
+     */
+    public function hasViewListeners(string $view): bool;
 }

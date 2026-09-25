@@ -2,6 +2,8 @@
 
 namespace Nitro\View\Contracts;
 
+use Closure;
+
 /**
  * The view layer's front door: everything outside it depends on this rather
  * than on the engine behind it.
@@ -40,17 +42,28 @@ interface Factory
     public function exists(string $view): bool;
 
     /**
-     * Make a value available to every view.
+     * Make a value, or several given as an array, available to every view.
+     *
+     * @param array<string, mixed>|string $key
      */
-    public function share(string $key, mixed $value): void;
+    public function share(array|string $key, mixed $value = null): mixed;
 
     /**
-     * Register a composer to run before the matching views render.
+     * Register a callback to run before the matching views render.
      *
-     * @param string|array<int, string> $templates View names, `prefix.*`, or `*`.
-     * @param callable|string           $composer  Callable, or a class name.
+     * @param  array<int, string>|string $views    View names or wildcard patterns.
+     * @param  callable|string           $callback A callable, or 'Class' / 'Class@method'.
+     * @return array<int, Closure>
      */
-    public function composer(string|array $templates, callable|string $composer): void;
+    public function composer(array|string $views, callable|string $callback): array;
+
+    /**
+     * Register a callback to run when the matching views are made.
+     *
+     * @param  array<int, string>|string $views
+     * @return array<int, Closure>
+     */
+    public function creator(array|string $views, callable|string $callback): array;
 
     /**
      * Register directories a namespace resolves against, searched in order.
