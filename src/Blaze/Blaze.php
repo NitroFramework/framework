@@ -56,10 +56,18 @@ class Blaze
             return self::$manager;
         }
 
-        if (self::$resolver === null) {
-            throw new RuntimeException('Blaze is not booted — register Nitro\\Blaze\\BlazeServiceProvider.');
+        if (self::$resolver !== null) {
+            return self::$manager = (self::$resolver)();
         }
 
-        return self::$manager = (self::$resolver)();
+        // The provider binds the manager; asking the container here rather than
+        // being handed a resolver at registration keeps this class unloaded on
+        // every request that never calls optimize().
+        if (Container::hasInstance()
+            && Container::getInstance()->has(BlazeManager::class)) {
+            return self::$manager = Container::getInstance()->resolve(BlazeManager::class);
+        }
+
+        throw new RuntimeException('Blaze is not booted — register Nitro\\Blaze\\BlazeServiceProvider.');
     }
 }

@@ -38,13 +38,9 @@ class BlazeServiceProvider extends ServiceProvider
             $container->resolve(BlazeManager::class)
         ));
 
-        /*
-         * A resolver, not an instance: Blaze::optimize() is available to service
-         * providers immediately, but a request that never calls it and never
-         * compiles a template does not build the manager at all.
-         */
-        $container = $this->container;
-        Blaze::resolveManagerUsing(static fn (): BlazeManager => $container->resolve(BlazeManager::class));
+        // Nothing is handed to Blaze here: Blaze::optimize() finds the manager
+        // through the container on first use, so a request that never calls it
+        // does not load the Blaze class at all.
     }
 
     public function boot(): void

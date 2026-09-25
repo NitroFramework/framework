@@ -234,11 +234,15 @@ class LivewireServiceProvider extends ServiceProvider
      */
     protected function registerBladeDirectives(): void
     {
+        // Closures rather than [Class, 'compile']: precompiler() takes a
+        // callable, and checking an array callable loads its class — both
+        // compilers on every request, for templates that compile rarely.
+
         // <livewire:name ... /> tag form → mount call, before other compilation.
-        Blade::precompiler([LivewireTagCompiler::class, 'compile']);
+        Blade::precompiler(static fn (string $template): string => LivewireTagCompiler::compile($template));
 
         // @island('name', ...) … @endisland → deferred, isolated island render.
-        Blade::precompiler([IslandCompiler::class, 'compile']);
+        Blade::precompiler(static fn (string $template): string => IslandCompiler::compile($template));
 
         // @placeholder is consumed by the island precompiler; guard stray uses.
         Blade::directive('placeholder', static fn(): string => '');
