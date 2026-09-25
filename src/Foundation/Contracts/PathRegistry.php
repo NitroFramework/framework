@@ -3,13 +3,9 @@
 namespace Nitro\Foundation\Contracts;
 
 /**
- * Where the application keeps things.
+ * Resolve the application's directories to absolute paths.
  *
- * Every method takes an optional path to append and returns an absolute one, so
- * `storage('logs/nitro.log')` reads as the file rather than as string joining at
- * the call site. The container binds the 'paths' alias, the concrete
- * {@see \Nitro\Foundation\PathRegistry} and this interface to one instance;
- * classes inject this contract and templates read via the path helpers.
+ * Each directory method appends the optional path it is given.
  */
 interface PathRegistry
 {

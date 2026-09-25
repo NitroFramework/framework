@@ -9,7 +9,7 @@ use Nitro\Foundation\Contracts\PathRegistry;
 use Nitro\Support\Logger;
 
 /**
- * Bootstrapper: loads configuration and injects it into the Application.
+ * Load the configuration and hand it to the application.
  */
 class LoadConfiguration implements BootstrapperInterface
 {
@@ -20,14 +20,14 @@ class LoadConfiguration implements BootstrapperInterface
         $this->paths = $paths;
     }
 
+    /**
+     * Load the configuration, from the cache when it is fresh and no test is running.
+     */
     public function bootstrap(Application $app): void
     {
         $container = $app->getContainer();
         $cachedConfigPath = $this->paths->cachedConfig();
 
-        // Use the compiled cache only when it's fresh relative to .env, and
-        // never under a test runner — see Config::runningTests(). The same
-        // guard is applied in Config::__construct.
         if (! Config::runningTests()
             && file_exists($cachedConfigPath)
             && Config::cacheIsFresh($cachedConfigPath, $this->paths->base('.env'))
@@ -37,26 +37,16 @@ class LoadConfiguration implements BootstrapperInterface
             $config = $container->resolve(Config::class);
         }
 
-        // The 'config' alias, the concrete class, and the contract all resolve to
-        // the one repository instance — consumers depend on ConfigRepository.
         $container->instance('config', $config);
         $container->instance(Config::class, $config);
         $container->instance(ConfigRepository::class, $config);
 
-        // Hand the Application its config as a typed dependency so it never has
-        // to resolve 'config' from the container itself.
         $app->setConfig($config);
 
         $this->configureLogger($config);
     }
 
-    /**
-     * Re-point the logger now that configuration is readable.
-     *
-     * The Application sets a file path while registering its base bindings, so
-     * anything that fails before this point is still recorded; this is the
-     * first moment the application's own choice of channel is known.
-     */
+    /** Point the logger at the configured channel. */
     private function configureLogger(ConfigRepository $config): void
     {
         $channel = (string) $config->get('logging.channel', 'file');

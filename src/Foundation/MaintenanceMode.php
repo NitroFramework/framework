@@ -3,22 +3,18 @@
 namespace Nitro\Foundation;
 
 /**
- * Whether the application is down for maintenance.
- *
- *     MaintenanceMode::activate(['retry' => 60, 'secret' => 'let-me-in']);
- *     MaintenanceMode::active();
- *     MaintenanceMode::deactivate();
- *
- * Held in a file rather than in the cache or a database, because maintenance
- * mode has to work when those are the thing being worked on.
+ * Take the application down for maintenance and bring it back, using a file on disk.
  */
 class MaintenanceMode
 {
+    /**
+     * @param string $file The file whose presence means the application is down.
+     */
     public function __construct(
         protected string $file,
     ) {}
 
-    /** Whether the application is currently down. */
+    /** Determine whether the application is down. */
     public function active(): bool
     {
         return is_file($this->file);
@@ -49,7 +45,7 @@ class MaintenanceMode
     }
 
     /**
-     * What was recorded when the application went down.
+     * Get what was recorded when the application went down.
      *
      * @return array<string, mixed>
      */
@@ -64,7 +60,7 @@ class MaintenanceMode
         return is_string($contents) ? (json_decode($contents, true) ?: []) : [];
     }
 
-    /** Seconds to put in the Retry-After header, when one was given. */
+    /** Get the seconds for the Retry-After header, when one was given. */
     public function retryAfter(): ?int
     {
         $retry = $this->data()['retry'] ?? null;
@@ -72,7 +68,7 @@ class MaintenanceMode
         return $retry === null ? null : (int) $retry;
     }
 
-    /** Whether this secret lets somebody through while the app is down. */
+    /** Determine whether the given secret lets a visitor through while the application is down. */
     public function bypassedBy(?string $secret): bool
     {
         $expected = $this->data()['secret'] ?? null;

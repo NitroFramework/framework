@@ -2,25 +2,22 @@
 
 namespace Nitro\Foundation;
 
+use Throwable;
+
 /**
- * Which providers are eager and which defer, answered once and written down.
+ * Record once which providers register eagerly and which defer.
  *
- * Asking a provider whether it defers means constructing it, and constructing
- * it loads its class — the whole cost deferral exists to avoid. So the question
- * is answered for every provider in one pass and the answer cached; afterwards
- * a deferred provider's class is never touched until something resolves one of
- * its services.
- *
- * The manifest records the provider list it was built from and is rebuilt when
- * that list changes, so adding a provider takes effect on the next request
- * without anything being cleared by hand.
+ * Rebuilt whenever the provider list changes, so nothing has to be cleared by hand.
  */
 final class ProviderManifest
 {
+    /**
+     * @param string $path Where the manifest is written.
+     */
     public function __construct(private readonly string $path) {}
 
     /**
-     * The eager providers, the deferred service map, and the events that wake.
+     * Get the eager providers, the deferred service map and the events that wake a provider.
      *
      * @param  array<int, class-string> $providers
      * @return array{0: array<int, class-string>, 1: array<string, class-string>, 2: array<class-string, array<int, string>>}
@@ -43,8 +40,7 @@ final class ProviderManifest
     /**
      * Sort providers into those that register now and those that wait.
      *
-     * A provider that cannot be constructed is treated as eager, so the runtime
-     * fails the way it would have rather than silently dropping its services.
+     * A provider that cannot be constructed counts as eager, so it fails at registration.
      *
      * @param  array<int, class-string> $providers
      * @return array{0: array<int, class-string>, 1: array<string, class-string>, 2: array<class-string, array<int, string>>}
@@ -71,7 +67,7 @@ final class ProviderManifest
                 if ($events = $instance->when()) {
                     $when[$providerClass] = $events;
                 }
-            } catch (\Throwable) {
+            } catch (Throwable) {
                 $eager[] = $providerClass;
             }
         }
@@ -80,7 +76,7 @@ final class ProviderManifest
     }
 
     /**
-     * The manifest on disk, or null when there is none to trust.
+     * Read the manifest from disk, or null when there is none to trust.
      *
      * @return array{providers: array<int, string>, eager: array<int, string>, deferred: array<string, string>, when: array<string, array<int, string>>}|null
      */
@@ -97,14 +93,14 @@ final class ProviderManifest
             return null;
         }
 
-        // Absent from a manifest written before when() existed, and an empty
-        // map means the same thing as none: no provider waits on an event.
         $manifest['when'] ??= [];
 
         return $manifest;
     }
 
     /**
+     * Write the manifest atomically, through a temporary file moved into place.
+     *
      * @param array<int, class-string>                  $providers
      * @param array<int, class-string>                  $eager
      * @param array<string, class-string>               $deferred
@@ -120,8 +116,6 @@ final class ProviderManifest
 
         $contents = "<?php\n\nreturn " . var_export(compact('providers', 'eager', 'deferred', 'when'), true) . ";\n";
 
-        // Written beside the target and moved into place, so a request reading
-        // the manifest never sees a half-written file.
         $temporary = $this->path . '.' . getmypid();
 
         if (@file_put_contents($temporary, $contents, LOCK_EX) === false) {

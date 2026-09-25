@@ -5,32 +5,20 @@ namespace Nitro\Foundation\Providers;
 use ReflectionClass;
 
 /**
- * Base provider for self-contained modules.
+ * Base provider for a module under app/Modules/{Name}, wiring what the module ships.
  *
- * A module lives under app/Modules/{Name}/ and its provider extends this class.
- * By convention the base auto-wires everything the module ships from the module's
- * own directory, so a minimal module provider can be empty:
+ * Loaded when present in the module directory:
  *
- *   routes.php   → loadRoutesFrom()          (the `web` stack, no URI prefix —
- *                                            declare one in a Route::group())
- *   views/       → loadViewsFrom(..., slug)  (exposed as `slug::view`)
- *   migrations/  → loadMigrationsFrom()      (discovered by the migrate commands)
- *   config.php   → mergeConfigFrom(..., slug) (merged under config('slug.*'))
+ *   routes.php   routes, under the web stack
+ *   views/       views, as slug::view
+ *   migrations/  migrations, found by the migrate commands
+ *   config.php   configuration, merged under config('slug.*')
  *
- * The "slug" is derived from the provider's short class name
- * (BlogServiceProvider → 'blog'); override moduleSlug() to customise it.
- *
- * Wiring happens in register() so module route files are queued before the
- * router boots. Subclasses that override register() to add their own bindings
- * MUST call parent::register().
+ * A subclass that overrides register() must call parent::register().
  */
 class ModuleServiceProvider extends ServiceProvider
 {
-    /**
-     * Auto-wire the module's routes, views, migrations, and config by convention.
-     * Each is applied only if the corresponding file/directory exists, so a
-     * module ships just the pieces it needs.
-     */
+    /** Load the module's routes, configuration, views and migrations. */
     public function register(): void
     {
         $directory = $this->moduleDirectory();
@@ -57,19 +45,14 @@ class ModuleServiceProvider extends ServiceProvider
         }
     }
 
-    /**
-     * Absolute path to the module directory — the directory the concrete
-     * provider class file lives in.
-     */
+    /** Get the directory the module's provider class lives in. */
     protected function moduleDirectory(): string
     {
         return dirname((new ReflectionClass(static::class))->getFileName());
     }
 
     /**
-     * The module's view/config slug, derived from the provider's short class
-     * name: 'BlogServiceProvider' or 'BlogModuleServiceProvider' → 'blog'.
-     * Override to customise.
+     * Get the module's view and config slug: BlogServiceProvider becomes 'blog'.
      */
     protected function moduleSlug(): string
     {

@@ -3,22 +3,15 @@
 namespace Nitro\Foundation;
 
 /**
- * Laravel-style package auto-discovery. Installed Composer packages opt in via
- * an `extra.nitro` block in their composer.json, and their service providers
- * (and aliases) register automatically on `composer require` — no manual wiring:
+ * Discover the service providers and aliases installed packages declare.
+ *
+ * A package declares them under extra.nitro in its composer.json:
  *
  *   "extra": { "nitro": { "providers": ["Vendor\\Pkg\\PkgServiceProvider"] } }
  *
- * The discovered map is read from vendor/composer/installed.json and cached to
- * packages.php. The cache is rebuilt by `nitro package:discover`, wired into the
- * app's composer `post-autoload-dump` — so, exactly like Laravel, it is
- * regenerated on every install/update and never silently goes stale. (It is NOT
- * an `optimize` cache; it does not freeze under APP_DEBUG=false.) Works the same
- * under FPM and under Thrust/worker mode.
- *
- * An app can opt a package out with `extra.nitro.dont-discover` in its own
- * composer.json ("*" disables discovery entirely); a package may likewise list
- * others to ignore.
+ * An application opts a package out with extra.nitro.dont-discover in its own
+ * composer.json, and "*" there disables discovery. The map is cached to
+ * packages.php and rebuilt by `nitro package:discover`.
  */
 class PackageManifest
 {
@@ -26,8 +19,8 @@ class PackageManifest
     protected ?array $manifest = null;
 
     /**
-     * @param string $vendorPath   Absolute path to the app's vendor/ directory.
-     * @param string $basePath     Absolute project root (holds composer.json).
+     * @param string $vendorPath   Absolute path to the application's vendor directory.
+     * @param string $basePath     Absolute project root, holding composer.json.
      * @param string $manifestPath Absolute path to the cached packages.php.
      */
     public function __construct(
@@ -36,25 +29,31 @@ class PackageManifest
         protected string $manifestPath,
     ) {}
 
-    /** @return array<int, class-string> */
+    /**
+     * Get the discovered provider classes, skipping any that cannot be autoloaded.
+     *
+     * @return array<int, class-string>
+     */
     public function providers(): array
     {
-        // Non-fatal: a declared provider that isn't autoloadable is skipped
-        // rather than crashing the whole boot.
         return array_values(array_filter(
             $this->config('providers'),
             static fn ($providerClass): bool => is_string($providerClass) && class_exists($providerClass)
         ));
     }
 
-    /** @return array<string, class-string> */
+    /**
+     * Get the discovered aliases.
+     *
+     * @return array<string, class-string>
+     */
     public function aliases(): array
     {
         return $this->config('aliases');
     }
 
     /**
-     * Flatten one key (providers/aliases) across every discovered package.
+     * Get one key, such as providers or aliases, across every discovered package.
      *
      * @return array<int|string, mixed>
      */
@@ -91,8 +90,7 @@ class PackageManifest
     }
 
     /**
-     * Read installed.json, apply dont-discover, and write the extra.nitro map to
-     * the packages.php cache. Called lazily and by `nitro package:discover`.
+     * Read installed.json, drop the ignored packages and write the manifest cache.
      */
     public function build(): void
     {
@@ -101,14 +99,11 @@ class PackageManifest
 
         if (is_file($installedJson)) {
             $installed = json_decode((string) file_get_contents($installedJson), true) ?: [];
-            // Composer 2 nests under "packages"; tolerate a flat list.
             $packages = $installed['packages'] ?? $installed;
         }
 
         $ignore = $this->packagesToIgnore();
 
-        // First pass: collect each package's extra.nitro block; a package may
-        // contribute its own dont-discover entries.
         $manifest = [];
         foreach ($packages as $package) {
             $name = $package['name'] ?? null;
@@ -122,7 +117,6 @@ class PackageManifest
             }
         }
 
-        // Second pass: drop ignored packages ("*" disables discovery entirely).
         if (in_array('*', $ignore, true)) {
             $manifest = [];
         } else {
@@ -135,7 +129,7 @@ class PackageManifest
         $this->manifest = $manifest;
     }
 
-    /** App-level opt-outs from the project's own composer.json. */
+    /** Get the packages the application's composer.json opts out of discovery. */
     protected function packagesToIgnore(): array
     {
         $composer = $this->basePath . DIRECTORY_SEPARATOR . 'composer.json';
@@ -148,6 +142,7 @@ class PackageManifest
         return (array) ($json['extra']['nitro']['dont-discover'] ?? []);
     }
 
+    /** Write the manifest cache. */
     protected function write(array $manifest): void
     {
         $dir = dirname($this->manifestPath);

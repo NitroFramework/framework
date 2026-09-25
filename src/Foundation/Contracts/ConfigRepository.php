@@ -3,22 +3,19 @@
 namespace Nitro\Foundation\Contracts;
 
 /**
- * Configuration repository contract: dot-notation has/get/all/set over the
- * application configuration. The container binds the 'config' alias, the concrete
- * Config, and this interface to one instance; core classes inject this contract
- * and templates read via the config() helper.
+ * Read and write application configuration by dot-notation key.
  */
 interface ConfigRepository
 {
-    /** Determine whether the given dot-notation key exists. */
+    /** Determine whether the given key exists. */
     public function has(string $key): bool;
 
-    /** Get the value at the given dot-notation key, or $default if absent. */
+    /** Get the value at the given key, or $default when it is absent. */
     public function get(string $key, mixed $default = null): mixed;
 
-    /** All configuration items. */
+    /** Get every configuration item. */
     public function all(): array;
 
-    /** Set the value at the given dot-notation key. */
+    /** Set the value at the given key. */
     public function set(string $key, mixed $value): void;
 }

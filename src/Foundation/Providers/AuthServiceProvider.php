@@ -2,31 +2,34 @@
 
 namespace Nitro\Foundation\Providers;
 
-use Nitro\Http\Kernel;
-use Nitro\Http\Middleware\ThrottleRequests;
-use Nitro\Http\Middleware\VerifyCsrfToken;
+use Nitro\Auth\Access\Gate;
 use Nitro\Auth\AuthManager;
 use Nitro\Auth\Contracts\Guard;
 use Nitro\Auth\Contracts\StatefulGuard;
 use Nitro\Auth\Contracts\UserProvider;
 use Nitro\Auth\EloquentUserProvider;
-use Nitro\Auth\SessionGuard;
 use Nitro\Auth\Middleware\Authenticate;
 use Nitro\Auth\Middleware\AuthenticateWithBasicAuth;
 use Nitro\Auth\Middleware\Authorize;
 use Nitro\Auth\Middleware\EnsureEmailIsVerified;
 use Nitro\Auth\Middleware\RedirectIfAuthenticated;
 use Nitro\Auth\Middleware\RequirePassword;
-use Nitro\Auth\Access\Gate;
 use Nitro\Auth\Passwords\PasswordBroker;
 use Nitro\Auth\Passwords\TokenRepository;
+use Nitro\Auth\SessionGuard;
 use Nitro\Container\Contracts\ClassResolver;
 use Nitro\Foundation\Contracts\ConfigRepository;
+use Nitro\Http\Kernel;
+use Nitro\Http\Middleware\ThrottleRequests;
+use Nitro\Http\Middleware\VerifyCsrfToken;
 use Nitro\Routing\Contracts\RouterInterface as Router;
 
-/** Registers authentication services and middleware. */
+/**
+ * Register the authentication services and their middleware.
+ */
 class AuthServiceProvider extends ServiceProvider
 {
+    /** Register the user provider, guard, password broker and gate. */
     public function register(): void
     {
         $this->registerUserProvider();
@@ -35,7 +38,7 @@ class AuthServiceProvider extends ServiceProvider
         $this->registerGate();
     }
 
-    /** Where a user is looked up from. Stateless, so a shared instance is fine. */
+    /** Register where users are looked up from. */
     protected function registerUserProvider(): void
     {
         $this->container->singleton(UserProvider::class, function ($container) {
@@ -46,19 +49,12 @@ class AuthServiceProvider extends ServiceProvider
     }
 
     /**
-     * The session guard, under 'auth'.
+     * Register the auth manager under 'auth', and the default guard under the guard contracts.
      *
-     * Scoped (not singleton): the manager holds the request's session and a
-     * per-request user cache, so it must be rebuilt each worker request — it
-     * declares that lifecycle here rather than via a central reset list.
+     * Scoped, because the manager holds the request's session and signed-in user.
      */
     protected function registerGuard(): void
     {
-        /*
-         * The manager, not a guard: an application with one guard reaches
-         * it through the same calls either way, because anything not named
-         * on the manager goes to the default guard.
-         */
         $this->container->scoped('auth', function ($container) {
             return new AuthManager(
                 config: $container->resolve(ConfigRepository::class),
@@ -70,18 +66,12 @@ class AuthServiceProvider extends ServiceProvider
 
         $this->container->alias('auth', AuthManager::class);
 
-        // The guard itself, for anything asking by contract rather than name.
         $this->container->scoped(SessionGuard::class, static fn ($container) => $container->resolve('auth')->guard());
         $this->container->alias(SessionGuard::class, Guard::class);
         $this->container->alias(SessionGuard::class, StatefulGuard::class);
     }
 
-    /**
-     * The password-reset stack.
-     *
-     * Both are stateless given their config, so shared singletons are fine.
-     * The broker reuses the same UserProvider as the guard.
-     */
+    /** Register the password-reset token repository and broker. */
     protected function registerPasswordBroker(): void
     {
         $this->container->singleton(TokenRepository::class, function ($container) {
@@ -102,15 +92,9 @@ class AuthServiceProvider extends ServiceProvider
     }
 
     /**
-     * The authorization gate.
+     * Register the authorization gate.
      *
-     * Shared, because a policy registered in one provider's boot() has to be
-     * visible to every later check — a per-resolution Gate would answer from
-     * an empty policy map.
-     *
-     * Given a resolver for the current user rather than the user itself: the
-     * gate outlives any one request's authentication, and asking for the user
-     * at construction would pin whoever was signed in when the first check ran.
+     * Shared, so policies registered at boot apply to every check; the user is resolved per check.
      */
     protected function registerGate(): void
     {
@@ -124,11 +108,7 @@ class AuthServiceProvider extends ServiceProvider
         });
     }
 
-    /**
-     * Register the auth route-middleware aliases on the Router. This is the seam
-     * that keeps the core kernel from naming Auth: the alias map lives on the
-     * Router (Laravel-style), and this feature provider wires its own entries.
-     */
+    /** Register the auth and throttle middleware aliases and their order. */
     public function boot(Router $router, Kernel $kernel): void
     {
         $router->aliasMiddleware('auth', Authenticate::class);
@@ -137,25 +117,13 @@ class AuthServiceProvider extends ServiceProvider
         $router->aliasMiddleware('guest', RedirectIfAuthenticated::class);
         $router->aliasMiddleware('verified', EnsureEmailIsVerified::class);
         $router->aliasMiddleware('password.confirm', RequirePassword::class);
-
-        // General HTTP throttle (config-driven via throttle.*). Registered here
-        // since this is the framework's middleware-alias hub; login lockout uses
-        // the RateLimiter directly in the controller.
         $router->aliasMiddleware('throttle', ThrottleRequests::class);
 
         $this->declareMiddlewareOrder($kernel);
     }
 
     /**
-     * Auth's middleware all read the session, so they must run after it opens.
-     *
-     * Anchored after the CSRF check rather than straight after the session: a
-     * forged request should be refused before anything looks up who is making
-     * it, and the token itself is read off the session either way.
-     *
-     * Declared from this side rather than listed on the Kernel, which names no
-     * feature layer's middleware. Without it, ->middleware(['auth', 'web'])
-     * checks a session that has not started yet and finds nobody logged in.
+     * Run the session-reading auth middleware after the CSRF check, whatever order a route lists them in.
      */
     protected function declareMiddlewareOrder(Kernel $kernel): void
     {

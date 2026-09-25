@@ -9,39 +9,34 @@ use Nitro\Foundation\Application;
 use Nitro\Support\Logger;
 
 /**
- * Bootstrap: HandleExceptions
- * 
- * Thin bootstrapper — its ONLY job is to wire PHP's error/exception/shutdown
- * handlers to the centralized ExceptionHandler.
- * 
- * No rendering logic lives here. Everything delegates to ExceptionHandler.
+ * Route PHP's errors, uncaught exceptions and fatal shutdowns to the exception handler.
  */
 class HandleExceptions implements BootstrapperInterface
 {
-    /** PHP error levels that are notices about the future, not failures now. */
+    /** Error levels that warn of future breakage rather than a failure now. */
     private const DEPRECATION_LEVELS = [E_DEPRECATED, E_USER_DEPRECATED];
 
     /** Fatal error types that only surface at shutdown. */
     private const FATAL_LEVELS = [E_ERROR, E_CORE_ERROR, E_COMPILE_ERROR, E_PARSE];
 
     /**
-     * Memory held back at bootstrap and released the moment an error arrives, so
-     * a request that dies of memory exhaustion still has room to render the page
-     * that says so. Without it an OOM produces a blank response.
+     * Memory held back and released when an error arrives, so an out-of-memory failure can still render.
      */
     private static ?string $reservedMemory = null;
 
     private ExceptionHandler $handler;
 
+    /**
+     * Install the error, exception and shutdown handlers.
+     *
+     * PHP's own error display is switched off outside testing, so raw warnings never precede the rendered page.
+     */
     public function bootstrap(Application $app): void
     {
         self::$reservedMemory = str_repeat('x', 32768);
 
-        // Resolve the centralized handler from the container
         $this->handler = $app->getContainer()->resolve(ExceptionHandler::class);
 
-        // Buffers already open belong to whoever is hosting us (a Thrust worker,
-        // a test harness); the handler unwinds only what the request opened.
         ExceptionHandler::$initialObLevel = ob_get_level();
 
         error_reporting(E_ALL);
@@ -50,23 +45,13 @@ class HandleExceptions implements BootstrapperInterface
         set_exception_handler([$this, 'handleException']);
         register_shutdown_function([$this, 'handleShutdown']);
 
-        // PHP must not print its own error output alongside ours — on a server
-        // with display_errors=On (XAMPP's default) raw warnings would be emitted
-        // ahead of the rendered page and corrupt the response. Left alone while
-        // testing so PHPUnit can still surface what it needs.
         if ($app->environment() !== 'testing') {
             ini_set('display_errors', 'Off');
         }
     }
 
     /**
-     * Convert PHP errors to ErrorException — except deprecations, which are
-     * recorded and allowed to continue.
-     *
-     * A deprecation is PHP telling you something will break in a future version,
-     * not that this request failed. Throwing on it means one deprecation notice
-     * anywhere in vendor/ takes the whole request down, which is why this
-     * branches before the throw.
+     * Convert a PHP error to an ErrorException, logging a deprecation instead of throwing on it.
      */
     public function handleError(int $level, string $message, string $file = '', int $line = 0): void
     {
@@ -90,9 +75,7 @@ class HandleExceptions implements BootstrapperInterface
         Logger::warning($message, ['file' => $file, 'line' => $line, 'type' => 'deprecation']);
     }
 
-    /**
-     * Handle uncaught exceptions — delegate to ExceptionHandler.
-     */
+    /** Hand an uncaught exception to the exception handler. */
     public function handleException(Throwable $exception): void
     {
         self::$reservedMemory = null;
@@ -104,9 +87,7 @@ class HandleExceptions implements BootstrapperInterface
         }
     }
 
-    /**
-     * Handle fatal errors caught during shutdown.
-     */
+    /** Handle a fatal error that surfaced at shutdown. */
     public function handleShutdown(): void
     {
         self::$reservedMemory = null;
@@ -120,9 +101,7 @@ class HandleExceptions implements BootstrapperInterface
         }
     }
 
-    /**
-     * Last resort — if even ExceptionHandler fails, show raw text.
-     */
+    /** Print both errors as plain text when the exception handler itself fails. */
     private function renderFallback(Throwable $original, Throwable $handlerError): never
     {
         while (ob_get_level() > 0) ob_end_clean();

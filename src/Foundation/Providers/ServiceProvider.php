@@ -8,13 +8,9 @@ use Nitro\Routing\RouteLoader;
 use Nitro\View\Contracts\ViewFinder;
 
 /**
- * Base Service Provider
- * 
- * All service providers extend this class to register and boot services.
- * 
- * Lifecycle:
- * 1. register() - Bind services into the container (called for ALL providers first)
- * 2. boot()     - Post-registration setup (called after ALL providers are registered)
+ * Base class for service providers.
+ *
+ * Every provider's register() runs before any provider's boot().
  */
 class ServiceProvider
 {
@@ -22,8 +18,7 @@ class ServiceProvider
     protected Container $container;
 
     /**
-     * Defer registration until one of provides() is resolved from the container.
-     * Subclasses set this to true and override provides() to opt in.
+     * Whether registration waits until one of the services in provides() is resolved.
      */
     protected bool $defer = false;
 
@@ -35,13 +30,12 @@ class ServiceProvider
     /** Register bindings in the container. */
     public function register(): void
     {
-        // To be implemented by subclasses
     }
 
     /**
-     * The list of services this provider binds. Used by the deferred-loading
-     * path so the container knows which provider to register lazily when a
-     * given abstract is first resolved.
+     * Get the services this provider binds, for a deferred provider.
+     *
+     * @return array<int, string>
      */
     public function provides(): array
     {
@@ -49,14 +43,7 @@ class ServiceProvider
     }
 
     /**
-     * Events that register this provider when they are dispatched.
-     *
-     * A deferred provider normally waits to be asked for one of the services
-     * in {@see provides()}. Some have nothing anyone resolves by name and are
-     * needed the moment something happens instead — a provider that listens
-     * for a job failing, say. Naming that event here wakes it.
-     *
-     * Only consulted for a provider that defers.
+     * Get the events whose dispatch registers this deferred provider.
      *
      * @return array<int, string>
      */
@@ -65,28 +52,19 @@ class ServiceProvider
         return [];
     }
 
+    /** Determine whether the provider defers its registration. */
     public function isDeferred(): bool
     {
         return $this->defer && $this->provides() !== [];
     }
 
-    // -----------------------------------------------------------------------
-    // Registration helpers (Laravel-shaped, used by modules and packages)
-    // -----------------------------------------------------------------------
-
     /**
-     * Register a routes file to be loaded, under the `web` stack.
+     * Load a routes file under the web middleware stack.
      *
-     * Takes a path and nothing else. A URI prefix, a different middleware
-     * stack or a route-name prefix belongs in a `Route::group()` inside the
-     * file itself, where all three are stated explicitly and none is inferred
-     * from another.
+     * Call it from register(), so the file is loaded with the others. A prefix,
+     * other middleware or a name prefix belongs in a Route::group() inside the file.
      *
-     * Must be called from register() (not boot()) so the file is queued before
-     * RoutingServiceProvider::boot() loads routes — this also lets `nitro
-     * optimize` bake the routes into the compiled cache.
-     *
-     * @param string $path Absolute path to the routes definition file.
+     * @param string $path Absolute path to the routes file.
      */
     protected function loadRoutesFrom(string $path): void
     {
@@ -94,21 +72,18 @@ class ServiceProvider
     }
 
     /**
-     * Register a view namespace so `namespace::view` resolves under $path.
+     * Register a view namespace so namespace::view resolves under $path.
      *
      * @param string $path      Absolute directory holding the namespace's views.
-     * @param string $namespace Namespace hint without '::' (e.g. 'blog').
+     * @param string $namespace Namespace without '::', such as 'blog'.
      */
     protected function loadViewsFrom(string $path, string $namespace): void
     {
-        // The finder owns the namespace map; the engine only forwards to it.
-        // Asking the engine would build the compiler, the template cache and
-        // every Manages* concern in boot() — on requests that render nothing.
         $this->container->resolve(ViewFinder::class)->addNamespace($namespace, $path);
     }
 
     /**
-     * Register a directory of migrations for the migrate commands to discover.
+     * Register a directory of migrations for the migrate commands.
      *
      * @param string $path Absolute path to a directory of migration files.
      */
@@ -118,11 +93,10 @@ class ServiceProvider
     }
 
     /**
-     * Merge a package/module config file under $key, so the app's own config
-     * overrides the module's defaults rather than the other way around.
+     * Merge a config file under $key, with the application's own values taking precedence.
      *
      * @param string $path Absolute path to a PHP file returning a config array.
-     * @param string $key  Config key the file's array is merged under (e.g. 'blog').
+     * @param string $key  Config key the file's array is merged under, such as 'blog'.
      */
     protected function mergeConfigFrom(string $path, string $key): void
     {

@@ -5,32 +5,24 @@ namespace Nitro\Foundation;
 use Nitro\Foundation\Contracts\PathRegistry as PathRegistryContract;
 
 /**
- * Centralized path registry for the application
+ * Resolve the application's directories and build-cache files to absolute paths.
  *
- * Provides a single source of truth for all application directory paths.
- * Each is derived from the base path by default, and each can be pointed
- * somewhere else — an application whose layout is not the conventional one has
- * to be able to say so, and a package that keeps its config or its
- * translations elsewhere has nowhere else to say it.
- *
- * A directory that nests inside another follows it: moving storage moves the
- * cache with it, unless the cache was itself given a path.
+ * Each directory derives from the base path unless pointed elsewhere. A nested
+ * directory follows its parent: moving storage moves the cache, unless the cache
+ * was given a path of its own.
  */
 class PathRegistry implements PathRegistryContract
 {
     private string $base;
 
     /**
-     * Directories pointed somewhere other than their default.
-     *
-     * Absent means "derive it", which is what keeps storage() and cache()
-     * related until someone deliberately separates them.
+     * Directories pointed somewhere other than their default, by name.
      *
      * @var array<string, string>
      */
     private array $overrides = [];
 
-    /** Initialize the registry with the application's base path. */
+    /** Create the registry for the given application root. */
     public function __construct(string $basePath)
     {
         $this->base = rtrim($basePath, '/\\');
@@ -42,12 +34,7 @@ class PathRegistry implements PathRegistryContract
         return $suffix ? $base . DIRECTORY_SEPARATOR . $suffix : $base;
     }
 
-    /**
-     * Join path segments with this platform's separator.
-     *
-     * Empty segments fall away, so join($base, '', 'views') does not leave a
-     * doubled separator behind.
-     */
+    /** Join path segments with this platform's separator, dropping empty ones. */
     public function join(string $base, string ...$segments): string
     {
         $parts = array_filter(
@@ -61,7 +48,7 @@ class PathRegistry implements PathRegistryContract
     }
 
     /**
-     * A directory's root: where it was pointed, or where it derives from.
+     * Get a directory's root: where it was pointed, or its default.
      *
      * @param string $default Relative to the base path, or absolute.
      */
@@ -74,7 +61,7 @@ class PathRegistry implements PathRegistryContract
         return $this->isAbsolute($default) ? $default : $this->base($default);
     }
 
-    /** Whether a path names a location by itself rather than relative to another. */
+    /** Determine whether a path is absolute. */
     private function isAbsolute(string $path): bool
     {
         return $path !== ''
@@ -82,10 +69,9 @@ class PathRegistry implements PathRegistryContract
     }
 
     /**
-     * Point a directory somewhere else.
+     * Point a directory somewhere other than its default.
      *
-     * A relative path is taken from the base path, an absolute one as given.
-     * Call it before anything reads the path — a bootstrapper, not a request.
+     * A relative path is taken from the base path. Set it before anything reads the path.
      */
     public function use(string $name, string $path): static
     {
@@ -96,7 +82,7 @@ class PathRegistry implements PathRegistryContract
         return $this;
     }
 
-    /** Move the application root, and everything deriving from it with it. */
+    /** Move the application root, and every directory deriving from it. */
     public function useBase(string $path): static
     {
         $this->base = rtrim($path, '/\\');
@@ -104,15 +90,34 @@ class PathRegistry implements PathRegistryContract
         return $this;
     }
 
+    /** Point the app directory elsewhere. */
     public function useApp(string $path): static { return $this->use('app', $path); }
+
+    /** Point the config directory elsewhere. */
     public function useConfig(string $path): static { return $this->use('config', $path); }
+
+    /** Point the storage directory elsewhere. */
     public function useStorage(string $path): static { return $this->use('storage', $path); }
+
+    /** Point the cache directory elsewhere. */
     public function useCache(string $path): static { return $this->use('cache', $path); }
+
+    /** Point the database directory elsewhere. */
     public function useDatabase(string $path): static { return $this->use('database', $path); }
+
+    /** Point the lang directory elsewhere. */
     public function useLang(string $path): static { return $this->use('lang', $path); }
+
+    /** Point the public directory elsewhere. */
     public function usePublic(string $path): static { return $this->use('public', $path); }
+
+    /** Point the resources directory elsewhere. */
     public function useResources(string $path): static { return $this->use('resources', $path); }
+
+    /** Point the views directory elsewhere. */
     public function useViews(string $path): static { return $this->use('views', $path); }
+
+    /** Point the bootstrap directory elsewhere. */
     public function useBootstrap(string $path): static { return $this->use('bootstrap', $path); }
 
     /** Get the application base path. */
@@ -121,13 +126,13 @@ class PathRegistry implements PathRegistryContract
         return $this->append($this->base, $path);
     }
 
-    /** Where the application's own classes live. */
+    /** Get the directory of the application's own classes. */
     public function app(string $path = ''): string
     {
         return $this->append($this->rootFor('app', 'app'), $path);
     }
 
-    /** Where the framework is bootstrapped from. */
+    /** Get the directory the framework is bootstrapped from. */
     public function bootstrap(string $path = ''): string
     {
         return $this->append($this->rootFor('bootstrap', 'bootstrap'), $path);
@@ -139,7 +144,7 @@ class PathRegistry implements PathRegistryContract
         return $this->append($this->rootFor('config', 'config'), $path);
     }
 
-    /** Where translation files live. */
+    /** Get the translation files directory. */
     public function lang(string $path = ''): string
     {
         return $this->append($this->rootFor('lang', 'lang'), $path);
@@ -151,13 +156,7 @@ class PathRegistry implements PathRegistryContract
         return $this->append($this->rootFor('storage', 'storage'), $path);
     }
 
-    /**
-     * Get the cache directory path (storage/cache).
-     *
-     * Derived from storage unless pointed elsewhere, so moving storage moves
-     * this too — which is what an application relocating its writable
-     * directory means by it.
-     */
+    /** Get the cache directory path, storage/cache unless pointed elsewhere. */
     public function cache(string $path = ''): string
     {
         return isset($this->overrides['cache'])
@@ -165,75 +164,61 @@ class PathRegistry implements PathRegistryContract
             : $this->storage($this->append('cache', $path));
     }
 
-    // ── Build artifacts ─────────────────────────────────────────────────────
-    //
-    // Each compiled cache is named in exactly one place. They were spelled out
-    // as string literals at every site instead — 'config.php' in five files,
-    // 'packages.php' in four — so the set of readers of any one artifact could
-    // only be found by grep, and renaming one meant trusting that the grep had
-    // been exhaustive.
-
-    /** The compiled configuration, written by `nitro config:cache`. */
+    /** Get the compiled configuration file. */
     public function cachedConfig(): string
     {
         return $this->cache('config.php');
     }
 
-    /** The compiled route table, written by `nitro route:cache`. */
+    /** Get the compiled route table file. */
     public function cachedRoutes(): string
     {
         return $this->cache('routes.php');
     }
 
-    /** The pre-merged provider list and deferred-service map, from `nitro optimize`. */
+    /** Get the provider list and deferred-service map `nitro optimize` writes. */
     public function cachedProviders(): string
     {
         return $this->cache('bootstrap.php');
     }
 
-    /**
-     * Which providers are eager and which defer, written on first boot.
-     *
-     * Separate from bootstrap.php because this one answers a question about the
-     * provider classes alone, and rebuilds itself when that list changes — so
-     * it is safe to keep without running `nitro optimize`.
-     */
+    /** Get the services manifest, which rebuilds itself when the provider list changes. */
     public function cachedServices(): string
     {
         return $this->cache('services.php');
     }
 
-    /** Providers and commands discovered from installed packages. */
+    /** Get the providers and aliases discovered from installed packages. */
     public function cachedPackages(): string
     {
         return $this->cache('packages.php');
     }
 
-    /** AOT container factories, so autowiring costs no reflection in production. */
+    /** Get the compiled container factories. */
     public function cachedContainer(): string
     {
         return $this->cache('container.php');
     }
 
-    /** The opcache warmup bundle for compiled views. */
+    /** Get the opcache warmup bundle for compiled views. */
     public function cachedViewWarmup(): string
     {
         return $this->cache('views_warmup.php');
     }
 
-    /** Introspected database schema, so runtime never queries information_schema. */
+    /** Get the cached database schema. */
     public function cachedSchema(): string
     {
         return $this->cache('schema.php');
     }
 
-    /** The generated opcache.preload script. */
+    /** Get the generated opcache preload script. */
     public function cachedPreload(): string
     {
         return $this->cache('preload.php');
     }
 
-    /** The compiled event listener map. */
+    /** Get the compiled event listener map. */
     public function cachedEvents(): string
     {
         return $this->cache('events.php');
@@ -245,19 +230,19 @@ class PathRegistry implements PathRegistryContract
         return $this->append($this->rootFor('database', 'database'), $path);
     }
 
-    /** Get the migrations directory path (database/migrations). */
+    /** Get the migrations directory path. */
     public function migrations(string $path = ''): string
     {
         return $this->database($this->append('migrations', $path));
     }
 
-    /** Get the seeders directory path (database/seeders). */
+    /** Get the seeders directory path. */
     public function seeders(string $path = ''): string
     {
         return $this->database($this->append('seeders', $path));
     }
 
-    /** Get the factories directory path (database/factories). */
+    /** Get the model factories directory path. */
     public function factories(string $path = ''): string
     {
         return $this->database($this->append('factories', $path));
@@ -269,7 +254,7 @@ class PathRegistry implements PathRegistryContract
         return $this->append($this->rootFor('resources', 'resources'), $path);
     }
 
-    /** Get the views directory path (resources/views). */
+    /** Get the views directory path, resources/views unless pointed elsewhere. */
     public function views(string $path = ''): string
     {
         return isset($this->overrides['views'])

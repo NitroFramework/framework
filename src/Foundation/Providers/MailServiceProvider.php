@@ -10,9 +10,7 @@ use Nitro\Mail\Markdown;
 use Nitro\View\Contracts\ViewFinder;
 
 /**
- * Registers the mail layer: a MailManager ('mail') that resolves mailers from
- * config('mail'), and the default mailer bound to 'mailer' and the Mailer
- * contract so app(Mailer::class) and the Mail facade both work.
+ * Register the mail manager, the default mailer and the markdown renderer.
  */
 class MailServiceProvider extends ServiceProvider
 {
@@ -24,11 +22,10 @@ class MailServiceProvider extends ServiceProvider
         return ['mail', MailManager::class, 'mailer', Mailer::class, MailerContract::class, Markdown::class];
     }
 
+    /** Register the mail manager, and the default mailer under 'mailer' and the Mailer contract. */
     public function register(): void
     {
         $this->container->singleton('mail', function ($container) {
-            // The event bus goes in, so a message can be logged, redirected or
-            // stamped without anything having to wrap the mailer.
             return new MailManager(
                 (array) $container->resolve(ConfigRepository::class)->get('mail', []),
                 $container->resolve('events'),
@@ -45,7 +42,7 @@ class MailServiceProvider extends ServiceProvider
         $this->registerMarkdown();
     }
 
-    /** What renders a markdown mail view, and where it finds its layout. */
+    /** Register the markdown mail renderer with the configured theme. */
     protected function registerMarkdown(): void
     {
         $this->container->singleton(Markdown::class, function ($container) {
@@ -55,10 +52,13 @@ class MailServiceProvider extends ServiceProvider
         });
     }
 
+    /**
+     * Register the mail view namespace.
+     *
+     * An application overrides a mail layout by placing its own under resources/views/vendor/mail.
+     */
     public function boot(): void
     {
-        // An application overrides the layout by putting its own under
-        // resources/views/vendor/mail, so there is nothing to publish.
         if ($this->container->has(ViewFinder::class)) {
             $this->container->resolve(ViewFinder::class)
                 ->addNamespace(Markdown::NAMESPACE, __DIR__ . '/../../Mail/views');

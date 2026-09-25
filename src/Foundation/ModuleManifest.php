@@ -3,12 +3,10 @@
 namespace Nitro\Foundation;
 
 /**
- * Discovers module service providers under the application's Modules directory.
+ * Discover the service providers of modules under app/Modules.
  *
- * A module is a subdirectory of app/Modules/ whose *ServiceProvider.php file maps,
- * by PSR-4 (App\ → app/), to App\Modules\{Dir}\{Class}. This scan runs in dev;
- * in production `nitro optimize` bakes the discovered provider list into the
- * bootstrap cache, so there is no per-request filesystem scan live.
+ * A module's provider is any *ServiceProvider.php file in its directory,
+ * addressed as App\Modules\{Module}\{Class}.
  */
 class ModuleManifest
 {
@@ -18,7 +16,7 @@ class ModuleManifest
     public function __construct(private string $modulesPath) {}
 
     /**
-     * Discover the module service-provider class names.
+     * Get the provider classes of every module, skipping any that cannot be autoloaded.
      *
      * @return array<int, class-string>
      */
@@ -36,8 +34,6 @@ class ModuleManifest
             foreach (glob($moduleDir . DIRECTORY_SEPARATOR . '*ServiceProvider.php') ?: [] as $providerFile) {
                 $class = 'App\\Modules\\' . $moduleName . '\\' . basename($providerFile, '.php');
 
-                // class_exists autoloads via the app's PSR-4 map; a module whose
-                // namespace isn't autoloadable is skipped rather than fatal.
                 if (class_exists($class)) {
                     $providers[] = $class;
                 }

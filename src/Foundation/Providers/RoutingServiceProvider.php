@@ -9,37 +9,31 @@ use Nitro\Events\Contracts\Dispatcher as EventDispatcher;
 use Nitro\Events\Contracts\ReceivesDispatcher;
 use Nitro\Exceptions\HttpException;
 use Nitro\Http\Kernel;
-use Nitro\Http\Request;
-use Nitro\Routing\Route;
 use Nitro\Http\Middleware\EncryptCookies;
 use Nitro\Http\Middleware\PreventRequestsDuringMaintenance;
 use Nitro\Http\Middleware\ValidateSignature;
 use Nitro\Http\Middleware\VerifyCsrfToken;
-use Nitro\Session\Middleware\StartSession;
-use Nitro\Routing\RouteLoader;
+use Nitro\Http\Request;
 use Nitro\Routing\Contracts\RouterInterface;
+use Nitro\Routing\Route;
 use Nitro\Routing\RouteDispatcher;
+use Nitro\Routing\RouteLoader;
 use Nitro\Routing\RouteTypes;
 use Nitro\Routing\Router;
+use Nitro\Session\Middleware\StartSession;
 
 /**
- * Registers the router, route loader, dispatcher and route-model binding.
+ * Register the router, route loader, dispatcher and route-model binding.
  */
 class RoutingServiceProvider extends ServiceProvider
 {
+    /** Register the routing services, the route-type registry first since the router reads it. */
     public function register(): void
     {
-       /*
-        * Before the router, which is handed it: a layer registering a route
-        * type and the router reading one must be looking at the same registry.
-        */
-       $this->container->singleton(RouteTypes::class);
-
-       $this->container->singleton(Router::class);
-
+        $this->container->singleton(RouteTypes::class);
+        $this->container->singleton(Router::class);
         $this->container->singleton(RouteLoader::class);
-
-       $this->container->singleton(RouteDispatcher::class);
+        $this->container->singleton(RouteDispatcher::class);
 
         $this->container->alias(Router::class, RouterInterface::class);
         $this->container->alias(Router::class, 'router');
@@ -48,14 +42,7 @@ class RoutingServiceProvider extends ServiceProvider
         $this->registerRouteModelBinding();
     }
 
-    /**
-     * Hand the routing layer and the kernel the bus they raise events on.
-     *
-     * Both emitted lifecycle events from the day they were written and neither
-     * had ever fired, because an emitter with no dispatcher does not fail — it
-     * goes quiet. Asked for rather than assumed, so anything that does not emit
-     * events is simply not offered one.
-     */
+    /** Give the router and the kernel the event bus, when they emit events. */
     protected function wireEventDispatcher(Router $router, Kernel $kernel): void
     {
         $events = $this->container->resolve(EventDispatcher::class);
@@ -68,20 +55,11 @@ class RoutingServiceProvider extends ServiceProvider
     }
 
     /**
-     * Implicit route-model binding: a controller/closure parameter type-hinted
-     * as a model whose name matches a route segment (e.g. /users/{user} →
-     * show(User $user)) is resolved through the model, 404-ing when missing.
+     * Resolve a handler parameter type-hinted as a model from the route segment of the same name.
      *
-     * The lookup goes through {@see Model::resolveRouteBinding()} rather than
-     * find(), so a model can override how it is found and a route can name the
-     * column itself with "{post:slug}". Calling find() here meant neither ever
-     * ran: getRouteKeyName() and resolveRouteBinding() existed on the model and
-     * nothing in the framework reached them.
-     *
-     * Registered on the callable invoker so the core stays unaware of the
-     * Database/HTTP layers — the policy lives here, in the composition root,
-     * and the invoker is the only thing that has to know a route value may
-     * stand for a model.
+     * The model's resolveRouteBinding() finds the record, so a route can name the
+     * column with {post:slug}. A missing record calls the route's missing handler,
+     * or answers 404.
      */
     protected function registerRouteModelBinding(): void
     {
@@ -98,11 +76,6 @@ class RoutingServiceProvider extends ServiceProvider
             $model = $this->bindModel($type, $value, $name, $route);
 
             if ($model !== null) {
-                /*
-                 * Written back so a scoped child can resolve through it: the
-                 * container binds arguments in signature order, which for a
-                 * scoped route is the order the path declares them.
-                 */
                 $route?->setParameter($name, $model);
 
                 return $model;
@@ -119,8 +92,7 @@ class RoutingServiceProvider extends ServiceProvider
     /**
      * Find the model a route parameter refers to.
      *
-     * A scoped route resolves through the parameter declared before this one,
-     * so a comment is looked up on its post rather than globally.
+     * A scoped route finds it through the parameter declared before this one.
      */
     protected function bindModel(string $type, mixed $value, string $name, ?Route $route): ?Model
     {
@@ -145,12 +117,7 @@ class RoutingServiceProvider extends ServiceProvider
         return (new $type())->resolveRouteBinding($value, $field);
     }
 
-    /**
-     * The route being served, or null outside a request.
-     *
-     * Read off the request rather than the router, so a swapped-in router is
-     * not required to expose a current-route accessor.
-     */
+    /** Get the route being served, or null outside a request. */
     protected function currentRoute(ContainerInterface $container): ?Route
     {
         if (! $container->has(Request::class)) {
@@ -162,22 +129,12 @@ class RoutingServiceProvider extends ServiceProvider
         return $route instanceof Route ? $route : null;
     }
 
-    // we need to inject the router and router manager, only DI here, no service locator
-
-    // public function boot(Router $router, RouteLoader $routeLoader): void
-    // {
-    //     $routeLoader->load($router);
-    // }
-
+    /**
+     * Register the framework's middleware aliases, load the routes and put the maintenance guard first.
+     */
     public function boot(RouteLoader $routeLoader, Router $router, Kernel $kernel): void
     {
-        /* Registered before routes load: a route may declare ->middleware('signed'). */
         $router->aliasMiddleware('signed', ValidateSignature::class);
-
-        /*
-         * The web group names these by class, so withoutMiddleware('csrf')
-         * had nothing to match and silently excluded nothing.
-         */
         $router->aliasMiddleware('csrf', VerifyCsrfToken::class);
         $router->aliasMiddleware('cookies', EncryptCookies::class);
         $router->aliasMiddleware('session', StartSession::class);
@@ -186,16 +143,6 @@ class RoutingServiceProvider extends ServiceProvider
 
         $routeLoader->load($router);
 
-        /*
-         * Prepended, so a request to a site that is down is answered before any
-         * other global middleware gets to touch it — and so it covers a 404 as
-         * much as a hit, since a routing table being replaced mid-deploy is
-         * exactly what maintenance mode is hiding.
-         *
-         * Registered here rather than declared on the Kernel because the guard
-         * needs a MaintenanceMode, and the Http layer should not require a
-         * Foundation service to exist before a Kernel can be built.
-         */
         $kernel->prependMiddleware(PreventRequestsDuringMaintenance::class);
     }
 }

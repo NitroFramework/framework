@@ -3,13 +3,9 @@
 namespace Nitro\Foundation\Events;
 
 /**
- * Payload for provider.registering, provider.registered, provider.booting and
- * provider.booted.
+ * Payload for the provider.registering, registered, booting and booted events.
  *
- * Just the class name. The provider instance itself is deliberately not here:
- * a listener holding one could call register() or boot() a second time, and
- * the framework's guarantee that each runs once is worth more than the
- * convenience.
+ * Carries the class name only, so a listener cannot run a provider a second time.
  */
 class ProviderEvent
 {

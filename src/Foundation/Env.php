@@ -133,7 +133,6 @@ final class Env
                     : self::unescape(self::interpolate($value, $known));
             }
 
-            // No closing quote on this line: the value continues on the next.
             if (++$index >= $count) {
                 return $quote === "'"
                     ? $buffer
@@ -145,7 +144,7 @@ final class Env
     }
 
     /**
-     * The offset of the closing quote, ignoring one that is escaped.
+     * Find the offset of the closing quote, ignoring an escaped one.
      */
     private static function findClosingQuote(string $value, string $quote): ?int
     {
@@ -250,6 +249,7 @@ final class Env
         putenv($key . '=' . $value);
     }
 
+    /** Determine whether the environment already holds the given key. */
     private static function alreadySet(string $key): bool
     {
         return array_key_exists($key, $_ENV)

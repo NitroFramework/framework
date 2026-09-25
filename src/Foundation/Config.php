@@ -3,25 +3,29 @@
 namespace Nitro\Foundation;
 
 use Nitro\Foundation\Contracts\ConfigRepository;
+use PHPUnit\Framework\TestCase;
+use ReflectionClass;
+use Throwable;
 
 /**
- * The application configuration repository.
- *
- * Loads the framework's defaults (config/defaults.php) as a base layer and
- * recursively merges the application's config/*.php on top (app wins), so every key
- * a framework internal reads is guaranteed to resolve. In production it hydrates a
- * pre-compiled cache built by `nitro optimize`; values are read with dot notation,
- * e.g. get('view.cache.expiry').
+ * The application configuration: the framework defaults with the application's config/*.php merged over them.
  */
 class Config implements ConfigRepository
 {
     private array $data = [];
 
     /**
-     * @param bool $ignoreCache Skip the compiled config cache and load straight
-     *   from config/*.php. `php nitro optimize` MUST pass true — otherwise it
-     *   rebuilds the cache from the (stale) cache it just read, silently
-     *   ignoring any edits to config/*.php since the last optimize.
+     * Files under config/ that are not configuration, loaded by the layer that owns each.
+     *
+     * @var array<int, string>
+     */
+    private const NOT_CONFIG = ['routes', 'directives'];
+
+    /**
+     * Load the configuration, from the compiled cache when it is fresh.
+     *
+     * @param bool $ignoreCache Load from config/*.php even when a cache exists, as
+     *                          `nitro optimize` must when it rebuilds the cache.
      */
     public function __construct(PathRegistry $paths, bool $ignoreCache = false)
     {
@@ -35,33 +39,16 @@ class Config implements ConfigRepository
                     $this->data = $cached;
                     return;
                 }
-            } catch (\Throwable $exception) {
-                // corrupt cache - delete it and fall through to load from files
+            } catch (Throwable $exception) {
             }
-            @unlink($cachePath); // delete corrupt cache
+            @unlink($cachePath);
         }
 
-        // Framework defaults are the base layer; the app's config/*.php is
-        // recursively merged on top (app wins), so every key a framework
-        // internal reads is guaranteed to resolve without an inline fallback.
         $this->data = require __DIR__ . '/config/defaults.php';
         $this->loadFrom($configPath);
     }
 
-    /**
-     * Files that live under config/ but are not configuration.
-     *
-     * Each returns something other than a settings array — routes.php
-     * registers routes, directives.php returns a callback a provider invokes
-     * at boot — and each is required directly by the layer that owns it.
-     * Merging them in would publish a value nothing reads through config(),
-     * and a callback among them is one the compiled cache then has to drop
-     * and warn about.
-     *
-     * @var array<int, string>
-     */
-    private const NOT_CONFIG = ['routes', 'directives'];
-
+    /** Merge each config/*.php file over the framework default for its key. */
     private function loadFrom(string $path): void
     {
         if (!is_dir($path)) {
@@ -77,9 +64,6 @@ class Config implements ConfigRepository
 
             $appValues = require $file;
 
-            // Recursively merge the app's file over the framework default for
-            // this key so nested keys (e.g. auth.redirects.*) merge correctly
-            // and app values win. Non-array values replace outright.
             $this->data[$key] = isset($this->data[$key])
                 && is_array($this->data[$key]) && is_array($appValues)
                 ? array_replace_recursive($this->data[$key], $appValues)
@@ -128,36 +112,20 @@ class Config implements ConfigRepository
         return $this->data;
     }
 
+    /** Build a repository holding exactly the given items. */
     public static function fromArray(array $data): static
     {
-        $config = (new \ReflectionClass(static::class))->newInstanceWithoutConstructor();
+        $config = (new ReflectionClass(static::class))->newInstanceWithoutConstructor();
         $config->data = $data;
         return $config;
     }
 
     /**
-     * Is a compiled config cache still fresh relative to .env?
-     *
-     * A cache is stale the moment `.env` is edited after it was built (e.g.
-     * `key:generate` rotating APP_KEY). Comparing mtimes lets a stale cache be
-     * transparently bypassed instead of silently serving old values — the exact
-     * footgun behind "I changed .env but the app didn't update". Costs one
-     * filemtime on .env per request when a cache exists.
-     *
-     * Note: edits to config/*.php files still require `optimize:clear` /
-     * re-`optimize` — we deliberately don't stat the whole config dir per
-     * request. .env is the value that changes on a live box.
-     */
-    /**
-     * Whether the current process is a test run.
-     *
-     * The config cache is skipped for test runs: it is compiled from one
-     * environment's .env and would otherwise override the values a suite sets
-     * for itself (queue driver, cache path, mailer).
+     * Determine whether a test runner drives the process, in which case the config cache is not used.
      */
     public static function runningTests(): bool
     {
-        if (defined('PHPUNIT_COMPOSER_INSTALL') || class_exists(\PHPUnit\Framework\TestCase::class, false)) {
+        if (defined('PHPUNIT_COMPOSER_INSTALL') || class_exists(TestCase::class, false)) {
             return true;
         }
 
@@ -166,6 +134,11 @@ class Config implements ConfigRepository
         return is_string($entry) && str_contains($entry, 'phpunit');
     }
 
+    /**
+     * Determine whether a compiled config cache is newer than the .env file.
+     *
+     * Edits to config/*.php are not detected; run `nitro optimize` again after them.
+     */
     public static function cacheIsFresh(string $cachePath, string $envFile): bool
     {
         $cacheTime = @filemtime($cachePath);
@@ -173,7 +146,7 @@ class Config implements ConfigRepository
             return false;
         }
         if (!is_file($envFile)) {
-            return true; // nothing that can invalidate it
+            return true;
         }
         $envTime = @filemtime($envFile);
         return $envTime === false || $cacheTime >= $envTime;

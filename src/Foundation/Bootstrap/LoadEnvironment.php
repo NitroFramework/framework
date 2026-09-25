@@ -6,18 +6,16 @@ use Nitro\Foundation\Application;
 use Nitro\Foundation\Env;
 
 /**
- * Bootstrapper: loads the .env environment file.
+ * Load the .env file into the environment.
  */
 class LoadEnvironment implements BootstrapperInterface
 {
     /**
-     * Sentinel env var that, when already set in the process environment,
-     * signals env vars are coming from the platform (Docker, FrankenPHP worker,
-     * cloud env) rather than from .env. Skipping the read in that case removes
-     * a file open and parse per request in worker mode.
+     * Set by the platform when it already provides the environment, so .env is not read.
      */
     private const SKIP_SENTINEL = 'APP_ENV_LOADED';
 
+    /** Load the .env file unless the platform has already set the environment. */
     public function bootstrap(Application $app): void
     {
         if (getenv(self::SKIP_SENTINEL) !== false

@@ -3,21 +3,11 @@
 namespace Nitro\Foundation\Contracts;
 
 use Nitro\Container\Contracts\ContainerInterface as Container;
-use Nitro\Foundation\Contracts\PathRegistry;
+use Nitro\Foundation\MaintenanceMode;
 use Nitro\Foundation\Providers\ServiceProvider;
 
 /**
- * What the rest of the framework may ask of the application.
- *
- * The Application was the one service with no contract — ConfigRepository and
- * Container both have one, so every layer that needed the application
- * took the concrete class and inherited the whole composition root with it.
- *
- * Deliberately narrower than the class: registering providers, running
- * bootstrappers and wiring the container are the composition root's own work,
- * not something a consumer should reach for. What is here is what a provider,
- * a middleware or a command legitimately asks — where am I running, where are
- * my paths, and what happens after the response.
+ * What a provider, middleware or command may ask of the application.
  */
 interface ApplicationInterface
 {
@@ -37,8 +27,10 @@ interface ApplicationInterface
      */
     public function environment(string ...$environments): string|bool;
 
+    /** Whether the application runs in the local environment. */
     public function isLocal(): bool;
 
+    /** Whether the application runs in production. */
     public function isProduction(): bool;
 
     /** Whether debug mode is on. Defaults to true before config has loaded. */
@@ -81,7 +73,7 @@ interface ApplicationInterface
     public function getFallbackLocale(): string;
 
     /** What decides whether the application is down. */
-    public function maintenanceMode(): \Nitro\Foundation\MaintenanceMode;
+    public function maintenanceMode(): MaintenanceMode;
 
     /**
      * The registered instance of a provider, or null if it has not registered.
