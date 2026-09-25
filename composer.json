@@ -29,32 +29,7 @@
             "Nitro\\": "src/"
         },
         "files": [
-            "src/Support/Helpers/app.php",
-            "src/Support/Helpers/config.php",
-            "src/Support/Helpers/path.php",
-            "src/Support/Helpers/array.php",
-            "src/Support/Helpers/collection.php",
-            "src/Support/Helpers/conditional.php",
-            "src/Support/Helpers/debug.php",
-            "src/Support/Helpers/file.php",
-            "src/Support/Helpers/http.php",
-            "src/Support/Helpers/request.php",
-            "src/Support/Helpers/response.php",
-            "src/Support/Helpers/security.php",
-            "src/Support/Helpers/auth.php",
-            "src/Support/Helpers/session.php",
-            "src/Support/Helpers/string.php",
-            "src/Support/Helpers/url.php",
-            "src/Support/Helpers/utility.php",
-            "src/Support/Helpers/validation.php",
-            "src/Support/Helpers/view.php",
-            "src/Support/Helpers/query.php",
-            "src/Support/Helpers/cache.php",
-            "src/Support/Helpers/cookie.php",
-            "src/Support/Helpers/translation.php",
-            "src/Support/Helpers/inertia.php",
-            "src/Support/Helpers/event.php",
-            "src/Support/Helpers/trace.php"
+            "src/Support/helpers.php"
         ]
     },
     "autoload-dev": {
@@ -72,6 +47,7 @@
     "scripts": {
         "test": "@php vendor/phpunit/phpunit/phpunit --testdox --colors=always",
         "analyse": "@php vendor/phpstan/phpstan/phpstan analyse --no-progress",
+        "helpers": "Nitro\\Support\\HelperBundle::write",
         "check": [
             "@analyse",
             "@test"

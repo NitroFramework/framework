@@ -19,6 +19,7 @@ class FilesSeamGuardTest extends TestCase
     private const ALLOWLIST = [
         'src/Http/Request.php',            // the Request abstraction captures $_FILES
         'src/Support/Helpers/request.php', // files() helper — CLI/no-request fallback
+        'src/Support/helpers.php',         // the generated bundle, which contains request.php
     ];
 
     public function test_no_raw_files_superglobal_outside_the_allowlist(): void
