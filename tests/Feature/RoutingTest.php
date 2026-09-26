@@ -3,10 +3,12 @@
 namespace Nitro\Tests\Feature;
 
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Foundation\Console\RouteCacheCommand;
 use Nitro\Tests\Fixtures\Classes\Post;
 use Nitro\Tests\Fixtures\Classes\Terminable;
 use Nitro\Tests\TestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
+use ReflectionClass;
 
 /**
  * Every case runs twice: routes registered at boot (uncached) and loaded from the compiled
@@ -196,5 +198,29 @@ class RoutingTest extends TestCase
         $this->assertSame('late:1', $this->get('/late/1')->getContent());
         $this->assertTrue($app->make('router')->has('late'));
         $this->assertTrue($app->make('router')->has('home'));
+    }
+
+    /**
+     * A route cache written by stock Laravel (the app ran without Nitro, then switched back
+     * without clearing caches) is loaded the way Laravel loads it, not read as Nitro's table.
+     */
+    public function test_a_route_cache_written_by_laravel_still_serves_requests(): void
+    {
+        /** What Laravel's RouteCacheCommand writes, from its router's routes. */
+        $routes = $this->bootLaravel()->make('router')->getRoutes();
+
+        foreach ($routes as $route) {
+            $route->prepareForSerialization();
+        }
+
+        $stub = file_get_contents(dirname((new ReflectionClass(RouteCacheCommand::class))->getFileName()).'/stubs/routes.stub');
+        file_put_contents(self::APP.'/bootstrap/cache/routes-v7.php', str_replace('{{routes}}', var_export($routes->compile(), true), $stub));
+        $this->flushGlobalState();
+
+        $this->boot();
+
+        $this->assertSame('home', $this->get('/')->getContent());
+        $this->assertSame('id=42', $this->get('/plain/42')->getContent());
+        $this->assertSame('n=123', $this->get('/numeric/123')->getContent());
     }
 }

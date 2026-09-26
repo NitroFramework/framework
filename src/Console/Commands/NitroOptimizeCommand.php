@@ -12,10 +12,11 @@ use Throwable;
  * `php artisan nitro:optimize`: every production cache in one pass, after Nitro's optimize, then
  * a checklist of what still costs time on each request.
  *
- *   1. package manifest          5. views: compile, parse-check (view:warm)
- *   2. config                    6. optimized Composer autoloader (classmap)
- *   3. events                    7. package optimize commands
- *   4. routes + container        8. checklist
+ *   1. package manifest          6. views: compile, parse-check (view:warm)
+ *   2. config                    7. optimized Composer autoloader (classmap)
+ *   3. events                    8. package optimize commands
+ *   4. routes + container        9. checklist
+ *   5. Eloquent (eloquent:cache)
  *
  * Only orchestrates existing commands; `php artisan nitro:clear` reverts everything.
  */
@@ -26,7 +27,7 @@ class NitroOptimizeCommand extends Command
         {--authoritative : Classmap-authoritative autoloader (no filesystem fallback for unknown classes)}
         {--no-composer : Skip regenerating the Composer autoloader}';
 
-    protected $description = 'Cache everything for production (config, events, routes, container, views, autoloader) and check what still costs time';
+    protected $description = 'Cache everything for production (config, events, routes, container, Eloquent, views, autoloader) and check what still costs time';
 
     /** @var list<string> */
     private array $errors = [];
@@ -43,6 +44,7 @@ class NitroOptimizeCommand extends Command
             'Configuration' => fn () => $this->artisan('config:cache'),
             'Events' => fn () => $this->artisan('event:cache'),
             'Routes + container factories' => fn () => $this->artisan('route:cache'),
+            'Eloquent' => fn () => $this->artisan('eloquent:cache'),
             'Views (compile, parse-check)' => fn () => $this->artisan('view:warm'),
             'Composer autoloader' => fn () => $this->composer(),
             'Package optimize commands' => fn () => $this->packageOptimizers(),

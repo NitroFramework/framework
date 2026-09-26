@@ -37,6 +37,8 @@ exactly as in Laravel.
 | Container | Reflection autowiring | Compiled factories for controllers and middleware (`route:cache`) |
 | Eloquent / closure signing | Wired at boot | Wired when the class is first loaded |
 | Middleware pipeline | Closure onion built up front | Each layer's closure created only when it runs |
+| Eloquent models | Each model class reflects on its methods, attributes, observers and scopes on first use in every request | A compiled Model reads each model's boot plan, class attributes, observers and scopes (`eloquent:cache`) |
+| `route()` | Builds the Route object and matches parameters on every call | Fills in the route's compiled URL template, with Laravel's generator for anything unusual |
 
 Every replacement is a subclass or a container binding with a fallback to Laravel's own behaviour,
 and the test suite checks parity with Laravel (container aliases, route matching on randomly
@@ -49,10 +51,23 @@ All of Laravel's Artisan commands, plus:
 | Command | |
 |---|---|
 | `php artisan route:cache` | Compiles routes into Nitro's table, and container factories for the classes they build |
-| `php artisan optimize [--profile]` | Laravel's optimize; `--profile` times every eager service provider |
+| `php artisan optimize [--profile]` | Laravel's optimize, with Nitro's caches; `--profile` times every eager service provider |
+| `php artisan eloquent:cache` / `eloquent:clear` | Compiles Laravel's Model and your models' boot plans (part of `optimize` / `optimize:clear`) |
 | `php artisan view:warm` | Compiles, parse-checks and opcache-primes every Blade view |
 | `php artisan nitro:optimize` | Every production cache in one pass, plus a checklist of what still costs time |
 | `php artisan nitro:clear` | Reverts `nitro:optimize` |
+
+## Configuration
+
+Every compilation is on by default. Copy [`config/nitro.php`](config/nitro.php) into the
+application's `config/` to turn one off (that part then runs on Laravel's code as it is) or to
+change where models are found:
+
+| Key | Default | |
+|---|---|---|
+| `compile.eloquent` (`NITRO_COMPILE_ELOQUENT`) | `true` | The compiled Eloquent Model |
+| `compile.urls` (`NITRO_COMPILE_URLS`) | `true` | Compiled URL templates for `route()` |
+| `eloquent.paths` | `[app_path()]` | Where `eloquent:cache` looks for models |
 
 ## Workers
 

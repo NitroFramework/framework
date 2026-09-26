@@ -147,6 +147,36 @@ final class RouteCompiler
             .'return \Nitro\Routing\CompiledRoutes::cached('.var_export($table, true).');'.PHP_EOL;
     }
 
+    /**
+     * The route's URI and parameter names, for UrlGenerator::route() to fill in; null when the
+     * route needs RouteUrlGenerator (a domain, optional parameters, binding fields, a scheme of
+     * its own, or placeholders it would not read as plain named parameters).
+     *
+     * @return array{0: string, 1: list<string>}|null
+     */
+    private static function urlTemplate(BaseRoute $route): ?array
+    {
+        if ($route->getDomain() !== null || $route->httpOnly() || $route->httpsOnly()
+            || $route->bindingFields() !== [] || $route->getOptionalParameterNames() !== []) {
+            return null;
+        }
+
+        $names = $route->parameterNames();
+        preg_match_all('/\{(.*?)\}/', $route->uri(), $placeholders);
+
+        if ($placeholders[1] !== $names || count(array_unique($names)) !== count($names)) {
+            return null;
+        }
+
+        foreach ($names as $name) {
+            if (! preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $name)) {
+                return null;
+            }
+        }
+
+        return [$route->uri(), $names];
+    }
+
     private static function entry(BaseRoute $route, Router $router, bool $forCache): array
     {
         $symfony = $route->toSymfonyRoute()->compile();
@@ -197,6 +227,7 @@ final class RouteCompiler
             'static' => $static,
             'params' => $symfony->getPathVariables(),
             'names' => $route->parameterNames(),
+            'url' => self::urlTemplate($route),
             'middleware' => $middleware,
             'controller' => $controller,
             'plan' => $reflector ? self::plan($reflector) : null,

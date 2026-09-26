@@ -8,7 +8,8 @@ use Symfony\Component\Console\Attribute\AsCommand;
 
 /**
  * Laravel's optimize (config, events, routes, views, package optimize commands), where
- * route:cache is Nitro's compiled table + container factories.
+ * route:cache is Nitro's compiled table + container factories, plus Nitro's compiled Eloquent
+ * (eloquent:cache).
  *
  *   php artisan optimize --profile   also times every eager service provider
  */
@@ -36,6 +37,24 @@ class OptimizeCommand extends BaseOptimizeCommand
         }
 
         $this->printProfile($timings);
+    }
+
+    /**
+     * Laravel's tasks, with Nitro's compiled Eloquent after the routes.
+     */
+    protected function getOptimizeTasks()
+    {
+        $tasks = [];
+
+        foreach (parent::getOptimizeTasks() as $key => $command) {
+            $tasks[$key] = $command;
+
+            if ($key === 'routes') {
+                $tasks['eloquent'] = 'eloquent:cache';
+            }
+        }
+
+        return $tasks;
     }
 
     private function printProfile(array $timings): void

@@ -3,6 +3,8 @@
 namespace Nitro\Console;
 
 use Illuminate\Foundation\Console\Kernel as BaseKernel;
+use Nitro\Console\Commands\EloquentCacheCommand;
+use Nitro\Console\Commands\EloquentClearCommand;
 use Nitro\Console\Commands\NitroClearCommand;
 use Nitro\Console\Commands\NitroOptimizeCommand;
 use Nitro\Console\Commands\OptimizeClearCommand;
@@ -17,7 +19,7 @@ use Nitro\Foundation\Bootstrap;
  * queue:*, schedule:*, vendor:publish, ...), routes/console.php and package commands.
  *
  * Nitro swaps in its bootstrap and its own `optimize` / `optimize:clear` / `route:cache`, which
- * build Nitro's compiled caches (routes, container factories).
+ * build Nitro's compiled caches (routes, container factories, Eloquent).
  */
 class Kernel extends BaseKernel
 {
@@ -26,6 +28,8 @@ class Kernel extends BaseKernel
         OptimizeClearCommand::class,
         RouteCacheCommand::class,
         RouteClearCommand::class,
+        EloquentCacheCommand::class,
+        EloquentClearCommand::class,
         ViewWarmCommand::class,
         NitroOptimizeCommand::class,
         NitroClearCommand::class,

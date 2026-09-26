@@ -4,8 +4,10 @@ namespace Nitro\Routing;
 
 use Illuminate\Container\Container;
 use Illuminate\Http\Request;
+use Illuminate\Routing\CompiledRouteCollection;
 use Illuminate\Routing\ImplicitRouteBinding;
 use Illuminate\Routing\Route as BaseRoute;
+use Illuminate\Routing\RouteCollection;
 use Illuminate\Routing\Router as BaseRouter;
 
 /**
@@ -36,12 +38,24 @@ class Router extends BaseRouter
     }
 
     /**
-     * The compiled table for dispatch. Uncached apps compile in memory on first use.
+     * The compiled table for dispatch. Uncached apps compile in memory on first use, as do
+     * apps whose route cache was written by stock Laravel. Its CompiledRouteCollection builds
+     * new Route objects on every read, so its routes are read once into a RouteCollection.
      */
     public function compiledRoutes(): CompiledRoutes
     {
         if (! $this->routes instanceof CompiledRoutes) {
-            $this->useCompiledRoutes(CompiledRoutes::fromCollection($this->routes, $this));
+            $routes = $this->routes;
+
+            if ($routes instanceof CompiledRouteCollection) {
+                $routes = new RouteCollection;
+
+                foreach ($this->routes->getRoutes() as $route) {
+                    $routes->add($route);
+                }
+            }
+
+            $this->useCompiledRoutes(CompiledRoutes::fromCollection($routes, $this));
         }
 
         return $this->routes;

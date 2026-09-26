@@ -49,6 +49,16 @@ Route::domain('{account}.example.com')->group(function () {
 
 Route::match(['GET', 'POST'], '/match', fn (Request $request) => $request->method());
 
+// URL generation: route() on each shape of named route (see UrlGenerationTest).
+Route::get('/u/{first}/and/{second}', fn () => 'two')->name('url.two');
+Route::get('/u/optional/{a?}', fn ($a = null) => 'optional')->name('url.optional');
+Route::get('/u/slug/{post:slug}', fn () => 'slug')->name('url.slug');
+Route::get('/u/{locale}/about', fn () => 'about')->name('url.locale');
+Route::domain('{team}.example.test')->get('/u/team', fn () => 'team')->name('url.domain');
+Route::prefix('u/prefixed')->name('url.prefixed.')->group(function () {
+    Route::get('/{id}/edit', fn () => 'edit')->name('edit');
+});
+
 Route::get('/me', fn (Request $request) => ['user' => $request->user()?->name])->middleware('auth');
 
 Route::fallback(fn () => response('fallback', 404));

@@ -17,11 +17,14 @@ use Illuminate\Queue\Queue;
 use Laravel\SerializableClosure\SerializableClosure;
 use Nitro\Components\Core;
 use Nitro\Components\Database;
+use Nitro\Database\Eloquent\CompiledModels;
 
 /**
  * Nitro's bootstrap step, run between Laravel's RegisterFacades and RegisterProviders:
  *
  *  - compiled container factories (bootstrap/cache/factories.php)
+ *  - the compiled Eloquent Model (bootstrap/cache/eloquent-model.php), loaded in place of
+ *    Laravel's when a model is first used
  *  - Eloquent's connection resolver, the closure signing key and queued-job context, wired when
  *    first used
  *  - the HTTP kernel's middleware synced to the router before providers boot, so packages can
@@ -53,6 +56,10 @@ final class Bootstrap
             [$factories, $map] = require $path;
 
             $app->setCompiledFactories($factories, $map);
+        }
+
+        if ($app->eloquentIsCached()) {
+            CompiledModels::register($app->getCachedEloquentModelPath(), $app->getCachedEloquentPath());
         }
 
         /** Laravel does these eagerly; here each happens when its class is first used. */

@@ -46,11 +46,14 @@ class CompiledRoutes implements RouteCollectionInterface, IteratorAggregate, Cou
     }
 
     /**
-     * Read a route cache file without installing it.
+     * Read a route cache file without installing it. A file written by stock Laravel's
+     * route:cache (e.g. left over from running without Nitro) is not read: requiring it
+     * resolves the router, which is what is being built. It is left for Laravel's loader,
+     * which requires it once the router exists.
      */
     public static function load(string $path): ?array
     {
-        if (! is_file($path)) {
+        if (! is_file($path) || ! static::isNitroCache($path)) {
             return null;
         }
 
@@ -63,6 +66,16 @@ class CompiledRoutes implements RouteCollectionInterface, IteratorAggregate, Cou
         }
 
         return is_array($table) ? $table : null;
+    }
+
+    /**
+     * Whether the route cache file was written by Nitro's route:cache.
+     */
+    public static function isNitroCache(string $path): bool
+    {
+        $head = file_get_contents($path, false, null, 0, 512);
+
+        return is_string($head) && str_contains($head, self::class.'::cached(');
     }
 
     /**
@@ -106,6 +119,16 @@ class CompiledRoutes implements RouteCollectionInterface, IteratorAggregate, Cou
     public function entry(int $index): array
     {
         return $this->table['routes'][$index];
+    }
+
+    /**
+     * The URL template of a named route in the compiled table (see RouteCompiler::urlTemplate()).
+     *
+     * @return array{0: string, 1: list<string>}|null
+     */
+    public function urlTemplate(string $name): ?array
+    {
+        return isset($this->table['names'][$name]) ? $this->table['routes'][$this->table['names'][$name]]['url'] ?? null : null;
     }
 
     public function implicitBindings(int $index): ?array

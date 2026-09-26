@@ -22,6 +22,7 @@ use Illuminate\Session\SessionManager;
 use Nitro\Foundation\Application;
 use Nitro\Routing\CompiledRoutes;
 use Nitro\Routing\Router;
+use Nitro\Routing\UrlGenerator as CompiledUrlGenerator;
 use Symfony\Bridge\PsrHttpMessage\Factory\PsrHttpFactory;
 
 /**
@@ -34,8 +35,8 @@ final class Http
     {
         $router = new Router($app->make('events'), $app);
 
-        if ($app->routesAreCached()) {
-            $router->useCompiledRoutes(CompiledRoutes::fromFile($app->getCachedRoutesPath(), $router));
+        if ($app->routesAreCached() && ($table = CompiledRoutes::load($app->getCachedRoutesPath())) !== null) {
+            $router->useCompiledRoutes(new CompiledRoutes($table, $router));
         }
 
         return $router;
@@ -47,7 +48,10 @@ final class Http
 
         $app->instance('routes', $routes);
 
-        $url = new UrlGenerator(
+        /** Nitro's generator fills in compiled URL templates; `nitro.compile.urls` turns it off. */
+        $generator = $app->make('config')->get('nitro.compile.urls', true) ? CompiledUrlGenerator::class : UrlGenerator::class;
+
+        $url = new $generator(
             $routes,
             $app->rebinding('request', static function ($app, $request) {
                 $app['url']->setRequest($request);

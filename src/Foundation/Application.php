@@ -243,6 +243,23 @@ class Application extends BaseApplication
         return $this->normalizeCachePath('APP_FACTORIES_CACHE', 'cache/factories.php');
     }
 
+    /** Written by `artisan eloquent:cache`: the model boot plans and which Laravel Model they fit. */
+    public function getCachedEloquentPath(): string
+    {
+        return $this->normalizeCachePath('APP_ELOQUENT_CACHE', 'cache/eloquent.php');
+    }
+
+    public function eloquentIsCached(): bool
+    {
+        return ! $this->ignoreCaches && is_file($this->getCachedEloquentModelPath());
+    }
+
+    /** Written by `artisan eloquent:cache`: Laravel's Model, compiled. */
+    public function getCachedEloquentModelPath(): string
+    {
+        return $this->normalizeCachePath('APP_ELOQUENT_MODEL_CACHE', 'cache/eloquent-model.php');
+    }
+
     /** Written by `artisan view:warm`: the compiled views, known to be current. */
     public function getCachedViewsManifestPath(): string
     {
