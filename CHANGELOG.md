@@ -3,7 +3,7 @@
 Notable changes to Nitro. The framework (`nitro/framework`) and the skeleton (`nitro/nitro`) are
 released together under the same version number.
 
-## Unreleased
+## v0.41.1
 
 - `eloquent:cache` works on checkouts with CRLF line endings (a Windows clone with
   `core.autocrlf`): the compiler compares its copies of Laravel's methods line-ending-agnostic.
