@@ -14,8 +14,9 @@ use ReflectionMethod;
  * Runtime side of the compiled Eloquent Model (see ModelCompiler).
  *
  * The compiled Model is loaded in place of Laravel's only while the Laravel Model it was made
- * from is still the installed one; after `composer update` Laravel's own Model loads until the
- * next `php artisan optimize`.
+ * from is still the installed one and PHP is the version the plans were made with; otherwise
+ * (after `composer update`, or a PHP upgrade) Laravel's own Model loads until the next
+ * `php artisan optimize`.
  */
 final class CompiledModels
 {
@@ -42,7 +43,8 @@ final class CompiledModels
 
             $compiled = require $manifest;
 
-            if (! is_array($compiled) || $compiled['laravel'] !== self::stamp(self::laravelModelPath())) {
+            if (! is_array($compiled) || ($compiled['php'] ?? null) !== PHP_VERSION
+                || $compiled['laravel'] !== self::stamp(self::laravelModelPath())) {
                 return false;
             }
 

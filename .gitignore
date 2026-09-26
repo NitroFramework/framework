@@ -4,15 +4,3 @@
 composer.lock
 .DS_Store
 Thumbs.db
-
-# maintainer-only benchmark harness output
-/benchmarks/results/
-/benchmarks/.results-*.json
-/benchmarks/.server-*.log
-/benchmarks/.timing-*.log
-/benchmarks/.profile-*.log
-/benchmarks/apps/*/vendor/
-/benchmarks/apps/*/node_modules/
-/benchmarks/apps/*/bootstrap/cache/*.php
-/benchmarks/apps/*/storage/
-/benchmarks/apps/*/database/database.sqlite

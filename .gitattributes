@@ -10,5 +10,4 @@ release-check.php export-ignore
 phpstan.neon export-ignore
 phpunit.xml export-ignore
 tests/ export-ignore
-benchmarks/ export-ignore
 .github/ export-ignore

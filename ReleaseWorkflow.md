@@ -40,7 +40,7 @@ Stay on `0.x` — don't jump to `1.0` without a deliberate decision.
    "require": { "nitro/framework": "dev-main" }
    ```
 
-   Run `composer update nitro/framework`, then run the consumer's suite **and drive the actual feature end-to-end** — under **worker mode (FrankenPHP/Thrust)** for anything touching sessions, CSRF, cookies, or navigation. A green unit suite is not proof; superglobal/native-session assumptions that hold under PHP-FPM can break in a long-lived worker.
+   Run `composer update nitro/framework`, then run the consumer's suite **and drive the actual feature end-to-end** — under **worker mode (Laravel Octane)** for anything touching sessions, CSRF, cookies, or navigation. A green unit suite is not proof; superglobal/native-session assumptions that hold under PHP-FPM can break in a long-lived worker.
 
 3. **Tag the framework.**
 

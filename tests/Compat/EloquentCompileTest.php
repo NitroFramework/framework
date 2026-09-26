@@ -23,6 +23,7 @@ use Nitro\Tests\Fixtures\Eloquent\Tag;
 use Nitro\Tests\Fixtures\Eloquent\Task;
 use Nitro\Tests\Fixtures\Eloquent\Ticket;
 use Nitro\Tests\TestCase;
+use ReflectionClass;
 
 /**
  * The compiled Eloquent Model boots models exactly as Laravel's does.
@@ -145,7 +146,14 @@ class EloquentCompileTest extends TestCase
         $plans = ModelCompiler::plans([dirname(__DIR__).'/Fixtures/Eloquent']);
 
         $this->assertSame(self::MODELS, array_keys($plans));
-        $this->assertSame(['bootSecret', 'registerAudit', 'bootPublishable', 'bootTagged', 'bootSoftDeletes', 'bootHasEvents', 'bootHasGlobalScopes'], $plans[Comment::class][0]);
+        /** The boot methods Laravel invokes for Comment, in the order reflection lists them on this PHP version. */
+        $expected = ['bootSecret', 'registerAudit', 'bootPublishable', 'bootTagged', 'bootSoftDeletes', 'bootHasEvents', 'bootHasGlobalScopes'];
+        $inReflectionOrder = array_values(array_filter(
+            array_map(fn ($method) => $method->getName(), (new ReflectionClass(Comment::class))->getMethods()),
+            fn ($name) => in_array($name, $expected, true),
+        ));
+
+        $this->assertSame($inReflectionOrder, $plans[Comment::class][0]);
         $this->assertNotContains('bootUnrelated', $plans[Ticket::class][0]);
     }
 
@@ -183,6 +191,35 @@ class EloquentCompileTest extends TestCase
         $this->assertSame(realpath($model), realpath($compiled['model']));
         $this->assertNotContains(Article::class, $compiled['planned']);
         $this->assertSame($this->scenario()['observed'], $compiled['observed']);
+    }
+
+    public function test_laravels_model_loads_on_another_php_version(): void
+    {
+        [$model, $manifest] = $this->compile(php: '8.0.0');
+
+        $compiled = $this->scenario($model, $manifest);
+
+        $this->assertSame(realpath(CompiledModels::laravelModelPath()), realpath($compiled['model']));
+        $this->assertSame($this->scenario()['observed'], $compiled['observed']);
+    }
+
+    public function test_the_compiler_reads_its_copies_of_laravels_methods_with_any_line_endings(): void
+    {
+        $source = file_get_contents((new ReflectionClass(ModelCompiler::class))->getFileName());
+        $file = sys_get_temp_dir().DIRECTORY_SEPARATOR.'nitro-model-compiler-crlf-'.bin2hex(random_bytes(4)).'.php';
+        file_put_contents($file, str_replace(
+            ['namespace Nitro\Database\Eloquent;', 'final class ModelCompiler'],
+            ['namespace Nitro\Tests\Crlf;', 'final class ModelCompilerCrlf'],
+            str_replace("\n", "\r\n", str_replace("\r\n", "\n", $source))
+        ));
+
+        require $file;
+        @unlink($file);
+
+        $compiler = new \Nitro\Tests\Crlf\ModelCompilerCrlf;
+
+        $this->assertNotNull($compiler->compileModel(file_get_contents(CompiledModels::laravelModelPath())));
+        $this->assertSame([], $compiler->skipped);
     }
 
     public function test_laravels_model_loads_when_the_installed_one_is_not_the_one_compiled(): void
@@ -252,9 +289,10 @@ class EloquentCompileTest extends TestCase
      *
      * @param  list<class-string>  $except  models left without a plan
      * @param  array{0: int, 1: int}|null  $stamp  the Laravel Model the compiled one claims to be made from
+     * @param  string  $php  the PHP version the plans claim to be made with
      * @return array{0: string, 1: string} [compiled Model, manifest]
      */
-    private function compile(array $except = [], ?array $stamp = null): array
+    private function compile(array $except = [], ?array $stamp = null, string $php = PHP_VERSION): array
     {
         $laravel = CompiledModels::laravelModelPath();
         $plans = array_diff_key(ModelCompiler::plans([dirname(__DIR__).'/Fixtures/Eloquent']), array_flip($except));
@@ -263,7 +301,7 @@ class EloquentCompileTest extends TestCase
         $manifest = $this->directory.DIRECTORY_SEPARATOR.'eloquent.php';
 
         file_put_contents($model, (new ModelCompiler)->compileModel(file_get_contents($laravel)));
-        file_put_contents($manifest, ModelCompiler::export($stamp ?? CompiledModels::stamp($laravel), $plans));
+        file_put_contents($manifest, ModelCompiler::export($stamp ?? CompiledModels::stamp($laravel), $plans, $php));
 
         return [$model, $manifest];
     }

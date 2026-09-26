@@ -1,12 +1,13 @@
 {
     "name": "nitro/framework",
-    "description": "NitroPHP — Laravel with a compiled, lean request path. 100% Laravel API.",
+    "description": "Nitro: a PHP framework built on Laravel, with a compiled request path.",
+    "keywords": ["framework", "nitro", "laravel"],
     "type": "library",
     "license": "MIT",
     "homepage": "https://github.com/NitroFramework/framework",
     "authors": [
         {
-            "name": "ZeeshanX4",
+            "name": "Zeeshan Ali",
             "homepage": "https://github.com/ZeeshanX4",
             "role": "Developer"
         }
